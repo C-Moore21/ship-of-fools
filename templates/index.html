@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ship of Fools</title>
+  <link rel="icon" type="image/png" href="/static/stealie.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Steal Your Face palette: red #f01414, royal blue #00288c, skull white */
+      --bg: #080c14;
+      --surface: #0d1220;
+      --surface2: #141a2e;
+      --border: #1e2a45;
+      --text: #dce6f5;
+      --muted: #5a6e8a;
+      --accent: #e8332a;
+      --accent-hover: #ff4a40;
+      --accent2: #1a4bbf;
+      --accent2-light: #2d65e0;
+      --white: #f0f4ff;
+      --red: #e8332a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Space Mono', monospace; font-size: 13px; min-height: 100vh; display: flex; flex-direction: column; }
+    body::before { content:''; position:fixed; inset:0; background: radial-gradient(ellipse at 15% 40%, rgba(0,40,140,0.12) 0%, transparent 55%), radial-gradient(ellipse at 85% 70%, rgba(232,51,42,0.07) 0%, transparent 50%), radial-gradient(ellipse at 50% 10%, rgba(26,75,191,0.06) 0%, transparent 40%); pointer-events:none; z-index:0; }
+    header { position:relative; z-index:10; padding:14px 24px; border-bottom:1px solid var(--border); border-top:3px solid var(--accent); display:flex; align-items:center; gap:16px; }
+    .logo-skull { font-size:26px; line-height:1; }
+    .logo-text { font-family:'Playfair Display',serif; font-size:24px; font-weight:900; color:var(--accent); }
+    .logo-sub { font-size:10px; color:var(--muted); letter-spacing:3px; text-transform:uppercase; margin-top:2px; }
+    .logo-skull-img { width:44px; height:44px; object-fit:cover; object-position:center center; flex-shrink:0; border-radius:2px; filter:drop-shadow(0 0 6px rgba(232,51,42,0.4)); }
+    .header-right { margin-left:auto; display:flex; align-items:center; gap:10px; }
+    .header-username { font-size:11px; color:var(--muted); }
+    .header-username span { color:var(--accent); }
+    .btn { padding:5px 14px; border:1px solid var(--border); background:transparent; color:var(--text); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; letter-spacing:0.5px; }
+    .btn:hover { border-color:var(--accent); color:var(--accent); }
+    .btn.primary { background:var(--accent); color:var(--bg); border-color:var(--accent); font-weight:700; }
+    .btn.primary:hover { background:var(--accent-hover); }
+    .btn.ghost { border-color:transparent; color:var(--muted); }
+    .btn.ghost:hover { color:var(--text); border-color:var(--border); }
+    .tabs { display:flex; border-bottom:1px solid var(--border); position:relative; z-index:10; }
+    .tab { padding:8px 20px; font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; background:none; border-top:none; border-left:none; border-right:none; font-family:'Space Mono',monospace; }
+    .tab:hover { color:var(--text); }
+    .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+    .layout { display:grid; grid-template-columns:160px 5px 220px 5px 1fr; flex:1; position:relative; z-index:1; }
+    .panel-divider { background:var(--border); cursor:col-resize; position:relative; z-index:5; transition:background 0.1s; }
+    .panel-divider:hover, .panel-divider.dragging { background:var(--accent2); }
+    .years-panel { overflow-y:auto; max-height:calc(100vh - 100px - 90px); scrollbar-width:thin; }
+    .panel-label { padding:10px 16px 7px; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); }
+    .year-item { display:flex; align-items:center; justify-content:space-between; padding:9px 16px; cursor:pointer; transition:background 0.15s; }
+    .year-item:hover { background:var(--surface); }
+    .year-item.active { background:var(--surface2); border-left:3px solid var(--accent); padding-left:13px; color:var(--accent); }
+    .year-count { font-size:10px; color:var(--muted); }
+    .shows-panel { overflow-y:auto; max-height:calc(100vh - 100px - 90px); scrollbar-width:thin; }
+    .show-item { padding:11px 18px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.12s; }
+    .show-item:hover { background:var(--surface); }
+    .show-item.active { background:var(--surface2); border-left:3px solid var(--accent2); padding-left:15px; color:var(--text); }
+    .show-date { font-size:12px; color:var(--accent); font-weight:700; margin-bottom:3px; }
+    .show-venue { font-size:11px; color:var(--text); margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .show-location { font-size:10px; color:var(--muted); }
+    .show-rating-badge { float:right; font-size:10px; color:var(--accent); margin-top:2px; }
+    .show-my-rating { float:right; font-size:11px; color:var(--accent); margin-top:1px; margin-left:6px; }
+    .archive-stars { font-size:9px; color:#c8a84b; letter-spacing:1px; }
+    .show-rating-widget { display:flex; align-items:center; gap:5px; margin-top:7px; padding-top:6px; border-top:1px solid var(--border); }
+    .show-rating-label { font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; flex-shrink:0; }
+    .show-star-btn { background:none; border:none; cursor:pointer; font-size:17px; color:var(--border); padding:0 1px; line-height:1; transition:color 0.1s, transform 0.1s; }
+    .show-star-btn:hover { transform:scale(1.15); }
+    .show-star-btn.filled { color:var(--accent); }
+    .show-star-btn.logged-out { cursor:default; opacity:0.3; }
+    .ratings-section { margin-bottom:28px; }
+    .ratings-section-title { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:10px; padding-bottom:5px; border-bottom:1px solid var(--border); }
+    .show-group-header { display:flex; align-items:center; justify-content:space-between; padding:8px 14px; background:var(--surface); border:1px solid var(--border); cursor:pointer; margin-bottom:2px; transition:background 0.12s; user-select:none; }
+    .show-group-header:hover { background:var(--surface2); }
+    .show-group-left { display:flex; align-items:center; gap:10px; }
+    .show-group-arrow { font-size:10px; color:var(--muted); transition:transform 0.15s; }
+    .show-group-arrow.open { transform:rotate(90deg); }
+    .show-group-date { font-size:12px; color:var(--accent); font-weight:700; }
+    .show-group-venue { font-size:10px; color:var(--muted); }
+    .show-group-count { font-size:10px; color:var(--muted); }
+    .show-group-stars { font-size:12px; color:var(--accent); }
+    .show-group-tracks { display:none; border:1px solid var(--border); border-top:none; margin-bottom:8px; }
+    .show-group-tracks.open { display:block; }
+    .show-group-track-row { display:flex; align-items:center; justify-content:space-between; padding:6px 14px 6px 28px; border-bottom:1px solid rgba(30,42,69,0.6); }
+    .show-group-track-row:last-child { border-bottom:none; }
+    .show-group-track-title { font-size:11px; color:var(--text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .show-group-track-stars { font-size:11px; color:var(--accent); flex-shrink:0; }
+    .track-panel { overflow-y:auto; max-height:calc(100vh - 100px - 90px); scrollbar-width:thin; }
+    .track-panel-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:300px; gap:12px; color:var(--muted); }
+    .track-panel-empty .big-skull { font-size:52px; opacity:0.3; }
+    .source-header { padding:10px 16px 8px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); }
+    .source-meta { font-size:10px; color:var(--muted); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .source-selector { display:flex; gap:6px; padding:8px 16px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    .src-btn { padding:4px 10px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:10px; cursor:pointer; border-radius:2px; transition:all 0.12s; display:flex; align-items:center; gap:5px; }
+    .src-btn:hover { border-color:var(--accent); color:var(--text); }
+    .src-btn.active { background:var(--surface2); color:var(--text); border-color:var(--accent2); }
+    .src-type-badge { font-size:9px; font-weight:700; padding:1px 4px; border-radius:2px; letter-spacing:0.5px; }
+    .src-type-SBD { background:var(--accent); color:var(--bg); }
+    .src-type-MTX { background:var(--accent2); color:var(--white); }
+    .src-type-FOB { background:#5a3e8a; color:var(--white); }
+    .src-type-AUD { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
+    .src-type-UNK { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
+    .set-label { padding:8px 16px 4px; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--accent2-light); }
+    .track-row { display:flex; align-items:center; padding:6px 16px; border-bottom:1px solid rgba(30,42,69,0.8); cursor:pointer; transition:background 0.1s; gap:7px; }
+    .track-row:hover { background:var(--surface); }
+    .track-row.playing { background:var(--surface2); }
+    .track-row.playing .track-name { color:var(--accent); }
+    .track-num { width:18px; text-align:right; font-size:10px; color:var(--muted); flex-shrink:0; }
+    .track-name { flex:1; font-size:12px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .track-dur { font-size:10px; color:var(--muted); flex-shrink:0; }
+    .play-icon { width:12px; flex-shrink:0; font-size:10px; color:var(--muted); }
+    .star-rating { display:flex; gap:1px; flex-shrink:0; }
+    .star-btn { background:none; border:none; cursor:pointer; font-size:13px; color:var(--border); padding:0 1px; line-height:1; transition:color 0.1s, transform 0.1s; }
+    .star-btn:hover { transform:scale(1.2); }
+    .star-btn.filled { color:var(--accent); }
+    .star-rating.logged-out .star-btn { cursor:default; opacity:0.35; }
+    .player-bar { position:fixed; bottom:0; left:0; right:0; height:90px; background:var(--surface); border-top:2px solid var(--border); display:flex; align-items:center; gap:20px; padding:0 24px; z-index:100; }
+    .player-info { min-width:0; flex:1; }
+    .player-track { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .player-show { font-size:10px; color:var(--muted); margin-top:3px; }
+    .player-controls { display:flex; align-items:center; gap:12px; }
+    .ctrl-btn { background:none; border:none; color:var(--text); cursor:pointer; font-size:18px; padding:6px; transition:color 0.1s, transform 0.1s; line-height:1; }
+    .ctrl-btn:hover { color:var(--accent); transform:scale(1.1); }
+    .ctrl-btn.play-pause { width:40px; height:40px; border:1px solid var(--border); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; }
+    .ctrl-btn.play-pause:hover { border-color:var(--accent); background:rgba(200,168,75,0.1); }
+    .progress-wrap { flex:2; display:flex; align-items:center; gap:8px; }
+    .volume-wrap { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+    .volume-icon { font-size:13px; color:var(--muted); cursor:pointer; user-select:none; width:16px; text-align:center; }
+    .volume-icon:hover { color:var(--text); }
+    .volume-slider { width:80px; -webkit-appearance:none; appearance:none; height:4px; border-radius:2px; background:var(--border); outline:none; cursor:pointer; }
+    .volume-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:12px; height:12px; border-radius:50%; background:var(--muted); cursor:pointer; transition:background 0.1s; }
+    .volume-slider::-webkit-slider-thumb:hover { background:var(--text); }
+    .volume-slider::-moz-range-thumb { width:12px; height:12px; border-radius:50%; background:var(--muted); cursor:pointer; border:none; }
+    .time-label { font-size:10px; color:var(--muted); width:36px; }
+    .time-label.right { text-align:right; }
+    .seek-slider { flex:1; -webkit-appearance:none; appearance:none; height:4px; border-radius:2px; background:var(--border); outline:none; cursor:pointer; }
+    .seek-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:14px; height:14px; border-radius:50%; background:var(--accent); cursor:pointer; transition:transform 0.1s; }
+    .seek-slider::-webkit-slider-thumb:hover { transform:scale(1.3); }
+    .seek-slider::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:var(--accent); cursor:pointer; border:none; }
+    .seek-slider::-moz-range-progress { background:var(--accent); height:4px; border-radius:2px; }
+    audio { display:none; }
+    .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:200; align-items:center; justify-content:center; }
+    .modal-overlay.open { display:flex; }
+    .modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent); padding:32px; width:360px; position:relative; }
+    .modal-title { font-family:'Playfair Display',serif; font-size:20px; font-weight:700; color:var(--white); margin-bottom:6px; }
+    .modal-sub { font-size:10px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:24px; }
+    .form-group { margin-bottom:16px; }
+    .form-label { display:block; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
+    .form-input { width:100%; padding:8px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); font-family:'Space Mono',monospace; font-size:12px; outline:none; transition:border-color 0.12s; }
+    .form-input:focus { border-color:var(--accent); }
+    .form-error { color:var(--red); font-size:11px; margin-top:4px; min-height:16px; }
+    .modal-actions { display:flex; gap:8px; margin-top:20px; }
+    .modal-switch { font-size:11px; color:var(--muted); margin-top:14px; text-align:center; }
+    .modal-switch a { color:var(--accent); cursor:pointer; text-decoration:underline; }
+    .modal-close { position:absolute; top:12px; right:14px; background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; line-height:1; }
+    .modal-close:hover { color:var(--text); }
+    .ratings-view { display:none; padding:20px 24px; position:relative; z-index:1; flex:1; overflow-y:auto; max-height:calc(100vh - 100px - 90px); }
+    .ratings-view.open { display:block; }
+    .stats-view { display:none; padding:20px 24px; position:relative; z-index:1; flex:1; overflow-y:auto; max-height:calc(100vh - 100px - 90px); }
+    .stats-view.open { display:block; }
+    .stats-hero { display:flex; gap:24px; margin-bottom:28px; flex-wrap:wrap; }
+    .stats-card { background:var(--surface); border:1px solid var(--border); padding:16px 20px; min-width:140px; }
+    .stats-card-val { font-family:'Playfair Display',serif; font-size:28px; color:var(--accent); font-weight:700; }
+    .stats-card-label { font-size:10px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-top:4px; }
+    .stats-table { width:100%; border-collapse:collapse; font-size:11px; margin-bottom:28px; }
+    .stats-table th { text-align:left; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); padding:0 8px 8px 0; border-bottom:1px solid var(--border); }
+    .stats-table td { padding:7px 8px 7px 0; border-bottom:1px solid rgba(30,42,69,0.5); color:var(--text); }
+    .stats-table td.dim { color:var(--muted); }
+    .stats-bar-cell { width:120px; }
+    .stats-bar { height:3px; background:var(--accent); border-radius:2px; }
+    .lb-rank { font-size:18px; font-weight:700; color:var(--border); width:32px; flex-shrink:0; text-align:center; }
+    .lb-rank.gold { color:#f5c518; } .lb-rank.silver { color:#aaa; } .lb-rank.bronze { color:#cd7f32; }
+    .lb-row { display:flex; align-items:center; gap:16px; padding:12px 16px; border:1px solid var(--border); margin-bottom:6px; background:var(--surface); }
+    .lb-row.me { border-color:var(--accent2); background:var(--surface2); }
+    .lb-name { font-size:13px; font-weight:700; flex:1; }
+    .lb-stats { display:flex; gap:20px; }
+    .lb-stat { text-align:right; }
+    .lb-stat-val { font-size:13px; color:var(--accent); }
+    .lb-stat-label { font-size:9px; color:var(--muted); letter-spacing:1.5px; text-transform:uppercase; }
+    .ratings-title { font-family:'Playfair Display',serif; font-size:20px; color:var(--accent); margin-bottom:20px; }
+    .rating-card { display:flex; align-items:center; gap:14px; padding:10px 14px; border:1px solid var(--border); margin-bottom:8px; background:var(--surface); }
+    .rating-card-info { flex:1; min-width:0; }
+    .rating-card-title { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .rating-card-date { font-size:10px; color:var(--muted); margin-top:2px; }
+    .rating-card-stars { color:var(--accent); font-size:14px; flex-shrink:0; letter-spacing:2px; }
+    .ratings-empty { color:var(--muted); font-size:12px; padding:40px 0; text-align:center; }
+    .loading { padding:20px 16px; color:var(--muted); font-size:11px; letter-spacing:1px; }
+    .loading::after { content:'...'; animation:dots 1s infinite; }
+    @keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
+    ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--accent2); border-radius:2px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <img src="/static/stealie.png" class="logo-skull-img" alt="Steal Your Face">
+  <div>
+    <div class="logo-text">Ship of Fools</div>
+    <div class="logo-sub">Grateful Dead · Live Concert Archive</div>
+  </div>
+  <div class="header-right">
+    <div class="header-username" id="header-user" style="display:none">Logged in as <span id="header-username-val"></span></div>
+    <button class="btn ghost" id="btn-logout" style="display:none" onclick="doLogout()">Log Out</button>
+    <button class="btn primary" id="btn-open-login" onclick="openModal('login')">Log In</button>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab active" id="tab-browse" onclick="showBrowse()">Browse</button>
+  <button class="tab" id="tab-ratings" style="display:none" onclick="showRatingsView()">★ My Rated Shows & Tracks</button>
+  <button class="tab" id="tab-stats" style="display:none" onclick="showStatsView()">◈ Stats</button>
+  <button class="tab" id="tab-leaderboard" onclick="showLeaderboard()">⬡ Leaderboard</button>
+</div>
+
+<div class="layout" id="browse-view">
+  <div class="years-panel">
+    <div class="panel-label">Years</div>
+    <div id="years-list"><div class="loading">Loading</div></div>
+  </div>
+  <div class="panel-divider" id="divider-1"></div>
+  <div class="shows-panel">
+    <div class="panel-label" id="shows-label">Shows</div>
+    <div id="shows-list"><div style="padding:40px 16px;color:var(--muted);text-align:center;font-size:11px;">← Select a year</div></div>
+  </div>
+  <div class="panel-divider" id="divider-2"></div>
+  <div class="track-panel" id="track-panel">
+    <div class="track-panel-empty"><div class="big-skull">💀</div><div style="font-size:11px;letter-spacing:1px;">SELECT A SHOW</div></div>
+  </div>
+</div>
+
+<div class="ratings-view" id="ratings-view">
+  <div class="ratings-title">★ My Rated Shows & Tracks</div>
+  <div id="ratings-list"><div class="loading">Loading</div></div>
+</div>
+
+<div class="stats-view" id="stats-view">
+  <div class="ratings-title">◈ Stats</div>
+  <div id="stats-content"><div class="loading">Loading</div></div>
+</div>
+
+<div class="stats-view" id="leaderboard-view">
+  <div class="ratings-title">⬡ Leaderboard</div>
+  <div id="leaderboard-content"><div class="loading">Loading</div></div>
+</div>
+
+<div class="player-bar">
+  <div class="player-info">
+    <div class="player-track" id="player-track">—</div>
+    <div class="player-show" id="player-show"></div>
+  </div>
+  <div class="player-controls">
+    <button class="ctrl-btn" id="btn-prev">⏮</button>
+    <button class="ctrl-btn play-pause" id="btn-play">▶</button>
+    <button class="ctrl-btn" id="btn-next">⏭</button>
+  </div>
+  <div class="progress-wrap">
+    <span class="time-label" id="time-cur">0:00</span>
+    <input type="range" class="seek-slider" id="seek-slider" min="0" max="1000" value="0" step="1">
+    <span class="time-label right" id="time-dur">0:00</span>
+  </div>
+  <div class="volume-wrap">
+    <span class="volume-icon" id="vol-icon" onclick="toggleMute()">🔊</span>
+    <input type="range" class="volume-slider" id="vol-slider" min="0" max="1" step="0.02" value="1">
+  </div>
+  <audio id="audio-player"></audio>
+  <audio id="audio-preload" preload="auto" style="display:none"></audio>
+</div>
+
+<div class="modal-overlay" id="auth-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div class="modal-title" id="modal-title">Welcome Back</div>
+    <div class="modal-sub" id="modal-sub">Sign in to rate tracks</div>
+    <div class="form-group">
+      <label class="form-label">Username</label>
+      <input class="form-input" id="auth-username" type="text" autocomplete="username" placeholder="your handle">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input class="form-input" id="auth-password" type="password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <div class="form-error" id="auth-error"></div>
+    <div class="modal-actions">
+      <button class="btn primary" id="auth-submit" onclick="submitAuth()">Log In</button>
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+    </div>
+    <div class="modal-switch" id="modal-switch">Don't have an account? <a onclick="switchMode()">Register</a></div>
+  </div>
+</div>
+
+<script>
+let audioA = document.getElementById('audio-player');
+let audioB = document.getElementById('audio-preload');
+let audio = audioA; // active element
+let preload = audioB; // buffering next track
+let currentTracks = [], currentTrackIdx = -1, currentShowInfo = '';
+let currentSourceId = '', currentShowDate = '';
+let allSources = [], activeSourceIdx = 0;
+let loggedInUser = null;
+let showRatings = {};
+let myShowRatings = {};
+let authMode = 'login';
+
+function fmt(s) {
+  if (!s) return '?:??';
+  const m = Math.floor(s/60), sec = Math.floor(s%60);
+  return m+':'+String(sec).padStart(2,'0');
+}
+
+// ── AUTH ──────────────────────────────────────────────────────────────────
+async function checkMe() {
+  const res = await fetch('/api/auth/me');
+  const data = await res.json();
+  loggedInUser = data.username;
+  updateAuthUI();
+}
+
+function updateAuthUI() {
+  const li = !!loggedInUser;
+  document.getElementById('btn-open-login').style.display = li ? 'none' : '';
+  document.getElementById('btn-logout').style.display = li ? '' : 'none';
+  document.getElementById('tab-ratings').style.display = li ? '' : 'none';
+  document.getElementById('tab-stats').style.display = li ? '' : 'none';
+  document.getElementById('header-user').style.display = li ? '' : 'none';
+  document.getElementById('header-username-val').textContent = loggedInUser||'';
+  refreshStarsUI();
+}
+
+function openModal(mode) {
+  authMode = mode||'login';
+  document.getElementById('auth-error').textContent = '';
+  document.getElementById('auth-username').value = '';
+  document.getElementById('auth-password').value = '';
+  setModalMode(authMode);
+  document.getElementById('auth-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('auth-username').focus(),50);
+}
+function closeModal() { document.getElementById('auth-modal').classList.remove('open'); }
+
+function setModalMode(mode) {
+  authMode = mode;
+  const isLogin = mode==='login';
+  document.getElementById('modal-title').textContent = isLogin ? 'Welcome Back' : 'Create Account';
+  document.getElementById('modal-sub').textContent = isLogin ? 'Sign in to rate tracks' : 'Join to save your ratings';
+  document.getElementById('auth-submit').textContent = isLogin ? 'Log In' : 'Register';
+  document.getElementById('modal-switch').innerHTML = isLogin
+    ? "Don't have an account? <a onclick=\"switchMode()\">Register</a>"
+    : "Already have an account? <a onclick=\"switchMode()\">Log In</a>";
+}
+function switchMode() { setModalMode(authMode==='login'?'register':'login'); document.getElementById('auth-error').textContent=''; }
+
+async function submitAuth() {
+  const username = document.getElementById('auth-username').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errEl = document.getElementById('auth-error');
+  errEl.textContent = '';
+  const url = authMode==='login' ? '/api/auth/login' : '/api/auth/register';
+  const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username,password})});
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error; return; }
+  loggedInUser = data.username;
+  updateAuthUI();
+  closeModal();
+  if (currentSourceId) { await loadShowRatings(currentSourceId); if (allSources.length) renderSourceButtons(); await loadSourceTracks(activeSourceIdx); }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key==='Enter' && document.getElementById('auth-modal').classList.contains('open')) submitAuth();
+  if (e.key==='Escape') closeModal();
+});
+
+async function doLogout() {
+  await fetch('/api/auth/logout',{method:'POST'});
+  loggedInUser = null; showRatings = {};
+  updateAuthUI(); showBrowse();
+}
+
+// ── VIEWS ─────────────────────────────────────────────────────────────────
+function hideAllViews() {
+  document.getElementById('browse-view').style.display='none';
+  document.getElementById('ratings-view').classList.remove('open');
+  document.getElementById('stats-view').classList.remove('open');
+  document.getElementById('leaderboard-view').classList.remove('open');
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+}
+function showBrowse() {
+  hideAllViews();
+  document.getElementById('browse-view').style.display='';
+  document.getElementById('tab-browse').classList.add('active');
+}
+function showRatingsView() {
+  hideAllViews();
+  document.getElementById('ratings-view').classList.add('open');
+  document.getElementById('tab-ratings').classList.add('active');
+  loadMyRatings();
+}
+function showStatsView() {
+  hideAllViews();
+  document.getElementById('stats-view').classList.add('open');
+  document.getElementById('tab-stats').classList.add('active');
+  loadStats();
+}
+function showLeaderboard() {
+  hideAllViews();
+  document.getElementById('leaderboard-view').classList.add('open');
+  document.getElementById('tab-leaderboard').classList.add('active');
+  loadLeaderboard();
+}
+async function loadMyRatings() {
+  const el = document.getElementById('ratings-list');
+  el.innerHTML = '<div class="loading">Loading</div>';
+  const [trackRes, showRes] = await Promise.all([fetch('/api/ratings/mine'), fetch('/api/show-ratings/mine')]);
+  if (!trackRes.ok) { el.innerHTML='<div class="ratings-empty">Not logged in.</div>'; return; }
+  const trackRows = await trackRes.json();
+  const showRows = showRes.ok ? await showRes.json() : [];
+
+  // Merge show ratings and track ratings into one map keyed by date
+  const byShow = {};
+  showRows.forEach(r => {
+    byShow[r.show_id] = { showStars: r.stars, venue: r.venue || r.show_id, tracks: [] };
+  });
+  trackRows.forEach(r => {
+    if (!byShow[r.show_date]) byShow[r.show_date] = { showStars: 0, venue: r.show_date, tracks: [] };
+    byShow[r.show_date].tracks.push(r);
+  });
+
+  const dates = Object.keys(byShow).sort();
+  if (!dates.length) { el.innerHTML='<div class="ratings-empty">No ratings yet. Start listening! 🎸</div>'; return; }
+
+  let html = '<div class="ratings-section">';
+  dates.forEach(date => {
+    const { showStars, venue, tracks } = byShow[date];
+    const gid = `sg-${date.replace(/-/g,'_')}`;
+    const trackCount = tracks.length ? `<span class="show-group-count">${tracks.length} track${tracks.length>1?'s':''} rated</span>` : '';
+    const showStarsHTML = showStars ? `<span class="show-group-stars">${'★'.repeat(showStars)}${'☆'.repeat(5-showStars)}</span>` : '';
+    const tracksHTML = tracks.map(r=>`
+      <div class="show-group-track-row">
+        <span class="show-group-track-title">${r.track_title}</span>
+        <span class="show-group-track-stars">${'★'.repeat(r.stars)}${'☆'.repeat(5-r.stars)}</span>
+      </div>`).join('');
+    html += `
+      <div class="show-group-header" onclick="toggleShowGroup('${gid}')">
+        <div class="show-group-left">
+          <span class="show-group-arrow" id="${gid}-arrow">▶</span>
+          <span class="show-group-date">${date}</span>
+          <span class="show-group-venue">${venue}</span>
+          ${trackCount}
+        </div>
+        ${showStarsHTML}
+      </div>
+      <div class="show-group-tracks" id="${gid}">${tracksHTML || '<div style="padding:8px 28px;font-size:11px;color:var(--muted);">No tracks rated</div>'}</div>`;
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function toggleShowGroup(gid) {
+  const tracks = document.getElementById(gid);
+  const arrow = document.getElementById(`${gid}-arrow`);
+  const open = tracks.classList.toggle('open');
+  arrow.classList.toggle('open', open);
+}
+
+// ── YEARS ─────────────────────────────────────────────────────────────────
+async function loadYears() {
+  const res = await fetch('/api/years');
+  const years = await res.json();
+  const el = document.getElementById('years-list');
+  el.innerHTML = '';
+  years.sort((a,b)=>b.year.localeCompare(a.year));
+  years.forEach(y => {
+    const div = document.createElement('div');
+    div.className = 'year-item';
+    div.innerHTML = `<span>${y.year}</span><span class="year-count">${y.show_count||''}</span>`;
+    div.onclick = () => { document.querySelectorAll('.year-item').forEach(x=>x.classList.remove('active')); div.classList.add('active'); loadShows(y.year); };
+    el.appendChild(div);
+  });
+}
+
+// ── SHOWS ─────────────────────────────────────────────────────────────────
+async function loadShows(year) {
+  document.getElementById('shows-label').textContent = `Shows · ${year}`;
+  document.getElementById('shows-list').innerHTML = '<div class="loading">Loading</div>';
+  const [showsRes] = await Promise.all([fetch(`/api/years/${year}/shows`)]);
+  const shows = await showsRes.json();
+  if (loggedInUser) {
+    const r = await fetch('/api/show-ratings/mine');
+    if (r.ok) { const rows = await r.json(); myShowRatings = Object.fromEntries(rows.map(r=>[r.show_id, r.stars])); }
+  }
+  const el = document.getElementById('shows-list');
+  el.innerHTML = '';
+  shows.sort((a,b)=>a.display_date.localeCompare(b.display_date));
+  shows.forEach(show => {
+    const div = document.createElement('div');
+    div.className = 'show-item';
+    div.id = `show-item-${show.id}`;
+    const myStars = myShowRatings[show.id];
+    const badge = myStars ? `<span class="show-my-rating">${'★'.repeat(myStars)}</span>` : '';
+    div.innerHTML = `${badge}<div class="show-date">${show.display_date}</div><div class="show-venue">${show.venue?.name||'Unknown Venue'}</div><div class="show-location">${show.venue?.location||''}</div>`;
+    div.onclick = () => { document.querySelectorAll('.show-item').forEach(x=>x.classList.remove('active')); div.classList.add('active'); loadSources(show.id,show.display_date,show.venue); };
+    el.appendChild(div);
+  });
+}
+
+// ── SOURCES / TRACKS ──────────────────────────────────────────────────────
+async function loadSources(showId, date, venue) {
+  document.getElementById('track-panel').innerHTML = '<div class="loading">Loading</div>';
+  const res = await fetch(`/api/shows/${showId}/sources`);
+  allSources = await res.json();
+  activeSourceIdx = 0;
+  currentShowInfo = `${date} — ${venue?.name||''}`;
+  currentShowDate = date;
+  currentTracks = [];
+  if (!allSources.length) {
+    document.getElementById('track-panel').innerHTML = '<div class="track-panel-empty"><div class="big-skull">💀</div><div>No sources found</div></div>';
+    return;
+  }
+  renderSourceButtons();
+  await loadSourceTracks(0);
+}
+
+async function loadShowRatings(sourceId) {
+  if (!loggedInUser||!sourceId) return;
+  const res = await fetch(`/api/ratings/show?source_id=${sourceId}`);
+  showRatings = res.ok ? await res.json() : {};
+}
+
+function srcTypeBadge(type) {
+  return `<span class="src-type-badge src-type-${type}">${type}</span>`;
+}
+
+function archiveStars(rating, reviews) {
+  if (rating == null) return '';
+  const full = Math.round(rating);
+  return `<span class="archive-stars" title="Archive.org: ${Number(rating).toFixed(1)}★ (${reviews||0} reviews)">${'★'.repeat(full)}${'☆'.repeat(5-full)}</span>`;
+}
+
+function buildShowStars(showId, filledCount) {
+  const cls = loggedInUser ? '' : 'logged-out';
+  let html = '';
+  for (let i=1;i<=5;i++) {
+    const filled = i<=filledCount ? 'filled' : '';
+    const action = loggedInUser ? `rateShow('${showId}',${i})` : `openModal('login')`;
+    html += `<button class="show-star-btn ${filled} ${cls}" onclick="${action}" title="Rate show ${i} star${i>1?'s':''}">★</button>`;
+  }
+  return html;
+}
+
+function renderSourceButtons() {
+  const panel = document.getElementById('track-panel');
+  const myStars = myShowRatings[currentShowDate] || 0;
+  const showStarsHTML = `<div class="show-rating-widget"><span class="show-rating-label">My Show Rating:</span><span id="show-stars-widget">${buildShowStars(currentShowDate, myStars)}</span></div>`;
+  const selectorHTML = `<div class="source-selector">${allSources.map((s,i)=>`<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}<span style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.title||s.id}</span></button>`).join('')}</div>`;
+  panel.innerHTML = `<div class="source-header"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div>${selectorHTML}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+}
+
+async function rateShow(showId, stars) {
+  const current = myShowRatings[showId] || 0;
+  if (current === stars) {
+    await fetch('/api/show-ratings', {method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({show_id:showId})});
+    delete myShowRatings[showId];
+  } else {
+    await fetch('/api/show-ratings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({show_id:showId, venue:currentShowInfo, stars})});
+    myShowRatings[showId] = stars;
+  }
+  const widget = document.getElementById('show-stars-widget');
+  if (widget) widget.innerHTML = buildShowStars(showId, myShowRatings[showId]||0);
+  const badge = document.querySelector(`#show-item-${showId} .show-my-rating`);
+  const showItem = document.getElementById(`show-item-${showId}`);
+  if (showItem) {
+    const existing = showItem.querySelector('.show-my-rating');
+    const newBadge = myShowRatings[showId] ? `<span class="show-my-rating">${'★'.repeat(myShowRatings[showId])}</span>` : '';
+    if (existing) existing.outerHTML = newBadge;
+    else if (newBadge) showItem.insertAdjacentHTML('afterbegin', newBadge);
+  }
+}
+
+async function loadSourceTracks(idx) {
+  activeSourceIdx = idx;
+  const src = allSources[idx];
+  currentSourceId = String(src.id||'');
+  if (loggedInUser) await loadShowRatings(currentSourceId);
+
+  document.querySelectorAll('.src-btn').forEach((b,i) => b.classList.toggle('active', i===idx));
+
+  const container = document.getElementById('tracks-container');
+  if (!container) return;
+  container.innerHTML = '<div class="loading">Loading tracks</div>';
+
+  if (!src.sets) {
+    const res = await fetch(`/api/sources/${src.id}/tracks`);
+    const data = await res.json();
+    src.sets = data.sets || [];
+    src.lineage = data.lineage || '';
+    src.taper = data.taper || '';
+    src.transferer = data.transferer || '';
+  }
+
+  const metaLine = document.getElementById('source-meta-line');
+  if (metaLine) {
+    const info = [
+      src.taper && `Taper: ${src.taper}`,
+      src.transferer && `Transfer: ${src.transferer}`,
+      src.lineage
+    ].filter(Boolean).join(' · ');
+    metaLine.textContent = info.substring(0, 160);
+  }
+
+  let tracksHTML = ''; let globalIdx = 0; currentTracks = [];
+  (src.sets||[]).forEach(set => {
+    tracksHTML += `<div class="set-label">${set.name||'Set'}</div>`;
+    (set.tracks||[]).forEach(track => {
+      const tidx = globalIdx++;
+      const trackId = `${currentSourceId}_${track.id||tidx}`;
+      currentTracks.push({...track, mp3_url:track.mp3_url||track.flac_url, _track_id:trackId});
+      tracksHTML += `<div class="track-row" id="track-row-${tidx}" onclick="playTrack(${tidx})">
+        <div class="play-icon" id="play-icon-${tidx}">▷</div>
+        <div class="track-num">${tidx+1}</div>
+        <div class="track-name">${track.title}</div>
+        <div class="track-dur">${fmt(track.duration)}</div>
+        ${buildStars(trackId, showRatings[trackId]||0, tidx)}
+      </div>`;
+    });
+  });
+  container.innerHTML = tracksHTML || '<div style="padding:20px 16px;color:var(--muted);font-size:11px;">No playable tracks found for this source.</div>';
+}
+
+async function switchSource(idx) {
+  await loadSourceTracks(idx);
+}
+
+function buildStars(trackId, filledCount, rowIdx) {
+  const cls = loggedInUser ? '' : 'logged-out';
+  const safeId = trackId.replace(/[^a-z0-9]/gi,'_');
+  let html = `<div class="star-rating ${cls}" id="stars-${safeId}">`;
+  for (let i=1;i<=5;i++) {
+    const filled = i<=filledCount?'filled':'';
+    const action = loggedInUser ? `rateStar(event,'${trackId}',${i},${rowIdx})` : `openModal('login')`;
+    html += `<button class="star-btn ${filled}" onclick="${action}" title="${i} star${i>1?'s':''}">★</button>`;
+  }
+  return html+'</div>';
+}
+
+function refreshStarsUI() {
+  currentTracks.forEach((track,idx) => {
+    const tid = track._track_id; if(!tid) return;
+    const safeId = tid.replace(/[^a-z0-9]/gi,'_');
+    const el = document.getElementById(`stars-${safeId}`);
+    if (el) el.outerHTML = buildStars(tid, showRatings[tid]||0, idx);
+  });
+}
+
+// ── RATINGS ───────────────────────────────────────────────────────────────
+async function rateStar(e, trackId, stars, rowIdx) {
+  e.stopPropagation();
+  if (!loggedInUser) { openModal('login'); return; }
+  const track = currentTracks[rowIdx];
+  const existing = showRatings[trackId];
+  if (existing===stars) {
+    await fetch('/api/ratings',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId})});
+    delete showRatings[trackId];
+  } else {
+    await fetch('/api/ratings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId,track_title:track.title,show_date:currentShowDate,source_id:currentSourceId,stars})});
+    showRatings[trackId] = stars;
+  }
+  const safeId = trackId.replace(/[^a-z0-9]/gi,'_');
+  const el = document.getElementById(`stars-${safeId}`);
+  if (el) el.outerHTML = buildStars(trackId, showRatings[trackId]||0, rowIdx);
+}
+
+// ── PLAYBACK ──────────────────────────────────────────────────────────────
+function updatePlaybackUI(idx) {
+  const t = currentTracks[idx];
+  document.getElementById('player-track').textContent = `${idx + 1}. ${t.title}`;
+  document.getElementById('player-show').textContent = `${currentShowInfo}  ·  track ${idx + 1} of ${currentTracks.length}`;
+  document.getElementById('btn-play').textContent = '⏸';
+  document.querySelectorAll('.track-row').forEach((r,i)=>r.classList.toggle('playing',i===idx));
+  document.querySelectorAll('.play-icon').forEach((ic,i)=>ic.textContent=i===idx?'▶':'▷');
+}
+
+function preloadTrack(idx) {
+  if (idx >= 0 && idx < currentTracks.length && currentTracks[idx].mp3_url) {
+    if (preload.src !== currentTracks[idx].mp3_url) {
+      preload.src = currentTracks[idx].mp3_url;
+      preload.load();
+    }
+  }
+}
+
+function playTrack(idx) {
+  if (idx < 0 || idx >= currentTracks.length) return;
+  currentTrackIdx = idx;
+  const t = currentTracks[idx];
+  if (!t.mp3_url) return;
+
+  // If the next track is already preloaded in the inactive buffer, swap and play gaplessly
+  if (preload.src === t.mp3_url && preload.readyState >= 3) {
+    audio.pause();
+    [audio, preload] = [preload, audio];
+    audio.play();
+  } else {
+    audio.src = t.mp3_url;
+    audio.play();
+  }
+
+  preloadTrack(idx + 1);
+  updatePlaybackUI(idx);
+}
+
+let seeking = false;
+const seekSlider = document.getElementById('seek-slider');
+
+function onTimeUpdate() {
+  if (this !== audio) return;
+  document.getElementById('time-cur').textContent = fmt(audio.currentTime);
+  document.getElementById('time-dur').textContent = fmt(audio.duration);
+  if (!seeking && audio.duration) {
+    seekSlider.value = Math.round((audio.currentTime / audio.duration) * 1000);
+    updateSliderFill();
+  }
+}
+
+function updateSliderFill() {
+  const pct = (seekSlider.value / seekSlider.max) * 100;
+  seekSlider.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--border) ${pct}%)`;
+}
+
+seekSlider.addEventListener('mousedown', () => seeking = true);
+seekSlider.addEventListener('touchstart', () => seeking = true);
+seekSlider.addEventListener('input', () => {
+  seeking = true;
+  const t = (seekSlider.value / 1000) * (audio.duration || 0);
+  document.getElementById('time-cur').textContent = fmt(t);
+  updateSliderFill();
+});
+seekSlider.addEventListener('change', () => {
+  audio.currentTime = (seekSlider.value / 1000) * (audio.duration || 0);
+  seeking = false;
+});
+// ── VOLUME ────────────────────────────────────────────────────────────────
+const volSlider = document.getElementById('vol-slider');
+const volIcon   = document.getElementById('vol-icon');
+let lastVol = 1;
+
+function updateVolIcon(v) {
+  volIcon.textContent = v === 0 ? '🔇' : v < 0.4 ? '🔉' : '🔊';
+}
+volSlider.addEventListener('input', () => {
+  const v = parseFloat(volSlider.value);
+  audioA.volume = audioB.volume = v;
+  if (v > 0) lastVol = v;
+  updateVolIcon(v);
+});
+function toggleMute() {
+  const muted = audioA.volume > 0;
+  const v = muted ? 0 : lastVol;
+  audioA.volume = audioB.volume = v;
+  volSlider.value = v;
+  updateVolIcon(v);
+}
+
+function onEnded() { if (this === audio) playTrack(currentTrackIdx+1); }
+function onPause() { if (this === audio) document.getElementById('btn-play').textContent='▶'; }
+function onPlay()  { if (this === audio) document.getElementById('btn-play').textContent='⏸'; }
+
+[audioA, audioB].forEach(a => {
+  a.addEventListener('timeupdate', onTimeUpdate);
+  a.addEventListener('ended', onEnded);
+  a.addEventListener('pause', onPause);
+  a.addEventListener('play', onPlay);
+});
+
+document.getElementById('btn-play').onclick = ()=>{ if(audio.paused) audio.play(); else audio.pause(); };
+document.getElementById('btn-prev').onclick = ()=>playTrack(currentTrackIdx-1);
+document.getElementById('btn-next').onclick = ()=>playTrack(currentTrackIdx+1);
+
+// ── LEADERBOARD ───────────────────────────────────────────────────────────
+async function loadLeaderboard() {
+  const el = document.getElementById('leaderboard-content');
+  el.innerHTML = '<div class="loading">Loading</div>';
+  const res = await fetch('/api/leaderboard');
+  const rows = await res.json();
+  if (!rows.length) { el.innerHTML = '<div class="ratings-empty">No listening data yet.</div>'; return; }
+  const rankClass = i => i===0?'gold':i===1?'silver':i===2?'bronze':'';
+  const rankSymbol = i => i===0?'①':i===1?'②':i===2?'③':`${i+1}`;
+  el.innerHTML = rows.map((r, i) => `
+    <div class="lb-row ${r.username===loggedInUser?'me':''}">
+      <div class="lb-rank ${rankClass(i)}">${rankSymbol(i)}</div>
+      <div class="lb-name">${r.username}${r.username===loggedInUser?' <span style="font-size:9px;color:var(--accent2)">you</span>':''}</div>
+      <div class="lb-stats">
+        <div class="lb-stat"><div class="lb-stat-val">${fmtDuration(r.seconds)}</div><div class="lb-stat-label">Listened</div></div>
+        <div class="lb-stat"><div class="lb-stat-val">${r.shows}</div><div class="lb-stat-label">Shows</div></div>
+        <div class="lb-stat"><div class="lb-stat-val">${r.tracks}</div><div class="lb-stat-label">Sessions</div></div>
+      </div>
+    </div>`).join('');
+}
+
+// ── PANEL RESIZE ─────────────────────────────────────────────────────────
+(function() {
+  const layout = document.getElementById('browse-view');
+  let colWidths = [160, 220]; // years, shows — track takes 1fr (rest)
+  let dragging = null;
+
+  function applyWidths() {
+    layout.style.gridTemplateColumns = `${colWidths[0]}px 5px ${colWidths[1]}px 5px 1fr`;
+  }
+
+  document.querySelectorAll('.panel-divider').forEach((div, i) => {
+    div.addEventListener('mousedown', e => {
+      dragging = i;
+      div.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (dragging === null) return;
+    const rect = layout.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    if (dragging === 0) {
+      colWidths[0] = Math.max(80, Math.min(x - 2, colWidths[1] + colWidths[0] - 80));
+    } else {
+      const showsStart = colWidths[0] + 5;
+      colWidths[1] = Math.max(80, Math.min(x - showsStart - 2, rect.width - colWidths[0] - 200));
+    }
+    applyWidths();
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (dragging === null) return;
+    document.querySelectorAll('.panel-divider')[dragging].classList.remove('dragging');
+    dragging = null;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
+
+// ── LISTEN TRACKING ──────────────────────────────────────────────────────
+let listenSeconds = 0;
+let listenLastTime = null;
+let listenFlushTimer = null;
+
+function listenTick() {
+  if (!audio.paused && listenLastTime !== null) {
+    const delta = audio.currentTime - listenLastTime;
+    if (delta > 0 && delta < 2) listenSeconds += delta; // ignore seeks
+  }
+  listenLastTime = audio.paused ? null : audio.currentTime;
+}
+
+async function flushListen(force = false) {
+  if (!loggedInUser || listenSeconds < 5) { if (!force) return; }
+  const secs = Math.round(listenSeconds);
+  if (secs < 5) return;
+  const track = currentTracks[currentTrackIdx];
+  if (!track) return;
+  listenSeconds = 0;
+  await fetch('/api/listens', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      track_id:    track._track_id || '',
+      track_title: track.title || '',
+      show_id:     currentShowDate,
+      show_date:   currentShowDate,
+      source_id:   currentSourceId,
+      seconds:     secs,
+    })
+  }).catch(()=>{});
+}
+
+// Tick every second while playing
+setInterval(listenTick, 1000);
+// Flush every 30s while playing
+setInterval(() => { if (!audio.paused) flushListen(); }, 30000);
+// Flush on track change or pause
+const _origPlayTrack = playTrack;
+window.addEventListener('beforeunload', () => flushListen(true));
+
+// Flush when audio pauses (after meaningful listen)
+audioA.addEventListener('pause', () => flushListen());
+audioB.addEventListener('pause', () => flushListen());
+
+// Reset counter when a new track starts
+const _listenOnPlay = function() { if (this === audio) { listenSeconds = 0; listenLastTime = audio.currentTime; } };
+audioA.addEventListener('play', _listenOnPlay);
+audioB.addEventListener('play', _listenOnPlay);
+
+// ── STATS ─────────────────────────────────────────────────────────────────
+function fmtDuration(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+async function loadStats() {
+  const el = document.getElementById('stats-content');
+  el.innerHTML = '<div class="loading">Loading</div>';
+  const res = await fetch('/api/listens/stats');
+  if (!res.ok) { el.innerHTML = '<div class="ratings-empty">Not logged in.</div>'; return; }
+  const d = await res.json();
+
+  const maxShowSecs  = d.top_shows[0]?.seconds  || 1;
+  const maxTrackSecs = d.top_tracks[0]?.seconds || 1;
+
+  const showsRows = d.top_shows.map(s => `
+    <tr>
+      <td>${s.show_date}</td>
+      <td>${fmtDuration(s.seconds)}</td>
+      <td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(s.seconds/maxShowSecs*100)}%"></div></td>
+    </tr>`).join('');
+
+  const tracksRows = d.top_tracks.map(t => `
+    <tr>
+      <td>${t.track_title}</td>
+      <td class="dim">${t.show_date}</td>
+      <td>${fmtDuration(t.seconds)}</td>
+      <td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(t.seconds/maxTrackSecs*100)}%"></div></td>
+    </tr>`).join('');
+
+  const recentRows = d.recent.map(r => `
+    <tr>
+      <td>${r.track_title}</td>
+      <td class="dim">${r.show_date}</td>
+      <td>${fmtDuration(r.seconds)}</td>
+    </tr>`).join('');
+
+  el.innerHTML = `
+    <div class="stats-hero">
+      <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened</div></div>
+      <div class="stats-card"><div class="stats-card-val">${d.total_listens}</div><div class="stats-card-label">Track Sessions</div></div>
+    </div>
+    ${d.top_shows.length ? `<div class="ratings-section-title">Top Shows</div>
+    <table class="stats-table"><thead><tr><th>Date</th><th>Time</th><th></th></tr></thead><tbody>${showsRows}</tbody></table>` : ''}
+    ${d.top_tracks.length ? `<div class="ratings-section-title">Top Tracks</div>
+    <table class="stats-table"><thead><tr><th>Track</th><th>Show</th><th>Time</th><th></th></tr></thead><tbody>${tracksRows}</tbody></table>` : ''}
+    ${d.recent.length ? `<div class="ratings-section-title">Recent</div>
+    <table class="stats-table"><thead><tr><th>Track</th><th>Show</th><th>Time</th></tr></thead><tbody>${recentRows}</tbody></table>` : ''}
+  `;
+}
+
+checkMe();
+loadYears();
+</script>
+</body>
+</html>
