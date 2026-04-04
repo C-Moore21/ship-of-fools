@@ -196,9 +196,10 @@ def today_in_history():
     today = date.today()
     mm = f"{today.month:02d}"
     dd = f"{today.day:02d}"
+    date_terms = " OR ".join(f"{y}-{mm}-{dd}" for y in range(1965, 1996))
     try:
         data = archive_search({
-            "q": f"collection:{COLLECTION} AND date:????-{mm}-{dd}",
+            "q": f"collection:{COLLECTION} AND date:({date_terms})",
             "fl[]": "identifier,title,date,coverage",
             "output": "json",
             "rows": 500,

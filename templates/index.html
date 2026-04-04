@@ -242,7 +242,6 @@
     <div class="logo-sub">Grateful Dead · Live Concert Archive</div>
   </div>
   <div class="header-right">
-    <button class="btn-today" onclick="openToday()">📅 Today in History</button>
     <div class="header-username" id="header-user" style="display:none">Logged in as <span id="header-username-val"></span></div>
     <button class="btn ghost" id="btn-logout" style="display:none" onclick="doLogout()">Log Out</button>
     <button class="btn primary" id="btn-open-login" onclick="openModal('login')">Log In</button>
@@ -263,6 +262,7 @@
   <button class="tab" id="tab-ratings" style="display:none" onclick="showRatingsView()">★ My Rated Shows & Tracks</button>
   <button class="tab" id="tab-stats" style="display:none" onclick="showStatsView()">◈ Stats</button>
   <button class="tab" id="tab-leaderboard" onclick="showLeaderboard()">⬡ Leaderboard</button>
+  <button class="tab" onclick="openToday()">📅 Today</button>
 </div>
 
 <div class="layout" id="browse-view">
