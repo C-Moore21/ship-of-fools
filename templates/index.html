@@ -764,11 +764,49 @@ function onEnded() { if (this === audio) playTrack(currentTrackIdx+1); }
 function onPause() { if (this === audio) document.getElementById('btn-play').textContent='▶'; }
 function onPlay()  { if (this === audio) document.getElementById('btn-play').textContent='⏸'; }
 
+let _failoverInProgress = false;
+async function onAudioError() {
+  if (this !== audio || _failoverInProgress || currentTrackIdx < 0) return;
+  const nextSourceIdx = activeSourceIdx + 1;
+  if (nextSourceIdx >= allSources.length) return; // no more sources to try
+  _failoverInProgress = true;
+  try {
+    const src = allSources[nextSourceIdx];
+    if (!src.sets) {
+      const res = await fetch(`/api/sources/${src.id}/tracks`);
+      const data = await res.json();
+      src.sets = data.sets || [];
+      src.lineage = data.lineage || '';
+      src.taper = data.taper || '';
+      src.transferer = data.transferer || '';
+    }
+    // Build a flat track list for the new source
+    const newTracks = [];
+    (src.sets || []).forEach(set => set.tracks.forEach(t => newTracks.push(t)));
+    if (!newTracks.length) return;
+    const targetIdx = Math.min(currentTrackIdx, newTracks.length - 1);
+    const newTrack = newTracks[targetIdx];
+    if (!newTrack?.mp3_url) return;
+
+    // Switch state to new source without re-rendering the full track list
+    activeSourceIdx = nextSourceIdx;
+    currentSourceId = String(src.id || '');
+    currentTracks = newTracks.map((t, i) => ({...t, _track_id: `${currentSourceId}_${t.id || i}`}));
+    document.querySelectorAll('.src-btn').forEach((b, i) => b.classList.toggle('active', i === nextSourceIdx));
+
+    audio.src = newTrack.mp3_url;
+    audio.play();
+  } finally {
+    _failoverInProgress = false;
+  }
+}
+
 [audioA, audioB].forEach(a => {
   a.addEventListener('timeupdate', onTimeUpdate);
   a.addEventListener('ended', onEnded);
   a.addEventListener('pause', onPause);
   a.addEventListener('play', onPlay);
+  a.addEventListener('error', onAudioError);
 });
 
 document.getElementById('btn-play').onclick = ()=>{ if(audio.paused) audio.play(); else audio.pause(); };
