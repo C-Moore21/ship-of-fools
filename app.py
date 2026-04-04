@@ -1,5 +1,5 @@
 from flask import Flask, render_template, jsonify, request, session
-from tinydb import TinyDB, Query
+from pymongo import MongoClient
 from werkzeug.security import generate_password_hash, check_password_hash
 import requests
 import os
@@ -9,17 +9,19 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-prod")
 
 # ── Database ──────────────────────────────────────────────────────────────────
-# TinyDB: pure-Python NoSQL, stores everything as JSON in a local file.
-# Great for small/hobby apps. Upgrade path: MongoDB Atlas free tier or Redis.
-db = TinyDB("db.json")
-users_table = db.table("users")
-ratings_table = db.table("ratings")
-show_ratings_table = db.table("show_ratings")
-listens_table = db.table("listens")
-User = Query()
-Rating = Query()
-ShowRating = Query()
-Listen = Query()
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/ship_of_fools")
+_mongo = MongoClient(MONGO_URI)
+_db = _mongo.get_default_database() if "?" in MONGO_URI or MONGO_URI.count("/") >= 3 else _mongo["ship_of_fools"]
+users_table      = _db["users"]
+ratings_table    = _db["ratings"]
+show_ratings_table = _db["show_ratings"]
+listens_table    = _db["listens"]
+
+# Indexes (no-op if they already exist)
+users_table.create_index("username", unique=True)
+ratings_table.create_index([("username", 1), ("track_id", 1)], unique=True)
+show_ratings_table.create_index([("username", 1), ("show_id", 1)], unique=True)
+listens_table.create_index([("username", 1), ("ts", 1)])
 
 # ── Archive.org API ───────────────────────────────────────────────────────────
 ARCHIVE_SEARCH   = "https://archive.org/advancedsearch.php"
@@ -61,9 +63,12 @@ def register():
         return jsonify({"error": "Username must be at least 3 characters"}), 400
     if len(password) < 6:
         return jsonify({"error": "Password must be at least 6 characters"}), 400
-    if users_table.get(User.username == username):
+    import re
+    if not re.match(r'^[a-z0-9_-]+$', username):
+        return jsonify({"error": "Username may only contain letters, numbers, _ and -"}), 400
+    if users_table.find_one({"username": username}):
         return jsonify({"error": "Username already taken"}), 409
-    users_table.insert({"username": username, "password_hash": generate_password_hash(password)})
+    users_table.insert_one({"username": username, "password_hash": generate_password_hash(password)})
     session["username"] = username
     return jsonify({"ok": True, "username": username})
 
@@ -72,7 +77,7 @@ def login():
     data = request.get_json()
     username = (data.get("username") or "").strip().lower()
     password = data.get("password") or ""
-    user = users_table.get(User.username == username)
+    user = users_table.find_one({"username": username})
     if not user or not check_password_hash(user["password_hash"], password):
         return jsonify({"error": "Invalid username or password"}), 401
     session["username"] = username
@@ -98,16 +103,16 @@ def upsert_rating():
     track_title = data.get("track_title", "")
     show_date   = data.get("show_date", "")
     source_id   = str(data.get("source_id", ""))
-    stars       = int(data.get("stars", 0))
+    try:
+        stars = int(data.get("stars", 0))
+    except (ValueError, TypeError):
+        return jsonify({"error": "stars must be an integer"}), 400
     if not track_id or stars not in range(1, 6):
         return jsonify({"error": "track_id and stars (1-5) required"}), 400
     username = current_user()
     record = {"username": username, "track_id": track_id, "track_title": track_title,
               "show_date": show_date, "source_id": source_id, "stars": stars}
-    if ratings_table.get((Rating.username == username) & (Rating.track_id == track_id)):
-        ratings_table.update(record, (Rating.username == username) & (Rating.track_id == track_id))
-    else:
-        ratings_table.insert(record)
+    ratings_table.update_one({"username": username, "track_id": track_id}, {"$set": record}, upsert=True)
     return jsonify({"ok": True, "stars": stars})
 
 @app.route("/api/ratings", methods=["DELETE"])
@@ -115,16 +120,17 @@ def upsert_rating():
 def delete_rating():
     data = request.get_json()
     track_id = data.get("track_id")
+    if not track_id:
+        return jsonify({"error": "track_id required"}), 400
     username = current_user()
-    ratings_table.remove((Rating.username == username) & (Rating.track_id == track_id))
+    ratings_table.delete_one({"username": username, "track_id": track_id})
     return jsonify({"ok": True})
 
 @app.route("/api/ratings/mine")
 @login_required
 def my_ratings():
     username = current_user()
-    rows = ratings_table.search(Rating.username == username)
-    rows.sort(key=lambda r: (r.get("show_date", ""), r.get("track_title", "")))
+    rows = list(ratings_table.find({"username": username}, {"_id": 0}).sort([("show_date", 1), ("track_title", 1)]))
     return jsonify(rows)
 
 @app.route("/api/ratings/show")
@@ -132,7 +138,7 @@ def my_ratings():
 def show_ratings():
     source_id = request.args.get("source_id", "")
     username = current_user()
-    rows = ratings_table.search((Rating.username == username) & (Rating.source_id == source_id))
+    rows = ratings_table.find({"username": username, "source_id": source_id}, {"_id": 0})
     return jsonify({r["track_id"]: r["stars"] for r in rows})
 
 # ── Show ratings routes ───────────────────────────────────────────────────────
@@ -142,15 +148,15 @@ def upsert_show_rating():
     data = request.get_json()
     show_id   = data.get("show_id", "")
     venue     = data.get("venue", "")
-    stars     = int(data.get("stars", 0))
+    try:
+        stars = int(data.get("stars", 0))
+    except (ValueError, TypeError):
+        return jsonify({"error": "stars must be an integer"}), 400
     if not show_id or stars not in range(1, 6):
         return jsonify({"error": "show_id and stars (1-5) required"}), 400
     username = current_user()
     record = {"username": username, "show_id": show_id, "venue": venue, "stars": stars}
-    if show_ratings_table.get((ShowRating.username == username) & (ShowRating.show_id == show_id)):
-        show_ratings_table.update(record, (ShowRating.username == username) & (ShowRating.show_id == show_id))
-    else:
-        show_ratings_table.insert(record)
+    show_ratings_table.update_one({"username": username, "show_id": show_id}, {"$set": record}, upsert=True)
     return jsonify({"ok": True, "stars": stars})
 
 @app.route("/api/show-ratings", methods=["DELETE"])
@@ -158,16 +164,17 @@ def upsert_show_rating():
 def delete_show_rating():
     data = request.get_json()
     show_id = data.get("show_id", "")
+    if not show_id:
+        return jsonify({"error": "show_id required"}), 400
     username = current_user()
-    show_ratings_table.remove((ShowRating.username == username) & (ShowRating.show_id == show_id))
+    show_ratings_table.delete_one({"username": username, "show_id": show_id})
     return jsonify({"ok": True})
 
 @app.route("/api/show-ratings/mine")
 @login_required
 def my_show_ratings():
     username = current_user()
-    rows = show_ratings_table.search(ShowRating.username == username)
-    rows.sort(key=lambda r: r.get("show_id", ""))
+    rows = list(show_ratings_table.find({"username": username}, {"_id": 0}).sort("show_id", 1))
     return jsonify(rows)
 
 @app.route("/api/show-ratings/lookup")
@@ -175,7 +182,7 @@ def my_show_ratings():
 def lookup_show_rating():
     show_id = request.args.get("show_id", "")
     username = current_user()
-    row = show_ratings_table.get((ShowRating.username == username) & (ShowRating.show_id == show_id))
+    row = show_ratings_table.find_one({"username": username, "show_id": show_id}, {"_id": 0})
     return jsonify({"stars": row["stars"] if row else 0})
 
 # ── Archive.org proxy routes ──────────────────────────────────────────────────
@@ -190,13 +197,16 @@ def years():
 
 @app.route("/api/years/<year>/shows")
 def shows(year):
-    data = archive_search({
-        "q": f"collection:{COLLECTION} AND year:{year}",
-        "fl[]": "identifier,title,date,coverage",
-        "output": "json",
-        "rows": 1000,
-        "sort[]": "date asc",
-    })
+    try:
+        data = archive_search({
+            "q": f"collection:{COLLECTION} AND year:{year}",
+            "fl[]": "identifier,title,date,coverage",
+            "output": "json",
+            "rows": 1000,
+            "sort[]": "date asc",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
     docs = data.get("response", {}).get("docs", [])
 
     seen = {}
@@ -243,6 +253,8 @@ def _parse_duration(raw):
         s = str(raw or "0")
         if ":" in s:
             parts = s.split(":")
+            if len(parts) == 3:
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
             return int(parts[0]) * 60 + float(parts[1])
         return float(s)
     except (ValueError, TypeError):
@@ -250,12 +262,18 @@ def _parse_duration(raw):
 
 @app.route("/api/shows/<path:show_id>/sources")
 def show_sources(show_id):
-    data = archive_search({
-        "q": f"collection:{COLLECTION} AND date:{show_id}*",
-        "fl[]": "identifier,title,avg_rating,num_reviews",
-        "output": "json",
-        "rows": 100,
-    })
+    import re
+    if not re.match(r'^\d{4}-\d{2}-\d{2}', show_id):
+        return jsonify({"error": "invalid show_id"}), 400
+    try:
+        data = archive_search({
+            "q": f"collection:{COLLECTION} AND date:{show_id}*",
+            "fl[]": "identifier,title,avg_rating,num_reviews",
+            "output": "json",
+            "rows": 100,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
     docs = data.get("response", {}).get("docs", [])
 
     sources = []
@@ -321,7 +339,7 @@ def record_listen():
     seconds = int(data.get("seconds", 0))
     if seconds < 5:
         return jsonify({"ok": True})  # ignore tiny accidental plays
-    listens_table.insert({
+    listens_table.insert_one({
         "username":    current_user(),
         "track_id":    data.get("track_id", ""),
         "track_title": data.get("track_title", ""),
@@ -338,7 +356,7 @@ def record_listen():
 def listen_stats():
     from collections import defaultdict
     username = current_user()
-    rows = listens_table.search(Listen.username == username)
+    rows = list(listens_table.find({"username": username}, {"_id": 0}))
 
     total_seconds = sum(r["seconds"] for r in rows)
 
@@ -370,9 +388,10 @@ def listen_stats():
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
 @app.route("/api/leaderboard")
+@login_required
 def leaderboard():
     from collections import defaultdict
-    rows = listens_table.all()
+    rows = list(listens_table.find({}, {"_id": 0}))
     by_user = defaultdict(lambda: {"seconds": 0, "shows": set(), "tracks": 0})
     for r in rows:
         u = r.get("username", "")
