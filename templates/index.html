@@ -217,6 +217,7 @@
       .panel-divider { display:none; }
       .shows-panel, .track-panel { display:none; }
       .shows-panel.mob-active, .track-panel.mob-active { display:block; }
+      .years-panel.mob-hidden { display:none; }
 
       /* Mobile back button */
       .mobile-back { display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid var(--border); background:var(--surface); font-size:11px; color:var(--accent); cursor:pointer; position:sticky; top:0; z-index:5; }
@@ -266,7 +267,7 @@
 </div>
 
 <div class="layout" id="browse-view">
-  <div class="years-panel">
+  <div class="years-panel" id="years-panel">
     <div class="panel-label">Years</div>
     <div id="years-list"><div class="loading">Loading</div></div>
   </div>
@@ -590,6 +591,8 @@ async function loadYears() {
 // ── MOBILE NAV ────────────────────────────────────────────────────────────
 function mobNav(panel) {
   // panel: 'years' | 'shows' | 'tracks'
+  if (window.innerWidth > 700) return;
+  document.getElementById('years-panel').classList.toggle('mob-hidden', panel !== 'years');
   document.getElementById('shows-panel').classList.toggle('mob-active', panel === 'shows');
   document.getElementById('track-panel').classList.toggle('mob-active', panel === 'tracks');
 }
