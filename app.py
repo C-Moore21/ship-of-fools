@@ -190,6 +190,47 @@ def lookup_show_rating():
 def index():
     return render_template("index.html")
 
+@app.route("/api/today")
+def today_in_history():
+    from datetime import date
+    today = date.today()
+    mm = f"{today.month:02d}"
+    dd = f"{today.day:02d}"
+    try:
+        data = archive_search({
+            "q": f"collection:{COLLECTION} AND date:????-{mm}-{dd}",
+            "fl[]": "identifier,title,date,coverage",
+            "output": "json",
+            "rows": 500,
+            "sort[]": "date asc",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    docs = data.get("response", {}).get("docs", [])
+    seen = {}
+    result = []
+    for doc in docs:
+        date_str = doc.get("date") or ""
+        if isinstance(date_str, list):
+            date_str = date_str[0] if date_str else ""
+        date_str = date_str[:10]
+        if not date_str or date_str in seen:
+            continue
+        seen[date_str] = True
+        title = doc.get("title", "")
+        venue_name = ""
+        if " at " in title and " on " in title:
+            venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
+        result.append({
+            "id": date_str,
+            "display_date": date_str,
+            "venue": {
+                "name": venue_name or title[:60],
+                "location": doc.get("coverage", ""),
+            },
+        })
+    return jsonify(result)
+
 @app.route("/api/years")
 def years():
     # Grateful Dead active years

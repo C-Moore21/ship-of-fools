@@ -189,6 +189,48 @@
     .loading::after { content:'...'; animation:dots 1s infinite; }
     @keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
     ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--accent2); border-radius:2px; }
+    .btn-today { padding:5px 12px; border:1px solid var(--accent2); background:transparent; color:var(--accent2-light); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; letter-spacing:0.5px; white-space:nowrap; }
+    .btn-today:hover { background:var(--accent2); color:var(--white); }
+    .today-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); padding:28px; width:520px; max-width:95vw; max-height:80vh; display:flex; flex-direction:column; position:relative; }
+    .today-list { overflow-y:auto; flex:1; margin-top:14px; }
+    .today-row { display:flex; align-items:center; gap:12px; padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.12s; }
+    .today-row:hover { background:var(--surface2); }
+    .today-year { font-size:13px; color:var(--accent); font-weight:700; width:40px; flex-shrink:0; }
+    .today-venue { font-size:11px; color:var(--text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .today-loc { font-size:10px; color:var(--muted); flex-shrink:0; }
+
+    /* ── MOBILE ────────────────────────────────────────────────────────────── */
+    .mobile-back { display:none; }
+    @media (max-width: 700px) {
+      header { padding:10px 14px; }
+      .logo-text { font-size:18px; }
+      .logo-sub { display:none; }
+      .logo-skull-img { width:34px; height:34px; }
+      .btn { padding:5px 10px; font-size:10px; }
+      .tabs { overflow-x:auto; scrollbar-width:none; }
+      .tabs::-webkit-scrollbar { display:none; }
+      .tab { padding:8px 14px; font-size:10px; white-space:nowrap; }
+
+      /* Stack panels, show only the active one */
+      .layout { display:block; }
+      .years-panel, .shows-panel, .track-panel { max-height:calc(100vh - 96px - 130px); }
+      .panel-divider { display:none; }
+      .shows-panel, .track-panel { display:none; }
+      .shows-panel.mob-active, .track-panel.mob-active { display:block; }
+
+      /* Mobile back button */
+      .mobile-back { display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid var(--border); background:var(--surface); font-size:11px; color:var(--accent); cursor:pointer; position:sticky; top:0; z-index:5; }
+      .mobile-back:hover { color:var(--accent-hover); }
+
+      /* Player bar — two rows on mobile */
+      .player-bar { height:130px; flex-wrap:wrap; padding:8px 14px; gap:0; align-content:center; row-gap:6px; }
+      .player-info { width:100%; flex:none; order:0; }
+      .player-track { font-size:12px; }
+      .player-controls { order:1; gap:8px; }
+      .progress-wrap { order:2; flex:1; }
+      .volume-wrap { display:none; }
+      .years-panel { max-height:calc(100vh - 96px - 130px); }
+    }
   </style>
 </head>
 <body>
@@ -200,11 +242,21 @@
     <div class="logo-sub">Grateful Dead · Live Concert Archive</div>
   </div>
   <div class="header-right">
+    <button class="btn-today" onclick="openToday()">📅 Today in History</button>
     <div class="header-username" id="header-user" style="display:none">Logged in as <span id="header-username-val"></span></div>
     <button class="btn ghost" id="btn-logout" style="display:none" onclick="doLogout()">Log Out</button>
     <button class="btn primary" id="btn-open-login" onclick="openModal('login')">Log In</button>
   </div>
 </header>
+
+<div class="modal-overlay" id="today-modal">
+  <div class="today-modal">
+    <button class="modal-close" onclick="document.getElementById('today-modal').classList.remove('open')">✕</button>
+    <div class="modal-title">Today in History</div>
+    <div class="modal-sub" id="today-modal-sub">Loading...</div>
+    <div class="today-list" id="today-list"><div class="loading">Loading</div></div>
+  </div>
+</div>
 
 <div class="tabs">
   <button class="tab active" id="tab-browse" onclick="showBrowse()">Browse</button>
@@ -219,7 +271,8 @@
     <div id="years-list"><div class="loading">Loading</div></div>
   </div>
   <div class="panel-divider" id="divider-1"></div>
-  <div class="shows-panel">
+  <div class="shows-panel" id="shows-panel">
+    <div class="mobile-back" onclick="mobBack('years')">◀ Years</div>
     <div class="panel-label" id="shows-label">Shows</div>
     <div id="shows-list"><div style="padding:40px 16px;color:var(--muted);text-align:center;font-size:11px;">← Select a year</div></div>
   </div>
@@ -308,6 +361,10 @@ function fmt(s) {
   return m+':'+String(sec).padStart(2,'0');
 }
 
+function escapeHTML(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 // ── AUTH ──────────────────────────────────────────────────────────────────
 async function checkMe() {
   const res = await fetch('/api/auth/me');
@@ -369,6 +426,57 @@ document.addEventListener('keydown', e => {
   if (e.key==='Enter' && document.getElementById('auth-modal').classList.contains('open')) submitAuth();
   if (e.key==='Escape') closeModal();
 });
+
+// ── TODAY IN HISTORY ──────────────────────────────────────────────────────
+async function openToday() {
+  const overlay = document.getElementById('today-modal');
+  const list = document.getElementById('today-list');
+  const sub = document.getElementById('today-modal-sub');
+  overlay.classList.add('open');
+  list.innerHTML = '<div class="loading">Loading</div>';
+  const now = new Date();
+  const monthDay = now.toLocaleDateString('en-US', {month:'long', day:'numeric'});
+  sub.textContent = monthDay + ' — all years';
+  try {
+    const res = await fetch('/api/today');
+    if (!res.ok) throw new Error(res.statusText);
+    const shows = await res.json();
+    if (!shows.length) {
+      list.innerHTML = '<div class="ratings-empty">No shows found for today\'s date.</div>';
+      return;
+    }
+    list.innerHTML = shows.map(s => {
+      const year = escapeHTML(s.display_date.slice(0,4));
+      const venue = escapeHTML(s.venue?.name || '');
+      const loc = escapeHTML(s.venue?.location || '');
+      return `<div class="today-row" onclick="todayGoTo('${escapeHTML(s.id)}')">
+        <div class="today-year">${year}</div>
+        <div class="today-venue">${venue}</div>
+        <div class="today-loc">${loc}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    list.innerHTML = `<div style="color:var(--red);padding:20px;font-size:11px;">${escapeHTML(String(e))}</div>`;
+  }
+}
+
+async function todayGoTo(showId) {
+  document.getElementById('today-modal').classList.remove('open');
+  const year = showId.slice(0, 4);
+  // activate year in sidebar
+  document.querySelectorAll('.year-item').forEach(el => {
+    const active = el.querySelector('span')?.textContent === year;
+    el.classList.toggle('active', active);
+  });
+  await loadShows(year);
+  const showItem = document.getElementById(`show-item-${showId}`);
+  if (showItem) {
+    document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
+    showItem.classList.add('active');
+    showItem.scrollIntoView({ block: 'center' });
+    showItem.click();
+  }
+}
 
 async function doLogout() {
   await fetch('/api/auth/logout',{method:'POST'});
@@ -436,15 +544,15 @@ async function loadMyRatings() {
     const showStarsHTML = showStars ? `<span class="show-group-stars">${'★'.repeat(showStars)}${'☆'.repeat(5-showStars)}</span>` : '';
     const tracksHTML = tracks.map(r=>`
       <div class="show-group-track-row">
-        <span class="show-group-track-title">${r.track_title}</span>
+        <span class="show-group-track-title">${escapeHTML(r.track_title)}</span>
         <span class="show-group-track-stars">${'★'.repeat(r.stars)}${'☆'.repeat(5-r.stars)}</span>
       </div>`).join('');
     html += `
       <div class="show-group-header" onclick="toggleShowGroup('${gid}')">
         <div class="show-group-left">
           <span class="show-group-arrow" id="${gid}-arrow">▶</span>
-          <span class="show-group-date">${date}</span>
-          <span class="show-group-venue">${venue}</span>
+          <span class="show-group-date">${escapeHTML(date)}</span>
+          <span class="show-group-venue">${escapeHTML(venue)}</span>
           ${trackCount}
         </div>
         ${showStarsHTML}
@@ -479,10 +587,30 @@ async function loadYears() {
 }
 
 // ── SHOWS ─────────────────────────────────────────────────────────────────
+// ── MOBILE NAV ────────────────────────────────────────────────────────────
+function mobNav(panel) {
+  // panel: 'years' | 'shows' | 'tracks'
+  document.getElementById('shows-panel').classList.toggle('mob-active', panel === 'shows');
+  document.getElementById('track-panel').classList.toggle('mob-active', panel === 'tracks');
+}
+function mobBack(to) { mobNav(to); }
+
 async function loadShows(year) {
+  mobNav('shows');
   document.getElementById('shows-label').textContent = `Shows · ${year}`;
   document.getElementById('shows-list').innerHTML = '<div class="loading">Loading</div>';
-  const [showsRes] = await Promise.all([fetch(`/api/years/${year}/shows`)]);
+  let showsRes;
+  try {
+    showsRes = await fetch(`/api/years/${year}/shows`);
+  } catch (err) {
+    document.getElementById('shows-list').innerHTML = `<div style="padding:20px 16px;color:var(--red);font-size:11px;">Failed to load shows: ${escapeHTML(String(err))}</div>`;
+    return;
+  }
+  if (!showsRes.ok) {
+    const errData = await showsRes.json().catch(()=>({}));
+    document.getElementById('shows-list').innerHTML = `<div style="padding:20px 16px;color:var(--red);font-size:11px;">Error loading shows: ${escapeHTML(errData.error||showsRes.statusText)}</div>`;
+    return;
+  }
   const shows = await showsRes.json();
   if (loggedInUser) {
     const r = await fetch('/api/show-ratings/mine');
@@ -497,7 +625,7 @@ async function loadShows(year) {
     div.id = `show-item-${show.id}`;
     const myStars = myShowRatings[show.id];
     const badge = myStars ? `<span class="show-my-rating">${'★'.repeat(myStars)}</span>` : '';
-    div.innerHTML = `${badge}<div class="show-date">${show.display_date}</div><div class="show-venue">${show.venue?.name||'Unknown Venue'}</div><div class="show-location">${show.venue?.location||''}</div>`;
+    div.innerHTML = `${badge}<div class="show-date">${escapeHTML(show.display_date)}</div><div class="show-venue">${escapeHTML(show.venue?.name||'Unknown Venue')}</div><div class="show-location">${escapeHTML(show.venue?.location||'')}</div>`;
     div.onclick = () => { document.querySelectorAll('.show-item').forEach(x=>x.classList.remove('active')); div.classList.add('active'); loadSources(show.id,show.display_date,show.venue); };
     el.appendChild(div);
   });
@@ -505,8 +633,21 @@ async function loadShows(year) {
 
 // ── SOURCES / TRACKS ──────────────────────────────────────────────────────
 async function loadSources(showId, date, venue) {
+  mobNav('tracks');
+  history.pushState({}, '', '?show=' + showId);
   document.getElementById('track-panel').innerHTML = '<div class="loading">Loading</div>';
-  const res = await fetch(`/api/shows/${showId}/sources`);
+  let res;
+  try {
+    res = await fetch(`/api/shows/${showId}/sources`);
+  } catch (err) {
+    document.getElementById('track-panel').innerHTML = `<div style="padding:20px 16px;color:var(--red);font-size:11px;">Failed to load sources: ${escapeHTML(String(err))}</div>`;
+    return;
+  }
+  if (!res.ok) {
+    const errData = await res.json().catch(()=>({}));
+    document.getElementById('track-panel').innerHTML = `<div style="padding:20px 16px;color:var(--red);font-size:11px;">Error loading sources: ${escapeHTML(errData.error||res.statusText)}</div>`;
+    return;
+  }
   allSources = await res.json();
   activeSourceIdx = 0;
   currentShowInfo = `${date} — ${venue?.name||''}`;
@@ -552,7 +693,7 @@ function renderSourceButtons() {
   const myStars = myShowRatings[currentShowDate] || 0;
   const showStarsHTML = `<div class="show-rating-widget"><span class="show-rating-label">My Show Rating:</span><span id="show-stars-widget">${buildShowStars(currentShowDate, myStars)}</span></div>`;
   const selectorHTML = `<div class="source-selector">${allSources.map((s,i)=>`<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}<span style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.title||s.id}</span></button>`).join('')}</div>`;
-  panel.innerHTML = `<div class="source-header"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div>${selectorHTML}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">◀ Shows</div><div class="source-header"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div>${selectorHTML}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
 }
 
 async function rateShow(showId, stars) {
@@ -617,7 +758,7 @@ async function loadSourceTracks(idx) {
       tracksHTML += `<div class="track-row" id="track-row-${tidx}" onclick="playTrack(${tidx})">
         <div class="play-icon" id="play-icon-${tidx}">▷</div>
         <div class="track-num">${tidx+1}</div>
-        <div class="track-name">${track.title}</div>
+        <div class="track-name">${escapeHTML(track.title)}</div>
         <div class="track-dur">${fmt(track.duration)}</div>
         ${buildStars(trackId, showRatings[trackId]||0, tidx)}
       </div>`;
@@ -706,6 +847,20 @@ function playTrack(idx) {
 
   preloadTrack(idx + 1);
   updatePlaybackUI(idx);
+
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t.title || '—',
+      artist: 'Grateful Dead',
+      album: currentShowInfo,
+    });
+    navigator.mediaSession.setActionHandler('play', () => audio.play());
+    navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+    navigator.mediaSession.setActionHandler('previoustrack', () => playTrack(currentTrackIdx - 1));
+    navigator.mediaSession.setActionHandler('nexttrack', () => playTrack(currentTrackIdx + 1));
+    navigator.mediaSession.setActionHandler('seekbackward', () => { audio.currentTime = Math.max(0, audio.currentTime - 10); });
+    navigator.mediaSession.setActionHandler('seekforward', () => { audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 30); });
+  }
 }
 
 let seeking = false;
@@ -762,11 +917,25 @@ function toggleMute() {
 
 function onEnded() { if (this === audio) playTrack(currentTrackIdx+1); }
 function onPause() { if (this === audio) document.getElementById('btn-play').textContent='▶'; }
-function onPlay()  { if (this === audio) document.getElementById('btn-play').textContent='⏸'; }
+function onPlay()  { if (this === audio) { document.getElementById('btn-play').textContent='⏸'; _retryCount = 0; } }
 
 let _failoverInProgress = false;
+let _retryCount = 0;
+const MAX_RETRIES = 3;
 async function onAudioError() {
   if (this !== audio || _failoverInProgress || currentTrackIdx < 0) return;
+  if (_retryCount < MAX_RETRIES) {
+    _retryCount++;
+    _failoverInProgress = true;
+    const url = audio.src;
+    audio.src = '';
+    await new Promise(r => setTimeout(r, 500 * _retryCount));
+    _failoverInProgress = false;
+    audio.src = url;
+    audio.play();
+    return;
+  }
+  _retryCount = 0;
   const nextSourceIdx = activeSourceIdx + 1;
   if (nextSourceIdx >= allSources.length) return; // no more sources to try
   _failoverInProgress = true;
@@ -825,7 +994,7 @@ async function loadLeaderboard() {
   el.innerHTML = rows.map((r, i) => `
     <div class="lb-row ${r.username===loggedInUser?'me':''}">
       <div class="lb-rank ${rankClass(i)}">${rankSymbol(i)}</div>
-      <div class="lb-name">${r.username}${r.username===loggedInUser?' <span style="font-size:9px;color:var(--accent2)">you</span>':''}</div>
+      <div class="lb-name">${escapeHTML(r.username)}${r.username===loggedInUser?' <span style="font-size:9px;color:var(--accent2)">you</span>':''}</div>
       <div class="lb-stats">
         <div class="lb-stat"><div class="lb-stat-val">${fmtDuration(r.seconds)}</div><div class="lb-stat-label">Listened</div></div>
         <div class="lb-stat"><div class="lb-stat-val">${r.shows}</div><div class="lb-stat-label">Shows</div></div>
@@ -916,7 +1085,21 @@ setInterval(listenTick, 1000);
 setInterval(() => { if (!audio.paused) flushListen(); }, 30000);
 // Flush on track change or pause
 const _origPlayTrack = playTrack;
-window.addEventListener('beforeunload', () => flushListen(true));
+window.addEventListener('beforeunload', () => {
+  if (!loggedInUser || listenSeconds < 5) return;
+  const track = currentTracks[currentTrackIdx];
+  if (!track) return;
+  const secs = Math.round(listenSeconds);
+  if (secs < 5) return;
+  navigator.sendBeacon('/api/listens', new Blob([JSON.stringify({
+    track_id: track._track_id || '',
+    track_title: track.title || '',
+    show_id: currentSourceId,
+    show_date: currentShowDate,
+    source_id: currentSourceId,
+    seconds: secs,
+  })], {type: 'application/json'}));
+});
 
 // Flush when audio pauses (after meaningful listen)
 audioA.addEventListener('pause', () => flushListen());
@@ -949,23 +1132,23 @@ async function loadStats() {
 
   const showsRows = d.top_shows.map(s => `
     <tr>
-      <td>${s.show_date}</td>
+      <td>${escapeHTML(s.show_date)}</td>
       <td>${fmtDuration(s.seconds)}</td>
       <td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(s.seconds/maxShowSecs*100)}%"></div></td>
     </tr>`).join('');
 
   const tracksRows = d.top_tracks.map(t => `
     <tr>
-      <td>${t.track_title}</td>
-      <td class="dim">${t.show_date}</td>
+      <td>${escapeHTML(t.track_title)}</td>
+      <td class="dim">${escapeHTML(t.show_date)}</td>
       <td>${fmtDuration(t.seconds)}</td>
       <td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(t.seconds/maxTrackSecs*100)}%"></div></td>
     </tr>`).join('');
 
   const recentRows = d.recent.map(r => `
     <tr>
-      <td>${r.track_title}</td>
-      <td class="dim">${r.show_date}</td>
+      <td>${escapeHTML(r.track_title)}</td>
+      <td class="dim">${escapeHTML(r.show_date)}</td>
       <td>${fmtDuration(r.seconds)}</td>
     </tr>`).join('');
 
@@ -984,7 +1167,24 @@ async function loadStats() {
 }
 
 checkMe();
-loadYears();
+loadYears().then(async () => {
+  const showId = new URLSearchParams(window.location.search).get('show');
+  if (!showId) return;
+  const year = showId.slice(0, 4);
+  // highlight the year
+  document.querySelectorAll('.year-item').forEach(el => {
+    if (el.querySelector('span')?.textContent === year) el.classList.add('active');
+  });
+  await loadShows(year);
+  // find and activate the show item, then load it
+  const showItem = document.getElementById(`show-item-${showId}`);
+  if (showItem) {
+    document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
+    showItem.classList.add('active');
+    showItem.scrollIntoView({ block: 'center' });
+    showItem.click();
+  }
+});
 </script>
 </body>
 </html>
