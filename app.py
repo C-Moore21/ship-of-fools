@@ -16,12 +16,14 @@ users_table      = _db["users"]
 ratings_table    = _db["ratings"]
 show_ratings_table = _db["show_ratings"]
 listens_table    = _db["listens"]
+notes_table      = _db["notes"]
 
 # Indexes (no-op if they already exist)
 users_table.create_index("username", unique=True)
 ratings_table.create_index([("username", 1), ("track_id", 1)], unique=True)
 show_ratings_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 listens_table.create_index([("username", 1), ("ts", 1)])
+notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 
 # ── Archive.org API ───────────────────────────────────────────────────────────
 ARCHIVE_SEARCH   = "https://archive.org/advancedsearch.php"
@@ -468,6 +470,156 @@ def leaderboard():
         {"username": u, "seconds": v["seconds"], "shows": len(v["shows"]), "tracks": v["tracks"]}
         for u, v in by_user.items()
     ], key=lambda x: x["seconds"], reverse=True)
+    return jsonify(result)
+
+# ── Notes ────────────────────────────────────────────────────────────────────
+@app.route("/api/notes/<path:show_id>", methods=["GET"])
+@login_required
+def get_note(show_id):
+    row = notes_table.find_one({"username": current_user(), "show_id": show_id}, {"_id": 0})
+    return jsonify({"note": row["note"] if row else ""})
+
+@app.route("/api/notes", methods=["POST"])
+@login_required
+def save_note():
+    data = request.get_json()
+    show_id = data.get("show_id", "")
+    note = data.get("note", "").strip()
+    if not show_id:
+        return jsonify({"error": "show_id required"}), 400
+    if note:
+        notes_table.update_one(
+            {"username": current_user(), "show_id": show_id},
+            {"$set": {"username": current_user(), "show_id": show_id, "note": note}},
+            upsert=True
+        )
+    else:
+        notes_table.delete_one({"username": current_user(), "show_id": show_id})
+    return jsonify({"ok": True})
+
+# ── Listening history ─────────────────────────────────────────────────────────
+@app.route("/api/listens/history")
+@login_required
+def listen_history():
+    rows = list(listens_table.find(
+        {"username": current_user()}, {"_id": 0}
+    ).sort("ts", -1).limit(500))
+    return jsonify(rows)
+
+# ── On This Tour ──────────────────────────────────────────────────────────────
+@app.route("/api/shows/<path:show_id>/tour")
+def on_this_tour(show_id):
+    import re
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', show_id):
+        return jsonify({"error": "invalid show_id"}), 400
+    from datetime import date, timedelta
+    try:
+        d = date.fromisoformat(show_id)
+    except ValueError:
+        return jsonify({"error": "invalid show_id"}), 400
+    # Fetch shows within 30 days either side — same year run
+    start = (d - timedelta(days=30)).isoformat()
+    end   = (d + timedelta(days=30)).isoformat()
+    year  = show_id[:4]
+    try:
+        data = archive_search({
+            "q": f"collection:{COLLECTION} AND year:{year} AND date:[{start} TO {end}]",
+            "fl[]": "identifier,title,date,coverage",
+            "output": "json",
+            "rows": 60,
+            "sort[]": "date asc",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    docs = data.get("response", {}).get("docs", [])
+    seen = {}
+    result = []
+    for doc in docs:
+        date_str = doc.get("date") or ""
+        if isinstance(date_str, list):
+            date_str = date_str[0] if date_str else ""
+        date_str = date_str[:10]
+        if not date_str or date_str in seen:
+            continue
+        seen[date_str] = True
+        title = doc.get("title", "")
+        venue_name = ""
+        if " at " in title and " on " in title:
+            venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
+        result.append({
+            "id": date_str,
+            "display_date": date_str,
+            "is_current": date_str == show_id,
+            "venue": {"name": venue_name or title[:50], "location": doc.get("coverage", "")},
+        })
+    return jsonify(result)
+
+# ── Venue history ─────────────────────────────────────────────────────────────
+@app.route("/api/venue")
+def venue_history():
+    venue = request.args.get("venue", "").strip()
+    if not venue or len(venue) < 3:
+        return jsonify({"error": "venue required"}), 400
+    try:
+        data = archive_search({
+            "q": f'collection:{COLLECTION} AND coverage:"{venue}"',
+            "fl[]": "identifier,title,date,coverage",
+            "output": "json",
+            "rows": 200,
+            "sort[]": "date asc",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    docs = data.get("response", {}).get("docs", [])
+    seen = {}
+    result = []
+    for doc in docs:
+        date_str = doc.get("date") or ""
+        if isinstance(date_str, list):
+            date_str = date_str[0] if date_str else ""
+        date_str = date_str[:10]
+        if not date_str or date_str in seen:
+            continue
+        seen[date_str] = True
+        result.append({"id": date_str, "display_date": date_str})
+    return jsonify({"venue": venue, "shows": result})
+
+# ── Search ────────────────────────────────────────────────────────────────────
+@app.route("/api/search")
+def search_shows():
+    q = request.args.get("q", "").strip()
+    if not q or len(q) < 2:
+        return jsonify([])
+    try:
+        data = archive_search({
+            "q": f"collection:{COLLECTION} AND ({q})",
+            "fl[]": "identifier,title,date,coverage",
+            "output": "json",
+            "rows": 50,
+            "sort[]": "date asc",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    docs = data.get("response", {}).get("docs", [])
+    seen = {}
+    result = []
+    for doc in docs:
+        date_str = doc.get("date") or ""
+        if isinstance(date_str, list):
+            date_str = date_str[0] if date_str else ""
+        date_str = date_str[:10]
+        if not date_str or date_str in seen:
+            continue
+        seen[date_str] = True
+        title = doc.get("title", "")
+        venue_name = ""
+        if " at " in title and " on " in title:
+            venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
+        result.append({
+            "id": date_str,
+            "display_date": date_str,
+            "venue": {"name": venue_name or title[:60], "location": doc.get("coverage", "")},
+        })
     return jsonify(result)
 
 # ── Keep-alive (Render free tier) ────────────────────────────────────────────
