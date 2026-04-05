@@ -95,6 +95,9 @@
     .src-btn { padding:4px 10px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:10px; cursor:pointer; border-radius:2px; transition:all 0.12s; display:flex; align-items:center; gap:5px; }
     .src-btn:hover { border-color:var(--accent); color:var(--text); }
     .src-btn.active { background:var(--surface2); color:var(--text); border-color:var(--accent2); }
+    .source-collapse-header { display:none; align-items:center; justify-content:space-between; padding:8px 16px; border-bottom:1px solid var(--border); cursor:pointer; font-size:11px; color:var(--muted); }
+    .source-collapse-header:hover { color:var(--text); }
+    @media (max-width:700px) { .source-collapse-header { display:flex; } .source-selector.collapsed { display:none; } }
     .src-type-badge { font-size:9px; font-weight:700; padding:1px 4px; border-radius:2px; letter-spacing:0.5px; }
     .src-type-SBD { background:var(--accent); color:var(--bg); }
     .src-type-MTX { background:var(--accent2); color:var(--white); }
@@ -1020,7 +1023,9 @@ function renderSourceButtons() {
   const panel = document.getElementById('track-panel');
   const myStars = myShowRatings[currentShowDate] || 0;
   const showStarsHTML = `<div class="show-rating-widget"><span class="show-rating-label">My Show Rating:</span><span id="show-stars-widget">${buildShowStars(currentShowDate, myStars)}</span></div>`;
-  const selectorHTML = `<div class="source-selector">${allSources.map((s,i)=>`<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}<span style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.title||s.id}</span></button>`).join('')}</div>`;
+  const activeSrc = allSources[activeSourceIdx];
+  const activeLbl = activeSrc ? `${activeSrc.source_type||'UNK'} — ${activeSrc.title||activeSrc.id}` : 'Sources';
+  const selectorHTML = `<div class="source-collapse-header" onclick="toggleSourceList()" id="source-collapse-hdr"><span id="source-collapse-label">${escapeHTML(activeLbl)}</span><span id="source-collapse-arrow">▼</span></div><div class="source-selector" id="source-selector-list">${allSources.map((s,i)=>`<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}<span style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(s.title||s.id)}</span></button>`).join('')}</div>`;
   const notesWidget = loggedInUser ? `<div class="notes-widget"><div class="notes-label">My Notes</div><textarea class="notes-textarea" id="notes-textarea" placeholder="Your thoughts on this show…" oninput="scheduleNoteSave()"></textarea><div class="notes-saved" id="notes-saved"></div></div>` : '';
   const tourSection = `<div class="tour-section"><div class="tour-header" onclick="toggleTour()"><span>On This Tour</span><span id="tour-arrow">▶</span></div><div class="tour-list" id="tour-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
   const venueSection = `<div class="venue-section"><div class="venue-header" onclick="toggleVenue()"><span id="venue-header-text">Venue History</span><span id="venue-arrow">▶</span></div><div class="venue-list" id="venue-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
@@ -1098,8 +1103,28 @@ async function loadSourceTracks(idx) {
   container.innerHTML = tracksHTML || '<div style="padding:20px 16px;color:var(--muted);font-size:11px;">No playable tracks found for this source.</div>';
 }
 
+function toggleSourceList() {
+  const list = document.getElementById('source-selector-list');
+  const arrow = document.getElementById('source-collapse-arrow');
+  if (!list) return;
+  const collapsed = list.classList.toggle('collapsed');
+  if (arrow) arrow.textContent = collapsed ? '▶' : '▼';
+}
+
 async function switchSource(idx) {
   await loadSourceTracks(idx);
+  // On mobile, collapse the source list and update the label after picking
+  if (window.innerWidth <= 700) {
+    const list = document.getElementById('source-selector-list');
+    const arrow = document.getElementById('source-collapse-arrow');
+    const label = document.getElementById('source-collapse-label');
+    if (list) list.classList.add('collapsed');
+    if (arrow) arrow.textContent = '▶';
+    if (label) {
+      const src = allSources[idx];
+      label.textContent = src ? `${src.source_type||'UNK'} — ${src.title||src.id}` : 'Sources';
+    }
+  }
 }
 
 function buildStars(trackId, filledCount, rowIdx) {
