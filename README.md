@@ -4,24 +4,40 @@ A Grateful Dead live concert browser built with Python/Flask, sourcing recording
 
 ## Features
 
+### Browsing & Discovery
 - Browse every Grateful Dead year (1965–1995)
 - Shows grouped by date with venue & location
+- **Search** — find shows by date, venue, or location
+- **Today in History (TIH)** — all recordings from today's date across every year, ranked by composite score, with a hero card and one-tap play
+- **On This Tour** — shows within 30 days of the selected show, same year
+- **Venue History** — other shows played at the same city/location
+
+### Recordings & Scoring
 - All recordings per show listed with type badges — **SBD**, **MTX**, **FOB**, **AUD** — sorted by a weighted composite quality score
-- Composite score uses a Bayesian confidence-adjusted rating × source type multiplier (SBD 1.0 · MTX 0.9 · FOB 0.8 · AUD 0.7)
+- Composite score: Bayesian confidence-adjusted rating × source type multiplier (SBD 1.0 · MTX 0.9 · FOB 0.8 · AUD 0.7)
 - Taper, transferer, and lineage info per recording
 - Full setlist with track durations
-- Audio player with play/pause, prev/next, seek slider, and gapless preload (desktop)
+
+### Playback
+- Audio player with play/pause, prev/next, seek slider, and gapless preload (desktop/WiFi)
 - **Automatic source failover** — retries 3× on error then switches to next best recording
 - **Lock screen / AirPlay controls** via Media Session API (iOS Safari + Apple TV supported)
-- **Today in History (TIH)** — shows all recordings played on today's date across all years, ranked by composite score, with a hero card for the best recording and a one-tap play button
+- **Android Cast / Chrome Remote Playback** via Remote Playback API
+- Gapless preload disabled on cellular connections to save data
+
+### Social & Personal
+- User accounts (register/login) with session-based auth
 - **Show ratings** — rate entire shows 1–5 stars
 - **Track ratings** — rate individual tracks 1–5 stars per recording
+- **Notes** — save personal notes per show
 - **My Rated Shows & Tracks** view — collapsible by show
+- **Listening History** — your 500 most recent plays
 - **Stats** — total listening time, top shows, top tracks, recent plays
 - **Leaderboard** — listening time across all users
-- **Deep linking** — shareable URLs per show (`?show=1977-05-08`)
-- **Mobile-friendly** — drill-down panel navigation, stacked player bar
-- User accounts (register/login) with session-based auth
+
+### Navigation
+- **Deep linking** — shareable URLs per show and recording (`?show=1977-05-08&src=gd1977-05-08.sbd...`)
+- **Mobile-friendly** — drill-down panel navigation, stacked player bar, collapsible source list after selection
 
 ## Stack
 
