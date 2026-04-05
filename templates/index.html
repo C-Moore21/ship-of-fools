@@ -193,35 +193,32 @@
     .btn-today:hover { background:var(--accent2); color:var(--white); }
     .today-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); padding:28px; width:580px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column; position:relative; }
     .today-list { overflow-y:auto; flex:1; margin-top:10px; }
-    /* Hero card */
-    .today-hero { background:var(--surface2); border:1px solid var(--accent2); padding:18px 20px; margin-bottom:14px; cursor:pointer; transition:background 0.12s; }
-    .today-hero:hover { background:#1a2440; }
-    .today-hero-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:8px; }
-    .today-hero-year { font-family:'Playfair Display',serif; font-size:28px; font-weight:700; color:var(--accent); line-height:1; }
-    .today-hero-score { font-family:'Playfair Display',serif; font-size:28px; font-weight:700; color:var(--white); line-height:1; text-align:right; }
-    .today-hero-score-label { font-size:9px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; text-align:right; margin-top:2px; }
-    .today-hero-venue { font-size:14px; color:var(--text); font-weight:700; margin-bottom:3px; }
-    .today-hero-loc { font-size:11px; color:var(--muted); margin-bottom:10px; }
-    .today-hero-meta { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
-    .today-hero-ratings { font-size:10px; color:var(--muted); }
-    .today-hero-play { padding:6px 16px; background:var(--accent); color:var(--bg); border:none; font-family:'Space Mono',monospace; font-size:11px; font-weight:700; cursor:pointer; border-radius:2px; transition:background 0.12s; }
-    .today-hero-play:hover { background:var(--accent-hover); }
-    /* Ranked list */
-    .today-row { display:flex; align-items:center; gap:10px; padding:9px 12px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.12s; }
-    .today-row:hover { background:var(--surface2); }
-    .today-rank { font-size:11px; color:var(--muted); width:18px; text-align:right; flex-shrink:0; }
-    .today-year { font-size:12px; color:var(--accent); font-weight:700; width:36px; flex-shrink:0; }
-    .today-venue { font-size:11px; color:var(--text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .today-loc { font-size:10px; color:var(--muted); flex-shrink:0; max-width:100px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .today-score { font-size:12px; color:var(--white); font-weight:700; width:32px; text-align:right; flex-shrink:0; }
-    /* Source type badges — shared with src-type but also used in TIH */
+    /* TIH date group — collapsed header */
+    .tih-group { border:1px solid var(--border); margin-bottom:6px; }
+    .tih-group-header { display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:pointer; transition:background 0.12s; user-select:none; }
+    .tih-group-header:hover { background:var(--surface); }
+    .tih-group-arrow { font-size:10px; color:var(--muted); transition:transform 0.15s; flex-shrink:0; }
+    .tih-group-arrow.open { transform:rotate(90deg); }
+    .tih-group-year { font-size:14px; color:var(--accent); font-weight:700; width:38px; flex-shrink:0; }
+    .tih-group-venue { font-size:12px; color:var(--text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .tih-group-score { font-size:13px; color:var(--white); font-weight:700; flex-shrink:0; }
+    /* TIH expanded recording rows */
+    .tih-recordings { display:none; border-top:1px solid var(--border); }
+    .tih-recordings.open { display:block; }
+    .tih-rec-row { display:flex; align-items:center; gap:10px; padding:8px 14px 8px 40px; border-bottom:1px solid rgba(30,42,69,0.6); }
+    .tih-rec-row:last-child { border-bottom:none; }
+    .tih-rec-title { font-size:10px; color:var(--muted); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .tih-rec-score { font-size:11px; color:var(--muted); flex-shrink:0; }
+    .tih-rec-reviews { font-size:10px; color:var(--muted); flex-shrink:0; }
+    .tih-rec-play { padding:3px 10px; background:var(--accent); color:var(--bg); border:none; font-family:'Space Mono',monospace; font-size:10px; font-weight:700; cursor:pointer; border-radius:2px; flex-shrink:0; }
+    .tih-rec-play:hover { background:var(--accent-hover); }
+    /* Source type badges */
     .tih-badge { font-size:9px; font-weight:700; padding:2px 5px; border-radius:2px; letter-spacing:0.5px; flex-shrink:0; }
     .tih-SBD { background:#c8a84b; color:#000; }
     .tih-MTX { background:var(--accent2); color:var(--white); }
     .tih-FOB { background:#2e7d4f; color:var(--white); }
     .tih-AUD { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
     .tih-UNK { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
-    .today-list-label { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); padding:8px 12px 4px; }
 
     /* ── MOBILE ────────────────────────────────────────────────────────────── */
     .mobile-back { display:none; }
@@ -341,8 +338,8 @@
     <span class="volume-icon" id="vol-icon" onclick="toggleMute()">🔊</span>
     <input type="range" class="volume-slider" id="vol-slider" min="0" max="1" step="0.02" value="1">
   </div>
-  <audio id="audio-player" crossorigin="anonymous"></audio>
-  <audio id="audio-preload" preload="auto" crossorigin="anonymous" style="display:none"></audio>
+  <audio id="audio-player"></audio>
+  <audio id="audio-preload" preload="auto" style="display:none"></audio>
 </div>
 
 <div class="modal-overlay" id="auth-modal">
@@ -453,6 +450,14 @@ document.addEventListener('keydown', e => {
 });
 
 // ── TODAY IN HISTORY ──────────────────────────────────────────────────────
+function tihToggle(groupId) {
+  const panel = document.getElementById(groupId);
+  const arrow = document.getElementById(groupId + '-arrow');
+  if (!panel) return;
+  const open = panel.classList.toggle('open');
+  arrow.classList.toggle('open', open);
+}
+
 function tihBadge(type) {
   return `<span class="tih-badge tih-${type}">${escapeHTML(type)}</span>`;
 }
@@ -474,49 +479,48 @@ async function openToday() {
       list.innerHTML = '<div class="ratings-empty">No shows found for today\'s date.</div>';
       return;
     }
-    const hero = recordings[0];
-    const rest = recordings.slice(1);
+    // Group recordings by show date, preserving score-sorted order within each group
+    const groups = {};
+    const groupOrder = [];
+    for (const r of recordings) {
+      if (!groups[r.id]) { groups[r.id] = []; groupOrder.push(r.id); }
+      groups[r.id].push(r);
+    }
 
-    const heroRatings = hero.avg_rating
-      ? `${Number(hero.avg_rating).toFixed(1)}★ · ${hero.num_reviews} review${hero.num_reviews!==1?'s':''}`
-      : 'No reviews yet';
+    list.innerHTML = groupOrder.map((showId, gi) => {
+      const recs = groups[showId]; // already sorted best-first
+      const best = recs[0];
+      const year = escapeHTML(best.display_date.slice(0, 4));
+      const venue = escapeHTML(best.venue?.name || '');
+      const groupId = `tih-g-${gi}`;
 
-    const heroHTML = `
-      <div class="today-hero">
-        <div class="today-hero-top">
-          <div>
-            <div class="today-hero-year">${escapeHTML(hero.display_date.slice(0,4))}</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHTML(hero.display_date)}</div>
-          </div>
-          <div>
-            <div class="today-hero-score">${hero.score.toFixed(1)}</div>
-            <div class="today-hero-score-label">score / 10</div>
-          </div>
+      const recRows = recs.map(r => {
+        const reviews = r.avg_rating
+          ? `${Number(r.avg_rating).toFixed(1)}★ ${r.num_reviews}r`
+          : 'no reviews';
+        return `<div class="tih-rec-row">
+          ${tihBadge(r.source_type)}
+          <div class="tih-rec-title">${escapeHTML(r.identifier)}</div>
+          <div class="tih-rec-reviews">${escapeHTML(reviews)}</div>
+          <div class="tih-rec-score">${r.score.toFixed(1)}</div>
+          <button class="tih-rec-play" onclick="todayPlay('${escapeHTML(r.id)}','${escapeHTML(r.identifier)}',event)">▶</button>
+        </div>`;
+      }).join('');
+
+      return `<div class="tih-group">
+        <div class="tih-group-header" onclick="tihToggle('${groupId}')">
+          <span class="tih-group-arrow" id="${groupId}-arrow">▶</span>
+          <div class="tih-group-year">${year}</div>
+          ${tihBadge(best.source_type)}
+          <div class="tih-group-venue">${venue}</div>
+          <div class="tih-group-score">${best.score.toFixed(1)}</div>
         </div>
-        <div class="today-hero-venue">${escapeHTML(hero.venue?.name||'')}</div>
-        <div class="today-hero-loc">${escapeHTML(hero.venue?.location||'')}</div>
-        <div class="today-hero-meta">
-          <div style="display:flex;align-items:center;gap:8px;">
-            ${tihBadge(hero.source_type)}
-            <span class="today-hero-ratings">${escapeHTML(heroRatings)}</span>
-          </div>
-          <button class="today-hero-play" onclick="todayPlay('${escapeHTML(hero.id)}','${escapeHTML(hero.identifier)}',event)">▶ Play</button>
-        </div>
+        <div class="tih-recordings" id="${groupId}">${recRows}</div>
       </div>`;
+    }).join('');
 
-    const restHTML = rest.length ? `
-      <div class="today-list-label">All recordings this date</div>
-      ${rest.map((s, i) => `
-        <div class="today-row" onclick="todayGoTo('${escapeHTML(s.id)}')">
-          <div class="today-rank">${i + 2}</div>
-          <div class="today-year">${escapeHTML(s.display_date.slice(0,4))}</div>
-          ${tihBadge(s.source_type)}
-          <div class="today-venue">${escapeHTML(s.venue?.name||'')}</div>
-          <div class="today-loc">${escapeHTML(s.venue?.location||'')}</div>
-          <div class="today-score">${s.score.toFixed(1)}</div>
-        </div>`).join('')}` : '';
-
-    list.innerHTML = heroHTML + restHTML;
+    // Auto-open the first (best) group
+    tihToggle('tih-g-0');
   } catch(e) {
     list.innerHTML = `<div style="color:var(--red);padding:20px;font-size:11px;">${escapeHTML(String(e))}</div>`;
   }
@@ -919,14 +923,16 @@ function playTrack(idx) {
   const t = currentTracks[idx];
   if (!t.mp3_url) return;
 
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  // Gapless swap breaks AirPlay on iOS — skip it and load directly
+  // Detect iOS/iPadOS — gapless swap breaks AirPlay on these platforms
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   if (!isIOS && preload.src === t.mp3_url && preload.readyState >= 3) {
     audio.pause();
     [audio, preload] = [preload, audio];
     audio.play().catch(() => {});
   } else {
     audio.src = t.mp3_url;
+    audio.load();
     audio.play().catch(() => {});
   }
 
@@ -1018,7 +1024,8 @@ async function onAudioError() {
     await new Promise(r => setTimeout(r, 500 * _retryCount));
     _failoverInProgress = false;
     audio.src = url;
-    audio.play();
+    audio.load();
+    audio.play().catch(() => {});
     return;
   }
   _retryCount = 0;
@@ -1050,7 +1057,8 @@ async function onAudioError() {
     document.querySelectorAll('.src-btn').forEach((b, i) => b.classList.toggle('active', i === nextSourceIdx));
 
     audio.src = newTrack.mp3_url;
-    audio.play();
+    audio.load();
+    audio.play().catch(() => {});
   } finally {
     _failoverInProgress = false;
   }
