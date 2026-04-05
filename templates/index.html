@@ -429,7 +429,7 @@ const _conn = navigator.connection || navigator.mozConnection || navigator.webki
 const _isCellular = _conn && (_conn.type === 'cellular' || ['slow-2g','2g','3g'].includes(_conn.effectiveType));
 if (_isCellular) audioB.removeAttribute('preload');
 let currentTracks = [], currentTrackIdx = -1, currentShowInfo = '';
-let currentSourceId = '', currentShowDate = '';
+let currentSourceId = '', currentShowDate = '', currentShowLocation = '';
 let allSources = [], activeSourceIdx = 0;
 let loggedInUser = null;
 let showRatings = {};
@@ -746,11 +746,7 @@ async function loadVenueHistory() {
   _venueLoaded = true;
   const list = document.getElementById('venue-list');
   if (!list) return;
-  const location = allSources[activeSourceIdx]?.sets === undefined
-    ? '' : '';
-  // Use the coverage from the current show info
-  const coverageMatch = currentShowInfo.match(/—\s*(.+)/);
-  const coverage = coverageMatch ? coverageMatch[1].trim() : '';
+  const coverage = currentShowLocation;
   if (!coverage) { list.innerHTML = '<div style="padding:10px 16px;font-size:11px;color:var(--muted);">No venue info available.</div>'; return; }
   try {
     const res = await fetch(`/api/venue?venue=${encodeURIComponent(coverage)}`);
@@ -982,6 +978,7 @@ async function loadSources(showId, date, venue) {
   activeSourceIdx = 0;
   currentShowInfo = `${date} — ${venue?.name||''}`;
   currentShowDate = date;
+  currentShowLocation = venue?.location || '';
   currentTracks = [];
   if (!allSources.length) {
     document.getElementById('track-panel').innerHTML = '<div class="track-panel-empty"><div class="big-skull">💀</div><div>No sources found</div></div>';
