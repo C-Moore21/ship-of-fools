@@ -200,7 +200,7 @@ def today_in_history():
     try:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND date:({date_terms})",
-            "fl[]": "identifier,title,date,coverage",
+            "fl[]": "identifier,title,date,coverage,avg_rating,num_reviews",
             "output": "json",
             "rows": 500,
             "sort[]": "date asc",
@@ -208,28 +208,37 @@ def today_in_history():
     except Exception as e:
         return jsonify({"error": str(e)}), 502
     docs = data.get("response", {}).get("docs", [])
-    seen = {}
     result = []
     for doc in docs:
         date_str = doc.get("date") or ""
         if isinstance(date_str, list):
             date_str = date_str[0] if date_str else ""
         date_str = date_str[:10]
-        if not date_str or date_str in seen:
+        if not date_str:
             continue
-        seen[date_str] = True
         title = doc.get("title", "")
         venue_name = ""
         if " at " in title and " on " in title:
             venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
+        identifier = doc["identifier"]
+        source_type = _parse_source_type(identifier)
+        avg_rating = doc.get("avg_rating")
+        num_reviews = doc.get("num_reviews", 0) or 0
+        score = _composite_score(avg_rating, num_reviews, source_type)
         result.append({
             "id": date_str,
+            "identifier": identifier,
             "display_date": date_str,
             "venue": {
                 "name": venue_name or title[:60],
                 "location": doc.get("coverage", ""),
             },
+            "source_type": source_type,
+            "avg_rating": avg_rating,
+            "num_reviews": num_reviews,
+            "score": score,
         })
+    result.sort(key=lambda x: x["score"], reverse=True)
     return jsonify(result)
 
 @app.route("/api/years")
@@ -277,6 +286,19 @@ def shows(year):
     return jsonify(result)
 
 _SOURCE_TYPE_ORDER = {"SBD": 0, "MTX": 1, "FOB": 2, "AUD": 3, "UNK": 4}
+
+_SOURCE_MULTIPLIER = {"SBD": 1.00, "MTX": 0.90, "FOB": 0.80, "AUD": 0.70, "UNK": 0.65}
+_BAYES_C = 10      # reviews needed to earn 50% weight over prior
+_GLOBAL_MEAN = 3.8 # prior: reasonable default for archive.org GD ratings
+
+def _composite_score(avg_rating, num_reviews, source_type):
+    m = _GLOBAL_MEAN
+    C = _BAYES_C
+    R = avg_rating if avg_rating is not None else m
+    n = num_reviews or 0
+    bayesian = (C * m + n * R) / (C + n)
+    multiplier = _SOURCE_MULTIPLIER.get(source_type, 0.80)
+    return round(bayesian * multiplier * 2, 2)  # 0–10 display scale
 
 def _parse_source_type(identifier):
     parts = set(identifier.lower().replace("-", ".").split("."))

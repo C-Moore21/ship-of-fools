@@ -191,13 +191,37 @@
     ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--accent2); border-radius:2px; }
     .btn-today { padding:5px 12px; border:1px solid var(--accent2); background:transparent; color:var(--accent2-light); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; letter-spacing:0.5px; white-space:nowrap; }
     .btn-today:hover { background:var(--accent2); color:var(--white); }
-    .today-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); padding:28px; width:520px; max-width:95vw; max-height:80vh; display:flex; flex-direction:column; position:relative; }
-    .today-list { overflow-y:auto; flex:1; margin-top:14px; }
-    .today-row { display:flex; align-items:center; gap:12px; padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.12s; }
+    .today-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); padding:28px; width:580px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column; position:relative; }
+    .today-list { overflow-y:auto; flex:1; margin-top:10px; }
+    /* Hero card */
+    .today-hero { background:var(--surface2); border:1px solid var(--accent2); padding:18px 20px; margin-bottom:14px; cursor:pointer; transition:background 0.12s; }
+    .today-hero:hover { background:#1a2440; }
+    .today-hero-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:8px; }
+    .today-hero-year { font-family:'Playfair Display',serif; font-size:28px; font-weight:700; color:var(--accent); line-height:1; }
+    .today-hero-score { font-family:'Playfair Display',serif; font-size:28px; font-weight:700; color:var(--white); line-height:1; text-align:right; }
+    .today-hero-score-label { font-size:9px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; text-align:right; margin-top:2px; }
+    .today-hero-venue { font-size:14px; color:var(--text); font-weight:700; margin-bottom:3px; }
+    .today-hero-loc { font-size:11px; color:var(--muted); margin-bottom:10px; }
+    .today-hero-meta { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+    .today-hero-ratings { font-size:10px; color:var(--muted); }
+    .today-hero-play { padding:6px 16px; background:var(--accent); color:var(--bg); border:none; font-family:'Space Mono',monospace; font-size:11px; font-weight:700; cursor:pointer; border-radius:2px; transition:background 0.12s; }
+    .today-hero-play:hover { background:var(--accent-hover); }
+    /* Ranked list */
+    .today-row { display:flex; align-items:center; gap:10px; padding:9px 12px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.12s; }
     .today-row:hover { background:var(--surface2); }
-    .today-year { font-size:13px; color:var(--accent); font-weight:700; width:40px; flex-shrink:0; }
+    .today-rank { font-size:11px; color:var(--muted); width:18px; text-align:right; flex-shrink:0; }
+    .today-year { font-size:12px; color:var(--accent); font-weight:700; width:36px; flex-shrink:0; }
     .today-venue { font-size:11px; color:var(--text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .today-loc { font-size:10px; color:var(--muted); flex-shrink:0; }
+    .today-loc { font-size:10px; color:var(--muted); flex-shrink:0; max-width:100px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .today-score { font-size:12px; color:var(--white); font-weight:700; width:32px; text-align:right; flex-shrink:0; }
+    /* Source type badges — shared with src-type but also used in TIH */
+    .tih-badge { font-size:9px; font-weight:700; padding:2px 5px; border-radius:2px; letter-spacing:0.5px; flex-shrink:0; }
+    .tih-SBD { background:#c8a84b; color:#000; }
+    .tih-MTX { background:var(--accent2); color:var(--white); }
+    .tih-FOB { background:#2e7d4f; color:var(--white); }
+    .tih-AUD { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
+    .tih-UNK { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
+    .today-list-label { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); padding:8px 12px 4px; }
 
     /* ── MOBILE ────────────────────────────────────────────────────────────── */
     .mobile-back { display:none; }
@@ -317,8 +341,8 @@
     <span class="volume-icon" id="vol-icon" onclick="toggleMute()">🔊</span>
     <input type="range" class="volume-slider" id="vol-slider" min="0" max="1" step="0.02" value="1">
   </div>
-  <audio id="audio-player"></audio>
-  <audio id="audio-preload" preload="auto" style="display:none"></audio>
+  <audio id="audio-player" crossorigin="anonymous"></audio>
+  <audio id="audio-preload" preload="auto" crossorigin="anonymous" style="display:none"></audio>
 </div>
 
 <div class="modal-overlay" id="auth-modal">
@@ -429,6 +453,10 @@ document.addEventListener('keydown', e => {
 });
 
 // ── TODAY IN HISTORY ──────────────────────────────────────────────────────
+function tihBadge(type) {
+  return `<span class="tih-badge tih-${type}">${escapeHTML(type)}</span>`;
+}
+
 async function openToday() {
   const overlay = document.getElementById('today-modal');
   const list = document.getElementById('today-list');
@@ -437,25 +465,58 @@ async function openToday() {
   list.innerHTML = '<div class="loading">Loading</div>';
   const now = new Date();
   const monthDay = now.toLocaleDateString('en-US', {month:'long', day:'numeric'});
-  sub.textContent = monthDay + ' — all years';
+  sub.textContent = monthDay + ' — ranked by quality';
   try {
     const res = await fetch('/api/today');
     if (!res.ok) throw new Error(res.statusText);
-    const shows = await res.json();
-    if (!shows.length) {
+    const recordings = await res.json();
+    if (!recordings.length) {
       list.innerHTML = '<div class="ratings-empty">No shows found for today\'s date.</div>';
       return;
     }
-    list.innerHTML = shows.map(s => {
-      const year = escapeHTML(s.display_date.slice(0,4));
-      const venue = escapeHTML(s.venue?.name || '');
-      const loc = escapeHTML(s.venue?.location || '');
-      return `<div class="today-row" onclick="todayGoTo('${escapeHTML(s.id)}')">
-        <div class="today-year">${year}</div>
-        <div class="today-venue">${venue}</div>
-        <div class="today-loc">${loc}</div>
+    const hero = recordings[0];
+    const rest = recordings.slice(1);
+
+    const heroRatings = hero.avg_rating
+      ? `${Number(hero.avg_rating).toFixed(1)}★ · ${hero.num_reviews} review${hero.num_reviews!==1?'s':''}`
+      : 'No reviews yet';
+
+    const heroHTML = `
+      <div class="today-hero">
+        <div class="today-hero-top">
+          <div>
+            <div class="today-hero-year">${escapeHTML(hero.display_date.slice(0,4))}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHTML(hero.display_date)}</div>
+          </div>
+          <div>
+            <div class="today-hero-score">${hero.score.toFixed(1)}</div>
+            <div class="today-hero-score-label">score / 10</div>
+          </div>
+        </div>
+        <div class="today-hero-venue">${escapeHTML(hero.venue?.name||'')}</div>
+        <div class="today-hero-loc">${escapeHTML(hero.venue?.location||'')}</div>
+        <div class="today-hero-meta">
+          <div style="display:flex;align-items:center;gap:8px;">
+            ${tihBadge(hero.source_type)}
+            <span class="today-hero-ratings">${escapeHTML(heroRatings)}</span>
+          </div>
+          <button class="today-hero-play" onclick="todayPlay('${escapeHTML(hero.id)}','${escapeHTML(hero.identifier)}',event)">▶ Play</button>
+        </div>
       </div>`;
-    }).join('');
+
+    const restHTML = rest.length ? `
+      <div class="today-list-label">All recordings this date</div>
+      ${rest.map((s, i) => `
+        <div class="today-row" onclick="todayGoTo('${escapeHTML(s.id)}')">
+          <div class="today-rank">${i + 2}</div>
+          <div class="today-year">${escapeHTML(s.display_date.slice(0,4))}</div>
+          ${tihBadge(s.source_type)}
+          <div class="today-venue">${escapeHTML(s.venue?.name||'')}</div>
+          <div class="today-loc">${escapeHTML(s.venue?.location||'')}</div>
+          <div class="today-score">${s.score.toFixed(1)}</div>
+        </div>`).join('')}` : '';
+
+    list.innerHTML = heroHTML + restHTML;
   } catch(e) {
     list.innerHTML = `<div style="color:var(--red);padding:20px;font-size:11px;">${escapeHTML(String(e))}</div>`;
   }
@@ -464,10 +525,8 @@ async function openToday() {
 async function todayGoTo(showId) {
   document.getElementById('today-modal').classList.remove('open');
   const year = showId.slice(0, 4);
-  // activate year in sidebar
   document.querySelectorAll('.year-item').forEach(el => {
-    const active = el.querySelector('span')?.textContent === year;
-    el.classList.toggle('active', active);
+    el.classList.toggle('active', el.querySelector('span')?.textContent === year);
   });
   await loadShows(year);
   const showItem = document.getElementById(`show-item-${showId}`);
@@ -477,6 +536,28 @@ async function todayGoTo(showId) {
     showItem.scrollIntoView({ block: 'center' });
     showItem.click();
   }
+}
+
+async function todayPlay(showId, identifier, e) {
+  e.stopPropagation();
+  document.getElementById('today-modal').classList.remove('open');
+  const year = showId.slice(0, 4);
+  document.querySelectorAll('.year-item').forEach(el => {
+    el.classList.toggle('active', el.querySelector('span')?.textContent === year);
+  });
+  await loadShows(year);
+  const showItem = document.getElementById(`show-item-${showId}`);
+  if (showItem) {
+    document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
+    showItem.classList.add('active');
+    showItem.scrollIntoView({ block: 'center' });
+  }
+  // find the source index matching the identifier and load it directly
+  await loadSources(showId, showId, {});
+  const srcIdx = allSources.findIndex(s => String(s.id) === identifier);
+  if (srcIdx >= 0) await loadSourceTracks(srcIdx);
+  // auto-play first track once loaded
+  if (currentTracks.length) playTrack(0);
 }
 
 async function doLogout() {
@@ -838,14 +919,15 @@ function playTrack(idx) {
   const t = currentTracks[idx];
   if (!t.mp3_url) return;
 
-  // If the next track is already preloaded in the inactive buffer, swap and play gaplessly
-  if (preload.src === t.mp3_url && preload.readyState >= 3) {
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  // Gapless swap breaks AirPlay on iOS — skip it and load directly
+  if (!isIOS && preload.src === t.mp3_url && preload.readyState >= 3) {
     audio.pause();
     [audio, preload] = [preload, audio];
-    audio.play();
+    audio.play().catch(() => {});
   } else {
     audio.src = t.mp3_url;
-    audio.play();
+    audio.play().catch(() => {});
   }
 
   preloadTrack(idx + 1);
@@ -857,10 +939,11 @@ function playTrack(idx) {
       artist: 'Grateful Dead',
       album: currentShowInfo,
     });
-    navigator.mediaSession.setActionHandler('play', () => audio.play());
+    navigator.mediaSession.setActionHandler('play', () => audio.play().catch(() => {}));
     navigator.mediaSession.setActionHandler('pause', () => audio.pause());
     navigator.mediaSession.setActionHandler('previoustrack', () => playTrack(currentTrackIdx - 1));
     navigator.mediaSession.setActionHandler('nexttrack', () => playTrack(currentTrackIdx + 1));
+    navigator.mediaSession.setActionHandler('stop', () => { audio.pause(); audio.currentTime = 0; });
     navigator.mediaSession.setActionHandler('seekbackward', () => { audio.currentTime = Math.max(0, audio.currentTime - 10); });
     navigator.mediaSession.setActionHandler('seekforward', () => { audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 30); });
   }
@@ -918,7 +1001,7 @@ function toggleMute() {
   updateVolIcon(v);
 }
 
-function onEnded() { if (this === audio) playTrack(currentTrackIdx+1); }
+function onEnded() { if (this === audio) { playTrack(currentTrackIdx+1); } }
 function onPause() { if (this === audio) document.getElementById('btn-play').textContent='▶'; }
 function onPlay()  { if (this === audio) { document.getElementById('btn-play').textContent='⏸'; _retryCount = 0; } }
 
