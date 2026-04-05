@@ -950,6 +950,8 @@ async function loadShows(year) {
     const div = document.createElement('div');
     div.className = 'show-item';
     div.id = `show-item-${show.id}`;
+    div.dataset.date = show.display_date || '';
+    div.dataset.venue = JSON.stringify(show.venue || {});
     const myStars = myShowRatings[show.id];
     const badge = myStars ? `<span class="show-my-rating">${'★'.repeat(myStars)}</span>` : '';
     div.innerHTML = `${badge}<div class="show-date">${escapeHTML(show.display_date)}</div><div class="show-venue">${escapeHTML(show.venue?.name||'Unknown Venue')}</div><div class="show-location">${escapeHTML(show.venue?.location||'')}</div>`;
@@ -1057,6 +1059,7 @@ async function loadSourceTracks(idx) {
   activeSourceIdx = idx;
   const src = allSources[idx];
   currentSourceId = String(src.id||'');
+  history.replaceState({}, '', '?show=' + currentShowDate + '&src=' + encodeURIComponent(currentSourceId));
   if (loggedInUser) await loadShowRatings(currentSourceId);
 
   document.querySelectorAll('.src-btn').forEach((b,i) => b.classList.toggle('active', i===idx));
@@ -1552,8 +1555,10 @@ async function loadStats() {
 
 checkMe();
 loadYears().then(async () => {
-  const showId = new URLSearchParams(window.location.search).get('show');
+  const params = new URLSearchParams(window.location.search);
+  const showId = params.get('show');
   if (!showId) return;
+  const srcId = params.get('src');
   const year = showId.slice(0, 4);
   // highlight the year
   document.querySelectorAll('.year-item').forEach(el => {
@@ -1566,7 +1571,13 @@ loadYears().then(async () => {
     document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
     showItem.classList.add('active');
     showItem.scrollIntoView({ block: 'center' });
-    showItem.click();
+    const venue = JSON.parse(showItem.dataset.venue || '{}');
+    await loadSources(showId, showItem.dataset.date, venue);
+    // if a specific source was linked, switch to it
+    if (srcId) {
+      const idx = allSources.findIndex(s => String(s.id) === srcId);
+      if (idx > 0) await switchSource(idx);
+    }
   }
 });
 </script>
