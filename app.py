@@ -470,5 +470,19 @@ def leaderboard():
     ], key=lambda x: x["seconds"], reverse=True)
     return jsonify(result)
 
+# ── Keep-alive (Render free tier) ────────────────────────────────────────────
+_RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
+if _RENDER_URL:
+    import threading, time as _time
+    def _keep_alive():
+        _time.sleep(60)  # wait for app to finish starting
+        while True:
+            try:
+                requests.get(_RENDER_URL, timeout=10)
+            except Exception:
+                pass
+            _time.sleep(14 * 60)  # ping every 14 minutes
+    threading.Thread(target=_keep_alive, daemon=True).start()
+
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
