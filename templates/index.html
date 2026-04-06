@@ -786,6 +786,22 @@ async function venueGoTo(showId) {
 }
 
 // ── LISTENING HISTORY ─────────────────────────────────────────────────────
+function collapseRuns(rows, keyFn) {
+  // Merge consecutive rows with the same key into one, summing seconds
+  const out = [];
+  for (const r of rows) {
+    const key = keyFn(r);
+    const prev = out[out.length - 1];
+    if (prev && prev._key === key) {
+      prev.seconds += r.seconds;
+      prev._count++;
+    } else {
+      out.push({...r, _key: key, _count: 1});
+    }
+  }
+  return out;
+}
+
 async function showHistory() {
   hideAllViews();
   document.getElementById('history-view').classList.add('open');
@@ -796,13 +812,15 @@ async function showHistory() {
     const res = await fetch('/api/listens/history');
     const rows = await res.json();
     if (!rows.length) { el.innerHTML = '<div class="ratings-empty">No listening history yet.</div>'; return; }
-    el.innerHTML = `<div style="font-size:10px;color:var(--muted);margin-bottom:12px;">${rows.length} sessions</div>` +
-      rows.map(r => {
+    const collapsed = collapseRuns(rows, r => (r.track_title||r.track_id||'') + '|' + (r.show_date||''));
+    el.innerHTML = `<div style="font-size:10px;color:var(--muted);margin-bottom:12px;">${collapsed.length} sessions${collapsed.length < rows.length ? ` (${rows.length - collapsed.length} repeated plays collapsed)` : ''}</div>` +
+      collapsed.map(r => {
         const ts = r.ts ? new Date(r.ts).toLocaleString() : '';
         const dur = r.seconds ? fmt(r.seconds) : '';
+        const countBadge = r._count > 1 ? `<span style="font-size:9px;color:var(--accent2-light);margin-left:4px;">x${r._count}</span>` : '';
         return `<div class="history-row">
           <div class="history-ts">${escapeHTML(ts)}</div>
-          <div class="history-track">${escapeHTML(r.track_title||r.track_id||'—')}</div>
+          <div class="history-track">${escapeHTML(r.track_title||r.track_id||'—')}${countBadge}</div>
           <div class="history-show">${escapeHTML(r.show_date||'')}</div>
           <div class="history-dur">${escapeHTML(dur)}</div>
         </div>`;
@@ -1542,9 +1560,10 @@ async function loadStats() {
       <td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(t.seconds/maxTrackSecs*100)}%"></div></td>
     </tr>`).join('');
 
-  const recentRows = d.recent.map(r => `
+  const recentCollapsed = collapseRuns(d.recent, r => (r.track_title||'') + '|' + (r.show_date||''));
+  const recentRows = recentCollapsed.map(r => `
     <tr>
-      <td>${escapeHTML(r.track_title)}</td>
+      <td>${escapeHTML(r.track_title)}${r._count > 1 ? `<span style="font-size:9px;color:var(--accent2-light);margin-left:4px;">x${r._count}</span>` : ''}</td>
       <td class="dim">${escapeHTML(r.show_date)}</td>
       <td>${fmtDuration(r.seconds)}</td>
     </tr>`).join('');
