@@ -1454,7 +1454,6 @@ async function loadLeaderboard() {
       <div class="lb-stats">
         <div class="lb-stat"><div class="lb-stat-val">${fmtDuration(r.seconds)}</div><div class="lb-stat-label">Listened</div></div>
         <div class="lb-stat"><div class="lb-stat-val">${r.shows}</div><div class="lb-stat-label">Shows</div></div>
-        <div class="lb-stat"><div class="lb-stat-val">${r.tracks}</div><div class="lb-stat-label">Sessions</div></div>
       </div>
     </div>`).join('');
 }
@@ -1604,7 +1603,6 @@ async function loadStats() {
   el.innerHTML = `
     <div class="stats-hero">
       <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened</div></div>
-      <div class="stats-card"><div class="stats-card-val">${d.total_listens}</div><div class="stats-card-label">Track Sessions</div></div>
     </div>
     ${d.top_shows.length ? `<div class="ratings-section-title">Top Shows</div>
     <table class="stats-table"><thead><tr><th>Date</th><th>Time</th><th></th></tr></thead><tbody>${showsRows}</tbody></table>` : ''}
