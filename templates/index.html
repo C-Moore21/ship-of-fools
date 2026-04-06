@@ -1547,21 +1547,22 @@ window.addEventListener('beforeunload', () => {
   const secs = Math.round(listenSeconds);
   if (secs < 5) return;
   navigator.sendBeacon('/api/listens', new Blob([JSON.stringify({
-    track_id: track._track_id || '',
+    track_id:    track._track_id || '',
     track_title: track.title || '',
-    show_id: currentSourceId,
-    show_date: currentShowDate,
-    source_id: currentSourceId,
-    seconds: secs,
+    show_id:     currentShowDate,
+    show_date:   currentShowDate,
+    source_id:   currentSourceId,
+    seconds:     secs,
   })], {type: 'application/json'}));
 });
 
-// Flush when audio pauses (after meaningful listen)
-audioA.addEventListener('pause', () => flushListen());
-audioB.addEventListener('pause', () => flushListen());
+// Flush/reset only when the ACTIVE element fires — not the preload buffer
+audioA.addEventListener('pause', () => { if (audio === audioA) flushListen(); });
+audioB.addEventListener('pause', () => { if (audio === audioB) flushListen(); });
 
-// Reset counter when a new track starts
-const _listenOnPlay = function() { if (this === audio) { listenSeconds = 0; listenLastTime = audio.currentTime; } };
+const _listenOnPlay = function() {
+  if (this === audio) { listenSeconds = 0; listenLastTime = audio.currentTime; }
+};
 audioA.addEventListener('play', _listenOnPlay);
 audioB.addEventListener('play', _listenOnPlay);
 
