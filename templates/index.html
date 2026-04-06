@@ -343,7 +343,7 @@
   </div>
   <div class="panel-divider" id="divider-1"></div>
   <div class="shows-panel" id="shows-panel">
-    <div class="mobile-back" onclick="mobBack('years')">◀ Years</div>
+    <div class="mobile-back" onclick="mobBack('years')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polyline points="15,4 7,12 15,20"/></svg> Years</div>
     <div class="search-wrap">
       <input class="search-input" id="search-input" type="text" placeholder="Search shows, venues…" oninput="onSearchInput(this.value)" autocomplete="off">
     </div>
@@ -383,9 +383,9 @@
     <div class="player-show" id="player-show"></div>
   </div>
   <div class="player-controls">
-    <button class="ctrl-btn" id="btn-prev">⏮</button>
-    <button class="ctrl-btn play-pause" id="btn-play">▶</button>
-    <button class="ctrl-btn" id="btn-next">⏭</button>
+    <button class="ctrl-btn" id="btn-prev"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="18,4 9,12 18,20"/><rect x="4" y="4" width="3" height="16"/></svg></button>
+    <button class="ctrl-btn play-pause" id="btn-play"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="4,2 20,12 4,22"/></svg></button>
+    <button class="ctrl-btn" id="btn-next"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="6,4 15,12 6,20"/><rect x="17" y="4" width="3" height="16"/></svg></button>
   </div>
   <div class="progress-wrap">
     <span class="time-label" id="time-cur">0:00</span>
@@ -393,7 +393,7 @@
     <span class="time-label right" id="time-dur">0:00</span>
   </div>
   <div class="volume-wrap">
-    <span class="volume-icon" id="vol-icon" onclick="toggleMute()">🔊</span>
+    <span class="volume-icon" id="vol-icon" onclick="toggleMute()"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="11,4 6,8 2,8 2,16 6,16 11,20"/><polyline points="14,9 17,12 14,15"/><polyline points="17,7 21,12 17,17"/></svg></span>
     <input type="range" class="volume-slider" id="vol-slider" min="0" max="1" step="0.02" value="1">
   </div>
   <audio id="audio-player"></audio>
@@ -423,6 +423,18 @@
 </div>
 
 <script>
+const _IC = {
+  play:  `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="4,2 20,12 4,22"/></svg>`,
+  pause: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>`,
+  playTr:`<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="miter"><polygon points="4,2 20,12 4,22"/></svg>`,
+  playTrDim:`<svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter" opacity="0.35"><polygon points="4,2 20,12 4,22"/></svg>`,
+  chevR: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polyline points="9,6 15,12 9,18"/></svg>`,
+  chevD: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polyline points="6,9 12,15 18,9"/></svg>`,
+  back:  `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polyline points="15,4 7,12 15,20"/></svg>`,
+  volHi: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="11,4 6,8 2,8 2,16 6,16 11,20"/><polyline points="14,9 17,12 14,15"/><polyline points="17,7 21,12 17,17"/></svg>`,
+  volLo: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="11,4 6,8 2,8 2,16 6,16 11,20"/><polyline points="14,9 17,12 14,15"/></svg>`,
+  volMu: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="11,4 6,8 2,8 2,16 6,16 11,20"/><line x1="15" y1="9" x2="21" y2="15"/><line x1="21" y1="9" x2="15" y2="15"/></svg>`,
+};
 let audioA = document.getElementById('audio-player');
 let audioB = document.getElementById('audio-preload');
 let audio = audioA; // active element
@@ -572,7 +584,7 @@ async function openToday() {
 
       return `<div class="tih-group">
         <div class="tih-group-header" onclick="tihToggle('${groupId}')">
-          <span class="tih-group-arrow" id="${groupId}-arrow">▶</span>
+          <span class="tih-group-arrow" id="${groupId}-arrow">${_IC.chevR}</span>
           <div class="tih-group-year">${year}</div>
           ${tihBadge(best.source_type)}
           <div class="tih-group-venue">${venue}</div>
@@ -703,7 +715,7 @@ function toggleTour() {
   const arrow = document.getElementById('tour-arrow');
   if (!list) return;
   const open = list.classList.toggle('open');
-  arrow.textContent = open ? '▼' : '▶';
+  arrow.innerHTML = open ? _IC.chevD : _IC.chevR;
   if (open && !_tourLoaded) loadTour();
 }
 
@@ -741,7 +753,7 @@ function toggleVenue() {
   const arrow = document.getElementById('venue-arrow');
   if (!list) return;
   const open = list.classList.toggle('open');
-  arrow.textContent = open ? '▼' : '▶';
+  arrow.innerHTML = open ? _IC.chevD : _IC.chevR;
   if (open && !_venueLoaded) loadVenueHistory();
 }
 
@@ -875,7 +887,7 @@ async function loadMyRatings() {
     html += `
       <div class="show-group-header" onclick="toggleShowGroup('${gid}')">
         <div class="show-group-left">
-          <span class="show-group-arrow" id="${gid}-arrow">▶</span>
+          <span class="show-group-arrow" id="${gid}-arrow">${_IC.chevR}</span>
           <span class="show-group-date">${escapeHTML(date)}</span>
           <span class="show-group-venue">${escapeHTML(venue)}</span>
           ${trackCount}
@@ -1027,11 +1039,11 @@ function renderSourceButtons() {
   const showStarsHTML = `<div class="show-rating-widget"><span class="show-rating-label">My Show Rating:</span><span id="show-stars-widget">${buildShowStars(currentShowDate, myStars)}</span></div>`;
   const activeSrc = allSources[activeSourceIdx];
   const activeLbl = activeSrc ? `${activeSrc.source_type||'UNK'} — ${activeSrc.title||activeSrc.id}` : 'Sources';
-  const selectorHTML = `<div class="source-collapse-header" onclick="toggleSourceList()" id="source-collapse-hdr"><span id="source-collapse-label">${escapeHTML(activeLbl)}</span><span id="source-collapse-arrow">▼</span></div><div class="source-selector" id="source-selector-list">${allSources.map((s,i)=>`<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}<span style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(s.title||s.id)}</span></button>`).join('')}</div>`;
+  const selectorHTML = `<div class="source-collapse-header" onclick="toggleSourceList()" id="source-collapse-hdr"><span id="source-collapse-label">${escapeHTML(activeLbl)}</span><span id="source-collapse-arrow">${_IC.chevD}</span></div><div class="source-selector" id="source-selector-list">${allSources.map((s,i)=>`<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}<span style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(s.title||s.id)}</span></button>`).join('')}</div>`;
   const notesWidget = loggedInUser ? `<div class="notes-widget"><div class="notes-label">My Notes</div><textarea class="notes-textarea" id="notes-textarea" placeholder="Your thoughts on this show…" oninput="scheduleNoteSave()"></textarea><div class="notes-saved" id="notes-saved"></div></div>` : '';
-  const tourSection = `<div class="tour-section"><div class="tour-header" onclick="toggleTour()"><span>On This Tour</span><span id="tour-arrow">▶</span></div><div class="tour-list" id="tour-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
-  const venueSection = `<div class="venue-section"><div class="venue-header" onclick="toggleVenue()"><span id="venue-header-text">Venue History</span><span id="venue-arrow">▶</span></div><div class="venue-list" id="venue-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
-  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">◀ Shows</div><div class="source-header"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div>${notesWidget}${selectorHTML}<div id="tracks-container"><div class="loading">Loading tracks</div></div>${tourSection}${venueSection}`;
+  const tourSection = `<div class="tour-section"><div class="tour-header" onclick="toggleTour()"><span>On This Tour</span><span id="tour-arrow">${_IC.chevR}</span></div><div class="tour-list" id="tour-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
+  const venueSection = `<div class="venue-section"><div class="venue-header" onclick="toggleVenue()"><span id="venue-header-text">Venue History</span><span id="venue-arrow">${_IC.chevR}</span></div><div class="venue-list" id="venue-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div>${notesWidget}${selectorHTML}<div id="tracks-container"><div class="loading">Loading tracks</div></div>${tourSection}${venueSection}`;
 }
 
 async function rateShow(showId, stars) {
@@ -1095,7 +1107,7 @@ async function loadSourceTracks(idx) {
       const trackId = `${currentSourceId}_${track.id||tidx}`;
       currentTracks.push({...track, mp3_url:track.mp3_url||track.flac_url, _track_id:trackId});
       tracksHTML += `<div class="track-row" id="track-row-${tidx}" onclick="playTrack(${tidx})">
-        <div class="play-icon" id="play-icon-${tidx}">▷</div>
+        <div class="play-icon" id="play-icon-${tidx}">${_IC.playTrDim}</div>
         <div class="track-num">${tidx+1}</div>
         <div class="track-name">${escapeHTML(track.title)}</div>
         <div class="track-dur">${fmt(track.duration)}</div>
@@ -1111,7 +1123,7 @@ function toggleSourceList() {
   const arrow = document.getElementById('source-collapse-arrow');
   if (!list) return;
   const collapsed = list.classList.toggle('collapsed');
-  if (arrow) arrow.textContent = collapsed ? '▶' : '▼';
+  if (arrow) arrow.innerHTML = collapsed ? _IC.chevR : _IC.chevD;
 }
 
 async function switchSource(idx) {
@@ -1122,7 +1134,7 @@ async function switchSource(idx) {
     const arrow = document.getElementById('source-collapse-arrow');
     const label = document.getElementById('source-collapse-label');
     if (list) list.classList.add('collapsed');
-    if (arrow) arrow.textContent = '▶';
+    if (arrow) arrow.innerHTML = _IC.chevR;
     if (label) {
       const src = allSources[idx];
       label.textContent = src ? `${src.source_type||'UNK'} — ${src.title||src.id}` : 'Sources';
@@ -1174,9 +1186,9 @@ function updatePlaybackUI(idx) {
   const t = currentTracks[idx];
   document.getElementById('player-track').textContent = `${idx + 1}. ${t.title}`;
   document.getElementById('player-show').textContent = `${currentShowInfo}  ·  track ${idx + 1} of ${currentTracks.length}`;
-  document.getElementById('btn-play').textContent = '⏸';
+  document.getElementById('btn-play').innerHTML = _IC.pause;
   document.querySelectorAll('.track-row').forEach((r,i)=>r.classList.toggle('playing',i===idx));
-  document.querySelectorAll('.play-icon').forEach((ic,i)=>ic.textContent=i===idx?'▶':'▷');
+  document.querySelectorAll('.play-icon').forEach((ic,i)=>ic.innerHTML=i===idx?_IC.playTr:_IC.playTrDim);
 }
 
 function preloadTrack(idx) {
@@ -1284,7 +1296,7 @@ const volIcon   = document.getElementById('vol-icon');
 let lastVol = 1;
 
 function updateVolIcon(v) {
-  volIcon.textContent = v === 0 ? '🔇' : v < 0.4 ? '🔉' : '🔊';
+  volIcon.innerHTML = v === 0 ? _IC.volMu : v < 0.4 ? _IC.volLo : _IC.volHi;
 }
 volSlider.addEventListener('input', () => {
   const v = parseFloat(volSlider.value);
@@ -1301,8 +1313,8 @@ function toggleMute() {
 }
 
 function onEnded() { if (this === audio) { playTrack(currentTrackIdx+1); } }
-function onPause() { if (this === audio) document.getElementById('btn-play').textContent='▶'; }
-function onPlay()  { if (this === audio) { document.getElementById('btn-play').textContent='⏸'; _retryCount = 0; } }
+function onPause() { if (this === audio) document.getElementById('btn-play').innerHTML = _IC.play; }
+function onPlay()  { if (this === audio) { document.getElementById('btn-play').innerHTML = _IC.pause; _retryCount = 0; } }
 
 let _failoverInProgress = false;
 let _retryCount = 0;
