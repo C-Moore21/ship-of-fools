@@ -232,8 +232,16 @@
     /* ── History tab ── */
     .history-view { display:none; padding:20px 24px; position:relative; z-index:1; flex:1; overflow-y:auto; max-height:calc(100vh - 100px - 90px); }
     .history-view.open { display:block; }
-    .history-row { display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid rgba(30,42,69,0.5); font-size:11px; }
+    .history-row { display:flex; align-items:center; gap:12px; padding:7px 0 7px 16px; border-bottom:1px solid rgba(30,42,69,0.4); font-size:11px; }
     .history-ts { font-size:10px; color:var(--muted); width:130px; flex-shrink:0; }
+    .history-show-group { border:1px solid var(--border); margin-bottom:6px; }
+    .history-show-header { display:flex; align-items:center; justify-content:space-between; padding:9px 14px; background:var(--surface); cursor:pointer; user-select:none; transition:background 0.12s; }
+    .history-show-header:hover { background:var(--surface2); }
+    .history-show-header-left { display:flex; align-items:center; gap:10px; }
+    .history-show-date { font-size:12px; color:var(--accent); font-weight:700; }
+    .history-show-meta { font-size:10px; color:var(--muted); }
+    .history-show-tracks { display:none; border-top:1px solid var(--border); }
+    .history-show-tracks.open { display:block; }
     .history-track { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text); }
     .history-show { font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; max-width:140px; }
     .history-dur { font-size:10px; color:var(--muted); flex-shrink:0; }
@@ -802,6 +810,14 @@ function collapseRuns(rows, keyFn) {
   return out;
 }
 
+function toggleHistoryShow(id) {
+  const el = document.getElementById(id);
+  const arrow = document.getElementById(id + '-arrow');
+  if (!el) return;
+  const open = el.classList.toggle('open');
+  if (arrow) arrow.innerHTML = open ? _IC.chevD : _IC.chevR;
+}
+
 async function showHistory() {
   hideAllViews();
   document.getElementById('history-view').classList.add('open');
@@ -812,19 +828,44 @@ async function showHistory() {
     const res = await fetch('/api/listens/history');
     const rows = await res.json();
     if (!rows.length) { el.innerHTML = '<div class="ratings-empty">No listening history yet.</div>'; return; }
-    const collapsed = collapseRuns(rows, r => (r.track_title||r.track_id||'') + '|' + (r.show_date||''));
-    el.innerHTML = `<div style="font-size:10px;color:var(--muted);margin-bottom:12px;">${collapsed.length} sessions${collapsed.length < rows.length ? ` (${rows.length - collapsed.length} repeated plays collapsed)` : ''}</div>` +
-      collapsed.map(r => {
-        const ts = r.ts ? new Date(r.ts).toLocaleString() : '';
-        const dur = r.seconds ? fmt(r.seconds) : '';
+
+    // Group by show date, preserving order of first appearance
+    const showOrder = [];
+    const byShow = {};
+    for (const r of rows) {
+      const key = r.show_date || r.show_id || '—';
+      if (!byShow[key]) { byShow[key] = []; showOrder.push(key); }
+      byShow[key].push(r);
+    }
+
+    let groupIdx = 0;
+    const groupsHTML = showOrder.map(showDate => {
+      const showRows = byShow[showDate];
+      const collapsed = collapseRuns(showRows, r => r.track_title || r.track_id || '');
+      const totalSecs = showRows.reduce((s, r) => s + (r.seconds || 0), 0);
+      const gid = `hsg-${groupIdx++}`;
+      const tracksHTML = collapsed.map(r => {
         const countBadge = r._count > 1 ? `<span style="font-size:9px;color:var(--accent2-light);margin-left:4px;">x${r._count}</span>` : '';
         return `<div class="history-row">
-          <div class="history-ts">${escapeHTML(ts)}</div>
-          <div class="history-track">${escapeHTML(r.track_title||r.track_id||'—')}${countBadge}</div>
-          <div class="history-show">${escapeHTML(r.show_date||'')}</div>
-          <div class="history-dur">${escapeHTML(dur)}</div>
+          <div class="history-track" style="flex:1">${escapeHTML(r.track_title||r.track_id||'—')}${countBadge}</div>
+          <div class="history-dur">${fmt(r.seconds||0)}</div>
         </div>`;
       }).join('');
+      // Auto-open the most recent show
+      const isFirst = groupIdx === 1;
+      return `<div class="history-show-group">
+        <div class="history-show-header" onclick="toggleHistoryShow('${gid}')">
+          <div class="history-show-header-left">
+            <span id="${gid}-arrow">${isFirst ? _IC.chevD : _IC.chevR}</span>
+            <span class="history-show-date">${escapeHTML(showDate)}</span>
+            <span class="history-show-meta">${collapsed.length} track${collapsed.length !== 1 ? 's' : ''} · ${fmt(totalSecs)}</span>
+          </div>
+        </div>
+        <div class="history-show-tracks${isFirst ? ' open' : ''}" id="${gid}">${tracksHTML}</div>
+      </div>`;
+    }).join('');
+
+    el.innerHTML = `<div style="font-size:10px;color:var(--muted);margin-bottom:12px;">${showOrder.length} show${showOrder.length !== 1 ? 's' : ''}</div>${groupsHTML}`;
   } catch(e) {
     el.innerHTML = `<div style="color:var(--red);font-size:11px;">${escapeHTML(String(e))}</div>`;
   }
@@ -1560,14 +1601,6 @@ async function loadStats() {
       <td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(t.seconds/maxTrackSecs*100)}%"></div></td>
     </tr>`).join('');
 
-  const recentCollapsed = collapseRuns(d.recent, r => (r.track_title||'') + '|' + (r.show_date||''));
-  const recentRows = recentCollapsed.map(r => `
-    <tr>
-      <td>${escapeHTML(r.track_title)}${r._count > 1 ? `<span style="font-size:9px;color:var(--accent2-light);margin-left:4px;">x${r._count}</span>` : ''}</td>
-      <td class="dim">${escapeHTML(r.show_date)}</td>
-      <td>${fmtDuration(r.seconds)}</td>
-    </tr>`).join('');
-
   el.innerHTML = `
     <div class="stats-hero">
       <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened</div></div>
@@ -1577,8 +1610,6 @@ async function loadStats() {
     <table class="stats-table"><thead><tr><th>Date</th><th>Time</th><th></th></tr></thead><tbody>${showsRows}</tbody></table>` : ''}
     ${d.top_tracks.length ? `<div class="ratings-section-title">Top Tracks</div>
     <table class="stats-table"><thead><tr><th>Track</th><th>Show</th><th>Time</th><th></th></tr></thead><tbody>${tracksRows}</tbody></table>` : ''}
-    ${d.recent.length ? `<div class="ratings-section-title">Recent</div>
-    <table class="stats-table"><thead><tr><th>Track</th><th>Show</th><th>Time</th></tr></thead><tbody>${recentRows}</tbody></table>` : ''}
   `;
 }
 

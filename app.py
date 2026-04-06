@@ -456,12 +456,11 @@ def listen_stats():
 
     total_seconds = sum(r["seconds"] for r in rows)
 
-    by_show = defaultdict(lambda: {"seconds": 0, "show_date": "", "show_id": ""})
+    by_show = defaultdict(lambda: {"seconds": 0, "show_date": ""})
     for r in rows:
-        k = r.get("show_id") or r.get("show_date", "")
-        by_show[k]["seconds"]   += r["seconds"]
-        by_show[k]["show_date"]  = r.get("show_date", k)
-        by_show[k]["show_id"]    = k
+        k = r.get("show_date") or r.get("show_id") or ""
+        by_show[k]["seconds"]  += r["seconds"]
+        by_show[k]["show_date"] = k
 
     by_track = defaultdict(lambda: {"seconds": 0, "track_title": "", "show_date": ""})
     for r in rows:
@@ -472,14 +471,12 @@ def listen_stats():
 
     top_shows  = sorted(by_show.values(),  key=lambda x: x["seconds"], reverse=True)[:10]
     top_tracks = sorted(by_track.values(), key=lambda x: x["seconds"], reverse=True)[:10]
-    recent     = sorted(rows, key=lambda x: x.get("ts", ""), reverse=True)[:20]
 
     return jsonify({
         "total_seconds": total_seconds,
         "total_listens": len(rows),
         "top_shows":     top_shows,
         "top_tracks":    top_tracks,
-        "recent":        recent,
     })
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
