@@ -439,10 +439,6 @@ let audioA = document.getElementById('audio-player');
 let audioB = document.getElementById('audio-preload');
 let audio = audioA; // active element
 let preload = audioB; // buffering next track
-// On mobile cellular, disable preload to avoid wasting data. WiFi keeps gapless preload.
-const _conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-const _isCellular = _conn && (_conn.type === 'cellular' || ['slow-2g','2g','3g'].includes(_conn.effectiveType));
-if (_isCellular) audioB.removeAttribute('preload');
 let currentTracks = [], currentTrackIdx = -1, currentShowInfo = '';
 let currentSourceId = '', currentShowDate = '', currentShowLocation = '';
 let allSources = [], activeSourceIdx = 0;
