@@ -37,6 +37,7 @@ users_table.create_index("username", unique=True)
 ratings_table.create_index([("username", 1), ("track_id", 1)], unique=True)
 show_ratings_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 listens_table.create_index([("username", 1), ("ts", 1)])
+listens_table.create_index("session_id", sparse=True)
 notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 
 # ── Archive.org API ───────────────────────────────────────────────────────────
@@ -435,16 +436,37 @@ def record_listen():
     seconds = int(data.get("seconds", 0))
     if seconds < 5:
         return jsonify({"ok": True})  # ignore tiny accidental plays
-    listens_table.insert_one({
-        "username":    current_user(),
-        "track_id":    data.get("track_id", ""),
-        "track_title": data.get("track_title", ""),
-        "show_id":     data.get("show_id", ""),
-        "show_date":   data.get("show_date", ""),
-        "source_id":   data.get("source_id", ""),
-        "seconds":     seconds,
-        "ts":          datetime.now(timezone.utc).isoformat(),
-    })
+    session_id = data.get("session_id", "")
+    username = current_user()
+    now = datetime.now(timezone.utc).isoformat()
+    if session_id:
+        # Upsert: update seconds on existing session, insert if new
+        listens_table.update_one(
+            {"username": username, "session_id": session_id},
+            {"$set": {
+                "username":    username,
+                "session_id":  session_id,
+                "track_id":    data.get("track_id", ""),
+                "track_title": data.get("track_title", ""),
+                "show_id":     data.get("show_id", ""),
+                "show_date":   data.get("show_date", ""),
+                "source_id":   data.get("source_id", ""),
+                "seconds":     seconds,
+                "ts":          now,
+            }},
+            upsert=True
+        )
+    else:
+        listens_table.insert_one({
+            "username":    username,
+            "track_id":    data.get("track_id", ""),
+            "track_title": data.get("track_title", ""),
+            "show_id":     data.get("show_id", ""),
+            "show_date":   data.get("show_date", ""),
+            "source_id":   data.get("source_id", ""),
+            "seconds":     seconds,
+            "ts":          now,
+        })
     return jsonify({"ok": True})
 
 @app.route("/api/listens/stats")

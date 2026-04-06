@@ -1259,6 +1259,8 @@ function preloadTrack(idx) {
 
 function playTrack(idx) {
   if (idx < 0 || idx >= currentTracks.length) return;
+  flushListen(); // save time on the outgoing track before switching
+  _newListenSession(); // fresh session ID for the new track
   currentTrackIdx = idx;
   const t = currentTracks[idx];
   if (!t.mp3_url) return;
@@ -1503,7 +1505,13 @@ async function loadLeaderboard() {
 // ── LISTEN TRACKING ──────────────────────────────────────────────────────
 let listenSeconds = 0;
 let listenLastTime = null;
-let listenFlushTimer = null;
+let listenSessionId = null;
+
+function _newListenSession() {
+  listenSeconds = 0;
+  listenLastTime = null;
+  listenSessionId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 
 function listenTick() {
   if (!audio.paused && listenLastTime !== null) {
@@ -1513,47 +1521,43 @@ function listenTick() {
   listenLastTime = audio.paused ? null : audio.currentTime;
 }
 
-async function flushListen(force = false) {
-  if (!loggedInUser || listenSeconds < 5) { if (!force) return; }
-  const secs = Math.round(listenSeconds);
-  if (secs < 5) return;
+function _listenPayload() {
   const track = currentTracks[currentTrackIdx];
-  if (!track) return;
-  listenSeconds = 0;
-  await fetch('/api/listens', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      track_id:    track._track_id || '',
-      track_title: track.title || '',
-      show_id:     currentShowDate,
-      show_date:   currentShowDate,
-      source_id:   currentSourceId,
-      seconds:     secs,
-    })
-  }).catch(()=>{});
-}
-
-// Tick every second while playing
-setInterval(listenTick, 1000);
-// Flush every 30s while playing
-setInterval(() => { if (!audio.paused) flushListen(); }, 30000);
-// Flush on track change or pause
-const _origPlayTrack = playTrack;
-window.addEventListener('beforeunload', () => {
-  if (!loggedInUser || listenSeconds < 5) return;
-  const track = currentTracks[currentTrackIdx];
-  if (!track) return;
+  if (!track) return null;
   const secs = Math.round(listenSeconds);
-  if (secs < 5) return;
-  navigator.sendBeacon('/api/listens', new Blob([JSON.stringify({
+  if (secs < 5) return null;
+  return {
+    session_id:  listenSessionId,
     track_id:    track._track_id || '',
     track_title: track.title || '',
     show_id:     currentShowDate,
     show_date:   currentShowDate,
     source_id:   currentSourceId,
     seconds:     secs,
-  })], {type: 'application/json'}));
+  };
+}
+
+async function flushListen() {
+  if (!loggedInUser) return;
+  const payload = _listenPayload();
+  if (!payload) return;
+  await fetch('/api/listens', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload),
+  }).catch(()=>{});
+}
+
+// Tick every second while playing
+setInterval(listenTick, 1000);
+// Flush every 30s (upserts — no new records created)
+setInterval(() => { if (!audio.paused) flushListen(); }, 30000);
+
+window.addEventListener('beforeunload', () => {
+  if (!loggedInUser) return;
+  const payload = _listenPayload();
+  if (!payload) return;
+  navigator.sendBeacon('/api/listens', new Blob([JSON.stringify(payload)], {type: 'application/json'}));
 });
 
 // Flush/reset only when the ACTIVE element fires — not the preload buffer
@@ -1561,7 +1565,7 @@ audioA.addEventListener('pause', () => { if (audio === audioA) flushListen(); })
 audioB.addEventListener('pause', () => { if (audio === audioB) flushListen(); });
 
 const _listenOnPlay = function() {
-  if (this === audio) { listenSeconds = 0; listenLastTime = audio.currentTime; }
+  if (this === audio) { listenLastTime = audio.currentTime; }
 };
 audioA.addEventListener('play', _listenOnPlay);
 audioB.addEventListener('play', _listenOnPlay);
