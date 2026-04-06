@@ -121,10 +121,11 @@ def upsert_rating():
     show_date   = data.get("show_date", "")
     source_id   = str(data.get("source_id", ""))
     try:
-        stars = int(data.get("stars", 0))
+        stars = float(data.get("stars", 0))
+        stars = round(stars * 2) / 2  # round to nearest 0.5
     except (ValueError, TypeError):
-        return jsonify({"error": "stars must be an integer"}), 400
-    if not track_id or stars not in range(1, 6):
+        return jsonify({"error": "stars must be a number"}), 400
+    if not track_id or not (0.5 <= stars <= 5):
         return jsonify({"error": "track_id and stars (1-5) required"}), 400
     username = current_user()
     record = {"username": username, "track_id": track_id, "track_title": track_title,
@@ -166,10 +167,11 @@ def upsert_show_rating():
     show_id   = data.get("show_id", "")
     venue     = data.get("venue", "")
     try:
-        stars = int(data.get("stars", 0))
+        stars = float(data.get("stars", 0))
+        stars = round(stars * 2) / 2
     except (ValueError, TypeError):
-        return jsonify({"error": "stars must be an integer"}), 400
-    if not show_id or stars not in range(1, 6):
+        return jsonify({"error": "stars must be a number"}), 400
+    if not show_id or not (0.5 <= stars <= 5):
         return jsonify({"error": "show_id and stars (1-5) required"}), 400
     username = current_user()
     record = {"username": username, "show_id": show_id, "venue": venue, "stars": stars}
@@ -192,6 +194,11 @@ def delete_show_rating():
 def my_show_ratings():
     username = current_user()
     rows = list(show_ratings_table.find({"username": username}, {"_id": 0}).sort("show_id", 1))
+    return jsonify(rows)
+
+@app.route("/api/show-ratings/user/<username>")
+def user_show_ratings(username):
+    rows = list(show_ratings_table.find({"username": username}, {"_id": 0, "username": 0}).sort("show_id", 1))
     return jsonify(rows)
 
 @app.route("/api/show-ratings/lookup")

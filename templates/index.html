@@ -69,6 +69,13 @@
     .show-star-btn:hover { transform:scale(1.15); }
     .show-star-btn.filled { color:var(--accent); }
     .show-star-btn.logged-out { cursor:default; opacity:0.3; }
+    .half-star-wrap { display:inline-block; position:relative; font-size:inherit; line-height:1; cursor:pointer; padding:0 1px; }
+    .half-star-wrap .star-bg { color:var(--border); }
+    .half-star-wrap .star-fill { position:absolute; left:1px; top:0; overflow:hidden; color:var(--accent); white-space:nowrap; pointer-events:none; }
+    .half-star-wrap .half-l, .half-star-wrap .half-r { position:absolute; top:0; height:100%; width:50%; cursor:pointer; }
+    .half-star-wrap .half-l { left:0; }
+    .half-star-wrap .half-r { right:0; }
+    .half-star-wrap.logged-out .half-l, .half-star-wrap.logged-out .half-r { cursor:default; }
     .ratings-section { margin-bottom:28px; }
     .ratings-section-title { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:10px; padding-bottom:5px; border-bottom:1px solid var(--border); }
     .show-group-header { display:flex; align-items:center; justify-content:space-between; padding:8px 14px; background:var(--surface); border:1px solid var(--border); cursor:pointer; margin-bottom:2px; transition:background 0.12s; user-select:none; }
@@ -113,11 +120,8 @@
     .track-name { flex:1; font-size:12px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .track-dur { font-size:10px; color:var(--muted); flex-shrink:0; }
     .play-icon { width:12px; flex-shrink:0; font-size:10px; color:var(--muted); }
-    .star-rating { display:flex; gap:1px; flex-shrink:0; }
-    .star-btn { background:none; border:none; cursor:pointer; font-size:13px; color:var(--border); padding:0 1px; line-height:1; transition:color 0.1s, transform 0.1s; }
-    .star-btn:hover { transform:scale(1.2); }
-    .star-btn.filled { color:var(--accent); }
-    .star-rating.logged-out .star-btn { cursor:default; opacity:0.35; }
+    .star-rating { display:flex; gap:1px; flex-shrink:0; font-size:13px; }
+    .star-rating.logged-out .half-star-wrap { cursor:default; opacity:0.35; }
     .player-bar { position:fixed; bottom:0; left:0; right:0; height:90px; background:var(--surface); border-top:2px solid var(--border); display:flex; align-items:center; gap:20px; padding:0 24px; z-index:100; }
     .player-info { min-width:0; flex:1; }
     .player-track { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -158,6 +162,13 @@
     .modal-switch a { color:var(--accent); cursor:pointer; text-decoration:underline; }
     .modal-close { position:absolute; top:12px; right:14px; background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; line-height:1; }
     .modal-close:hover { color:var(--text); }
+    .user-modal { width:440px; max-width:95vw; max-height:80vh; display:flex; flex-direction:column; padding:24px 28px; }
+    .user-modal-body { overflow-y:auto; flex:1; margin-top:12px; }
+    .user-rated-row { display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid rgba(30,42,69,0.5); font-size:11px; cursor:pointer; }
+    .user-rated-row:hover .user-rated-date { color:var(--accent); }
+    .user-rated-date { color:var(--accent); font-weight:700; font-size:12px; }
+    .user-rated-venue { color:var(--muted); font-size:10px; flex:1; margin:0 10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .user-rated-stars { color:var(--accent); font-size:12px; flex-shrink:0; }
     .ratings-view { display:none; padding:20px 24px; position:relative; z-index:1; flex:1; overflow-y:auto; max-height:calc(100vh - 100px - 90px); }
     .ratings-view.open { display:block; }
     .stats-view { display:none; padding:20px 24px; position:relative; z-index:1; flex:1; overflow-y:auto; max-height:calc(100vh - 100px - 90px); }
@@ -429,6 +440,15 @@
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
     </div>
     <div class="modal-switch" id="modal-switch">Don't have an account? <a onclick="switchMode()">Register</a></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="user-modal" onclick="closeUserModal(event)">
+  <div class="modal user-modal">
+    <button class="modal-close" onclick="closeUserModal()">&times;</button>
+    <div class="modal-title" id="user-modal-title"></div>
+    <div class="modal-sub">Rated Shows</div>
+    <div class="user-modal-body" id="user-modal-body"><div class="loading">Loading</div></div>
   </div>
 </div>
 
@@ -935,11 +955,11 @@ async function loadMyRatings() {
     const { showStars, venue, tracks } = byShow[date];
     const gid = `sg-${date.replace(/-/g,'_')}`;
     const trackCount = tracks.length ? `<span class="show-group-count">${tracks.length} track${tracks.length>1?'s':''} rated</span>` : '';
-    const showStarsHTML = showStars ? `<span class="show-group-stars">${'★'.repeat(showStars)}${'☆'.repeat(5-showStars)}</span>` : '';
+    const showStarsHTML = showStars ? `<span class="show-group-stars">${starsLabel(showStars)}</span>` : '';
     const tracksHTML = tracks.map(r=>`
       <div class="show-group-track-row">
         <span class="show-group-track-title">${escapeHTML(r.track_title)}</span>
-        <span class="show-group-track-stars">${'★'.repeat(r.stars)}${'☆'.repeat(5-r.stars)}</span>
+        <span class="show-group-track-stars">${starsLabel(r.stars)}</span>
       </div>`).join('');
     html += `
       <div class="show-group-header" onclick="toggleShowGroup('${gid}')">
@@ -1022,7 +1042,7 @@ async function loadShows(year) {
     div.dataset.date = show.display_date || '';
     div.dataset.venue = JSON.stringify(show.venue || {});
     const myStars = myShowRatings[show.id];
-    const badge = myStars ? `<span class="show-my-rating">${'★'.repeat(myStars)}</span>` : '';
+    const badge = myStars ? `<span class="show-my-rating">${starsLabel(myStars)}</span>` : '';
     div.innerHTML = `${badge}<div class="show-date">${escapeHTML(show.display_date)}</div><div class="show-venue">${escapeHTML(show.venue?.name||'Unknown Venue')}</div><div class="show-location">${escapeHTML(show.venue?.location||'')}</div>`;
     div.onclick = () => { document.querySelectorAll('.show-item').forEach(x=>x.classList.remove('active')); div.classList.add('active'); loadSources(show.id,show.display_date,show.venue); };
     el.appendChild(div);
@@ -1079,15 +1099,32 @@ function archiveStars(rating, reviews) {
   return `<span class="archive-stars" title="Archive.org: ${Number(rating).toFixed(1)}★ (${reviews||0} reviews)">${'★'.repeat(full)}${'☆'.repeat(5-full)}</span>`;
 }
 
-function buildShowStars(showId, filledCount) {
-  const cls = loggedInUser ? '' : 'logged-out';
+function renderHalfStars(rating, size, onHalf, onFull, loggedOut) {
+  // rating: 0, 0.5, 1, 1.5 ... 5
+  // onHalf(i) / onFull(i): onclick expressions for i=1..5
+  const cls = loggedOut ? 'logged-out' : '';
   let html = '';
-  for (let i=1;i<=5;i++) {
-    const filled = i<=filledCount ? 'filled' : '';
-    const action = loggedInUser ? `rateShow('${showId}',${i})` : `openModal('login')`;
-    html += `<button class="show-star-btn ${filled} ${cls}" onclick="${action}" title="Rate show ${i} star${i>1?'s':''}">★</button>`;
+  for (let i = 1; i <= 5; i++) {
+    const fillPct = Math.min(Math.max((rating - (i - 1)) * 100, 0), 100);
+    const halfAct  = loggedOut ? `openModal('login')` : onHalf(i);
+    const fullAct  = loggedOut ? `openModal('login')` : onFull(i);
+    html += `<span class="half-star-wrap ${cls}" style="font-size:${size}px">` +
+      `<span class="star-bg">★</span>` +
+      `<span class="star-fill" style="width:${fillPct}%">★</span>` +
+      `<span class="half-l" onclick="${halfAct}" title="${i - 0.5} stars"></span>` +
+      `<span class="half-r" onclick="${fullAct}" title="${i} stars"></span>` +
+    `</span>`;
   }
   return html;
+}
+
+function buildShowStars(showId, rating) {
+  return renderHalfStars(
+    rating, 17,
+    i => `rateShow('${showId}',${i - 0.5})`,
+    i => `rateShow('${showId}',${i})`,
+    !loggedInUser
+  );
 }
 
 function renderSourceButtons() {
@@ -1103,6 +1140,13 @@ function renderSourceButtons() {
   panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div>${notesWidget}${selectorHTML}<div id="tracks-container"><div class="loading">Loading tracks</div></div>${tourSection}${venueSection}`;
 }
 
+function starsLabel(s) {
+  if (!s) return '';
+  const full = Math.floor(s);
+  const half = s % 1 >= 0.5;
+  return '★'.repeat(full) + (half ? '½' : '');
+}
+
 async function rateShow(showId, stars) {
   const current = myShowRatings[showId] || 0;
   if (current === stars) {
@@ -1114,11 +1158,10 @@ async function rateShow(showId, stars) {
   }
   const widget = document.getElementById('show-stars-widget');
   if (widget) widget.innerHTML = buildShowStars(showId, myShowRatings[showId]||0);
-  const badge = document.querySelector(`#show-item-${showId} .show-my-rating`);
   const showItem = document.getElementById(`show-item-${showId}`);
   if (showItem) {
     const existing = showItem.querySelector('.show-my-rating');
-    const newBadge = myShowRatings[showId] ? `<span class="show-my-rating">${'★'.repeat(myShowRatings[showId])}</span>` : '';
+    const newBadge = myShowRatings[showId] ? `<span class="show-my-rating">${starsLabel(myShowRatings[showId])}</span>` : '';
     if (existing) existing.outerHTML = newBadge;
     else if (newBadge) showItem.insertAdjacentHTML('afterbegin', newBadge);
   }
@@ -1199,16 +1242,15 @@ async function switchSource(idx) {
   }
 }
 
-function buildStars(trackId, filledCount, rowIdx) {
-  const cls = loggedInUser ? '' : 'logged-out';
+function buildStars(trackId, rating, rowIdx) {
   const safeId = trackId.replace(/[^a-z0-9]/gi,'_');
-  let html = `<div class="star-rating ${cls}" id="stars-${safeId}">`;
-  for (let i=1;i<=5;i++) {
-    const filled = i<=filledCount?'filled':'';
-    const action = loggedInUser ? `rateStar(event,'${trackId}',${i},${rowIdx})` : `openModal('login')`;
-    html += `<button class="star-btn ${filled}" onclick="${action}" title="${i} star${i>1?'s':''}">★</button>`;
-  }
-  return html+'</div>';
+  const inner = renderHalfStars(
+    rating, 13,
+    i => `rateStar(event,'${trackId}',${i - 0.5},${rowIdx})`,
+    i => `rateStar(event,'${trackId}',${i},${rowIdx})`,
+    !loggedInUser
+  );
+  return `<div class="star-rating ${loggedInUser?'':'logged-out'}" id="stars-${safeId}">${inner}</div>`;
 }
 
 function refreshStarsUI() {
@@ -1226,7 +1268,7 @@ async function rateStar(e, trackId, stars, rowIdx) {
   if (!loggedInUser) { openModal('login'); return; }
   const track = currentTracks[rowIdx];
   const existing = showRatings[trackId];
-  if (existing===stars) {
+  if (existing === stars) {
     await fetch('/api/ratings',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId})});
     delete showRatings[trackId];
   } else {
@@ -1452,12 +1494,50 @@ async function loadLeaderboard() {
   el.innerHTML = rows.map((r, i) => `
     <div class="lb-row ${r.username===loggedInUser?'me':''}">
       <div class="lb-rank ${rankClass(i)}">${rankSymbol(i)}</div>
-      <div class="lb-name">${escapeHTML(r.username)}${r.username===loggedInUser?' <span style="font-size:9px;color:var(--accent2)">you</span>':''}</div>
+      <div class="lb-name" style="cursor:pointer" onclick="openUserModal('${escapeHTML(r.username)}')">${escapeHTML(r.username)}${r.username===loggedInUser?' <span style="font-size:9px;color:var(--accent2)">you</span>':''}</div>
       <div class="lb-stats">
         <div class="lb-stat"><div class="lb-stat-val">${fmtDuration(r.seconds)}</div><div class="lb-stat-label">Listened</div></div>
         <div class="lb-stat"><div class="lb-stat-val">${r.shows}</div><div class="lb-stat-label">Shows</div></div>
       </div>
     </div>`).join('');
+}
+
+async function openUserModal(username) {
+  document.getElementById('user-modal-title').textContent = username;
+  document.getElementById('user-modal-body').innerHTML = '<div class="loading">Loading</div>';
+  document.getElementById('user-modal').classList.add('open');
+  const res = await fetch(`/api/show-ratings/user/${encodeURIComponent(username)}`);
+  const rows = await res.json();
+  const body = document.getElementById('user-modal-body');
+  if (!rows.length) { body.innerHTML = '<div class="ratings-empty">No rated shows yet.</div>'; return; }
+  body.innerHTML = rows.map(r => `
+    <div class="user-rated-row" onclick="closeUserModal();goToShow('${escapeHTML(r.show_id)}')">
+      <span class="user-rated-date">${escapeHTML(r.show_id)}</span>
+      <span class="user-rated-venue">${escapeHTML(r.venue||'')}</span>
+      <span class="user-rated-stars">${starsLabel(r.stars)}</span>
+    </div>`).join('');
+}
+
+function closeUserModal(e) {
+  if (e && e.target !== document.getElementById('user-modal')) return;
+  document.getElementById('user-modal').classList.remove('open');
+}
+
+async function goToShow(showId) {
+  const year = showId.slice(0, 4);
+  document.querySelectorAll('.year-item').forEach(el => {
+    if (el.querySelector('span')?.textContent === year) el.classList.add('active');
+  });
+  showBrowse();
+  await loadShows(year);
+  const showItem = document.getElementById(`show-item-${showId}`);
+  if (showItem) {
+    document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
+    showItem.classList.add('active');
+    showItem.scrollIntoView({ block: 'center' });
+    const venue = JSON.parse(showItem.dataset.venue || '{}');
+    await loadSources(showId, showItem.dataset.date, venue);
+  }
 }
 
 // ── PANEL RESIZE ─────────────────────────────────────────────────────────
