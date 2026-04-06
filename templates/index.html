@@ -1579,9 +1579,17 @@ function fmtDuration(seconds) {
 async function loadStats() {
   const el = document.getElementById('stats-content');
   el.innerHTML = '<div class="loading">Loading</div>';
-  const res = await fetch('/api/listens/stats');
-  if (!res.ok) { el.innerHTML = '<div class="ratings-empty">Not logged in.</div>'; return; }
-  const d = await res.json();
+  let d;
+  try {
+    const res = await fetch('/api/listens/stats');
+    if (!res.ok) { el.innerHTML = '<div class="ratings-empty">Not logged in.</div>'; return; }
+    d = await res.json();
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);font-size:11px;">${escapeHTML(String(e))}</div>`; return;
+  }
+  if (!Array.isArray(d.top_shows) || !Array.isArray(d.top_tracks)) {
+    el.innerHTML = '<div class="ratings-empty">Could not load stats.</div>'; return;
+  }
 
   const maxShowSecs  = d.top_shows[0]?.seconds  || 1;
   const maxTrackSecs = d.top_tracks[0]?.seconds || 1;
