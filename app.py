@@ -4,6 +4,20 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import requests
 import os
 import functools
+import time
+
+# ── Simple in-memory cache ────────────────────────────────────────────────────
+_cache = {}
+_CACHE_TTL = 300  # 5 minutes
+
+def _cache_get(key):
+    entry = _cache.get(key)
+    if entry and time.time() - entry["ts"] < _CACHE_TTL:
+        return entry["val"]
+    return None
+
+def _cache_set(key, val):
+    _cache[key] = {"val": val, "ts": time.time()}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-prod")
@@ -250,6 +264,10 @@ def years():
 
 @app.route("/api/years/<year>/shows")
 def shows(year):
+    cache_key = f"shows:{year}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
     try:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND year:{year}",
@@ -285,6 +303,7 @@ def shows(year):
             },
             "avg_rating": None,
         })
+    _cache_set(cache_key, result)
     return jsonify(result)
 
 _SOURCE_TYPE_ORDER = {"SBD": 0, "MTX": 1, "FOB": 2, "AUD": 3, "UNK": 4}
@@ -331,6 +350,10 @@ def show_sources(show_id):
     import re
     if not re.match(r'^\d{4}-\d{2}-\d{2}', show_id):
         return jsonify({"error": "invalid show_id"}), 400
+    cache_key = f"sources:{show_id}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
     try:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND date:{show_id}*",
@@ -356,10 +379,15 @@ def show_sources(show_id):
         })
 
     sources.sort(key=lambda s: _SOURCE_TYPE_ORDER.get(s["source_type"], 99))
+    _cache_set(cache_key, sources)
     return jsonify(sources)
 
 @app.route("/api/sources/<path:identifier>/tracks")
 def source_tracks(identifier):
+    cache_key = f"tracks:{identifier}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
     try:
         meta = archive_metadata(identifier)
     except Exception as e:
@@ -389,12 +417,14 @@ def source_tracks(identifier):
         disc.sort(key=lambda t: t["track"])
 
     sets = [{"name": k, "tracks": v} for k, v in sorted(discs.items())]
-    return jsonify({
+    result = {
         "sets": sets,
         "lineage": item_meta.get("source") or item_meta.get("lineage") or "",
         "taper": item_meta.get("taper") or "",
         "transferer": item_meta.get("transferer") or "",
-    })
+    }
+    _cache_set(cache_key, result)
+    return jsonify(result)
 
 # ── Listen tracking ───────────────────────────────────────────────────────────
 @app.route("/api/listens", methods=["POST"])
