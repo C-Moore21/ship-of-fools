@@ -193,6 +193,10 @@
     .lb-stat-val { font-size:13px; color:var(--accent); }
     .lb-stat-label { font-size:9px; color:var(--muted); letter-spacing:1.5px; text-transform:uppercase; }
     .ratings-title { font-family:'Playfair Display',serif; font-size:20px; color:var(--accent); margin-bottom:20px; }
+    .period-toggle { display:flex; gap:4px; margin-bottom:16px; }
+    .period-btn { padding:4px 12px; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; font-family:'Space Mono',monospace; border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; border-radius:2px; transition:all 0.12s; }
+    .period-btn:hover { color:var(--text); border-color:var(--accent); }
+    .period-btn.active { background:var(--surface2); color:var(--text); border-color:var(--accent2); }
     .rating-card { display:flex; align-items:center; gap:14px; padding:10px 14px; border:1px solid var(--border); margin-bottom:8px; background:var(--surface); }
     .rating-card-info { flex:1; min-width:0; }
     .rating-card-title { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -395,6 +399,11 @@
 
 <div class="stats-view" id="leaderboard-view">
   <div class="ratings-title">⬡ Leaderboard</div>
+  <div class="period-toggle">
+    <button class="period-btn active" id="lb-btn-week" onclick="setLbPeriod('week')">This Week</button>
+    <button class="period-btn" id="lb-btn-month" onclick="setLbPeriod('month')">This Month</button>
+    <button class="period-btn" id="lb-btn-all" onclick="setLbPeriod('all')">All Time</button>
+  </div>
   <div id="leaderboard-content"><div class="loading">Loading</div></div>
 </div>
 
@@ -1483,10 +1492,19 @@ document.getElementById('btn-prev').onclick = ()=>playTrack(currentTrackIdx-1);
 document.getElementById('btn-next').onclick = ()=>playTrack(currentTrackIdx+1);
 
 // ── LEADERBOARD ───────────────────────────────────────────────────────────
+let _lbPeriod = 'week';
+
+function setLbPeriod(period) {
+  _lbPeriod = period;
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`lb-btn-${period}`).classList.add('active');
+  loadLeaderboard();
+}
+
 async function loadLeaderboard() {
   const el = document.getElementById('leaderboard-content');
   el.innerHTML = '<div class="loading">Loading</div>';
-  const res = await fetch('/api/leaderboard');
+  const res = await fetch(`/api/leaderboard?period=${_lbPeriod}`);
   const rows = await res.json();
   if (!rows.length) { el.innerHTML = '<div class="ratings-empty">No listening data yet.</div>'; return; }
   const rankClass = i => i===0?'gold':i===1?'silver':i===2?'bronze':'';

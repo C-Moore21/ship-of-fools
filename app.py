@@ -513,17 +513,25 @@ def listen_stats():
 @login_required
 def leaderboard():
     from collections import defaultdict
-    rows = list(listens_table.find({}, {"_id": 0}))
-    by_user = defaultdict(lambda: {"seconds": 0, "shows": set(), "tracks": 0})
+    from datetime import datetime, timezone, timedelta
+    period = request.args.get("period", "week")
+    query = {}
+    if period == "week":
+        since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        query["ts"] = {"$gte": since}
+    elif period == "month":
+        since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        query["ts"] = {"$gte": since}
+    rows = list(listens_table.find(query, {"_id": 0}))
+    by_user = defaultdict(lambda: {"seconds": 0, "shows": set()})
     for r in rows:
         u = r.get("username", "")
-        by_user[u]["seconds"]  += r.get("seconds", 0)
-        by_user[u]["tracks"]   += 1
+        by_user[u]["seconds"] += r.get("seconds", 0)
         sid = r.get("show_id") or r.get("show_date", "")
         if sid:
             by_user[u]["shows"].add(sid)
     result = sorted([
-        {"username": u, "seconds": v["seconds"], "shows": len(v["shows"]), "tracks": v["tracks"]}
+        {"username": u, "seconds": v["seconds"], "shows": len(v["shows"])}
         for u, v in by_user.items()
     ], key=lambda x: x["seconds"], reverse=True)
     return jsonify(result)
