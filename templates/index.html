@@ -113,7 +113,7 @@
     .src-type-AUD { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
     .src-type-UNK { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
     .set-label { padding:8px 16px 4px; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--accent2-light); }
-    .track-row { display:flex; align-items:center; padding:6px 16px; border-bottom:1px solid rgba(30,42,69,0.8); cursor:pointer; transition:background 0.1s; gap:7px; }
+    .track-row { display:flex; align-items:center; padding:5px 10px; border-bottom:1px solid rgba(30,42,69,0.8); cursor:pointer; transition:background 0.1s; gap:5px; }
     .track-row:hover { background:var(--surface); }
     .track-row.playing { background:var(--surface2); }
     .track-row.playing .track-name { color:var(--accent); }
@@ -204,11 +204,6 @@
     .rating-card-date { font-size:11px; color:var(--muted); margin-top:2px; }
     .rating-card-stars { color:var(--accent); font-size:15px; flex-shrink:0; letter-spacing:2px; }
     .ratings-empty { color:var(--muted); font-size:13px; padding:40px 0; text-align:center; }
-    .rating-popup { width:320px; max-width:95vw; padding:28px 24px; text-align:center; }
-    .rating-popup-track { font-size:14px; color:var(--text); margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .rating-popup-hint { font-size:11px; color:var(--muted); letter-spacing:1px; margin-top:14px; }
-    .rating-popup-stars { display:flex; justify-content:center; gap:6px; font-size:42px; margin:18px 0 4px; }
-    .rating-popup-stars .half-star-wrap { padding:0 3px; }
     .loading { padding:20px 16px; color:var(--muted); font-size:12px; letter-spacing:1px; }
     .loading::after { content:'...'; animation:dots 1s infinite; }
     @keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
@@ -458,14 +453,6 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="rating-popup-modal" onclick="closeRatingPopup()">
-  <div class="modal rating-popup" onclick="event.stopPropagation()">
-    <button class="modal-close" onclick="closeRatingPopup()">✕</button>
-    <div class="rating-popup-track" id="rating-popup-track"></div>
-    <div class="rating-popup-stars" id="rating-popup-stars"></div>
-    <div class="rating-popup-hint">Tap to rate · tap same star to remove</div>
-  </div>
-</div>
 
 <div class="modal-overlay" id="user-modal" onclick="closeUserModal(event)">
   <div class="modal user-modal">
@@ -1293,49 +1280,13 @@ async function switchSource(idx) {
 
 function buildStars(trackId, rating, rowIdx) {
   const safeId = trackId.replace(/[^a-z0-9]/gi,'_');
-  const starDisplay = renderHalfStars(rating, 13, ()=>'', ()=>'', true);
-  const clickable = loggedInUser
-    ? `onclick="event.stopPropagation();openRatingPopup('${trackId}',${rowIdx})" style="cursor:pointer"`
-    : `class="logged-out"`;
-  return `<div class="star-rating ${loggedInUser?'':'logged-out'}" id="stars-${safeId}" ${clickable}>${starDisplay}</div>`;
-}
-
-let _ratingPopupTrackId = null, _ratingPopupRowIdx = null;
-
-function openRatingPopup(trackId, rowIdx) {
-  if (!loggedInUser) { openModal('login'); return; }
-  _ratingPopupTrackId = trackId;
-  _ratingPopupRowIdx = rowIdx;
-  const track = currentTracks[rowIdx];
-  document.getElementById('rating-popup-track').textContent = track ? track.title : trackId;
-  const rating = showRatings[trackId] || 0;
-  document.getElementById('rating-popup-stars').innerHTML = renderHalfStars(
-    rating, 38,
-    i => `rateStarPopup(event,'${trackId}',${i - 0.5},${rowIdx})`,
-    i => `rateStarPopup(event,'${trackId}',${i},${rowIdx})`,
-    false
-  );
-  document.getElementById('rating-popup-modal').classList.add('open');
-}
-
-function closeRatingPopup() {
-  document.getElementById('rating-popup-modal').classList.remove('open');
-  _ratingPopupTrackId = null;
-}
-
-async function rateStarPopup(e, trackId, stars, rowIdx) {
-  e.stopPropagation();
-  await rateStar(e, trackId, stars, rowIdx);
-  // Refresh big stars in popup to reflect new rating
-  const newRating = showRatings[trackId] || 0;
-  const starsEl = document.getElementById('rating-popup-stars');
-  if (starsEl) starsEl.innerHTML = renderHalfStars(
-    newRating, 38,
-    i => `rateStarPopup(event,'${trackId}',${i - 0.5},${rowIdx})`,
-    i => `rateStarPopup(event,'${trackId}',${i},${rowIdx})`,
-    false
-  );
-  closeRatingPopup();
+  return `<div class="star-rating ${loggedInUser?'':'logged-out'}" id="stars-${safeId}">` +
+    renderHalfStars(
+      rating, 13,
+      i => `event.stopPropagation();rateStar(event,'${trackId}',${i-0.5},${rowIdx})`,
+      i => `event.stopPropagation();rateStar(event,'${trackId}',${i},${rowIdx})`,
+      !loggedInUser
+    ) + `</div>`;
 }
 
 function refreshStarsUI() {
@@ -1894,12 +1845,11 @@ async function loadStats(year) {
   } catch(e) {
     el.innerHTML = `<div style="color:var(--red);font-size:11px;">${escapeHTML(String(e))}</div>`; return;
   }
-  if (!Array.isArray(d.top_shows) || !Array.isArray(d.top_tracks)) {
+  if (!Array.isArray(d.top_shows)) {
     el.innerHTML = '<div class="ratings-empty">Could not load stats.</div>'; return;
   }
 
   const maxShowSecs  = d.top_shows[0]?.seconds  || 1;
-  const maxTrackSecs = d.top_tracks[0]?.seconds || 1;
   const maxSongShows = d.top_songs?.[0]?.show_count || 1;
 
   const showsRows = d.top_shows.map(s => `
@@ -1907,14 +1857,6 @@ async function loadStats(year) {
       <td>${escapeHTML(s.show_date)}</td>
       <td>${fmtDuration(s.seconds)}</td>
       <td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(s.seconds/maxShowSecs*100)}%"></div></td>
-    </tr>`).join('');
-
-  const tracksRows = d.top_tracks.map(t => `
-    <tr>
-      <td>${escapeHTML(t.track_title)}</td>
-      <td class="dim">${escapeHTML(t.show_date)}</td>
-      <td>${fmtDuration(t.seconds)}</td>
-      <td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(t.seconds/maxTrackSecs*100)}%"></div></td>
     </tr>`).join('');
 
   const songsRows = (d.top_songs || []).map(s => `
@@ -1940,8 +1882,6 @@ async function loadStats(year) {
     <table class="stats-table"><thead><tr><th>Song</th><th>Shows</th><th>Time</th><th></th></tr></thead><tbody>${songsRows}</tbody></table>` : ''}
     ${d.top_shows.length ? `<div class="ratings-section-title" style="margin-top:20px">Top Shows${_statsYear?' · '+_statsYear:''}</div>
     <table class="stats-table"><thead><tr><th>Date</th><th>Time</th><th></th></tr></thead><tbody>${showsRows}</tbody></table>` : ''}
-    ${d.top_tracks.length ? `<div class="ratings-section-title" style="margin-top:20px">Top Tracks (by session)</div>
-    <table class="stats-table"><thead><tr><th>Track</th><th>Show</th><th>Time</th><th></th></tr></thead><tbody>${tracksRows}</tbody></table>` : ''}
   `;
 }
 
