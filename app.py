@@ -5,9 +5,28 @@ import requests
 import os
 import functools
 import time
+from collections import OrderedDict
+
+class _LRUCache:
+    def __init__(self, maxsize=500):
+        self._d = OrderedDict()
+        self._maxsize = maxsize
+    def get(self, key, default=None):
+        if key not in self._d: return default
+        self._d.move_to_end(key)
+        return self._d[key]
+    def __contains__(self, key): return key in self._d
+    def __getitem__(self, key):
+        self._d.move_to_end(key)
+        return self._d[key]
+    def __setitem__(self, key, val):
+        if key in self._d: self._d.move_to_end(key)
+        self._d[key] = val
+        if len(self._d) > self._maxsize:
+            self._d.popitem(last=False)
 
 # ── Simple in-memory cache ────────────────────────────────────────────────────
-_cache = {}
+_cache = _LRUCache(maxsize=500)
 _CACHE_TTL = 300  # 5 minutes
 
 def _cache_get(key):
@@ -38,6 +57,7 @@ ratings_table.create_index([("username", 1), ("track_id", 1)], unique=True)
 show_ratings_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 listens_table.create_index([("username", 1), ("ts", 1)])
 listens_table.create_index("session_id", sparse=True)
+listens_table.create_index([("username", 1), ("show_date", 1)])
 notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 
 # ── Archive.org API ───────────────────────────────────────────────────────────
@@ -341,6 +361,10 @@ def _parse_source_type(identifier):
         return "AUD"
     return "UNK"
 
+def _norm(s):
+    import re
+    return re.sub(r'[^a-z0-9]', '', s.lower()) if s else ''
+
 def _parse_duration(raw):
     try:
         s = str(raw or "0")
@@ -481,22 +505,41 @@ def record_listen():
 def listen_stats():
     from collections import defaultdict
     username = current_user()
-    rows = list(listens_table.find({"username": username}, {"_id": 0}))
+    query = {"username": username}
+    rows = list(listens_table.find(query, {"seconds": 1, "show_date": 1, "show_id": 1, "track_id": 1, "track_title": 1, "_id": 0}))
 
     total_seconds = sum(r["seconds"] for r in rows)
 
+    all_years_set = set()
     by_show = defaultdict(lambda: {"seconds": 0, "show_date": ""})
-    for r in rows:
-        k = r.get("show_date") or r.get("show_id") or ""
-        by_show[k]["seconds"]  += r["seconds"]
-        by_show[k]["show_date"] = k
-
     by_track = defaultdict(lambda: {"seconds": 0, "track_title": "", "show_date": ""})
+    by_song = defaultdict(lambda: {"seconds": 0, "shows": set(), "title": ""})
+
     for r in rows:
+        show_date = r.get("show_date") or r.get("show_id") or ""
+        yr = show_date[:4]
+        if yr.isdigit():
+            all_years_set.add(yr)
+
+        # by_show
+        by_show[show_date]["seconds"] += r["seconds"]
+        by_show[show_date]["show_date"] = show_date
+
+        # by_track
         k = r.get("track_id", r.get("track_title", ""))
-        by_track[k]["seconds"]     += r["seconds"]
-        by_track[k]["track_title"]  = r.get("track_title", k)
-        by_track[k]["show_date"]    = r.get("show_date", "")
+        by_track[k]["seconds"] += r["seconds"]
+        by_track[k]["track_title"] = r.get("track_title", k)
+        by_track[k]["show_date"] = show_date
+
+        # by_song
+        raw = r.get("track_title", "")
+        norm = _norm(raw)
+        if norm:
+            by_song[norm]["seconds"] += r["seconds"]
+            by_song[norm]["shows"].add(show_date)
+            by_song[norm]["title"] = by_song[norm]["title"] or raw
+
+    all_years = sorted(all_years_set, reverse=True)
 
     top_shows  = sorted(by_show.values(),  key=lambda x: x["seconds"], reverse=True)[:10]
     top_tracks = sorted(by_track.values(), key=lambda x: x["seconds"], reverse=True)[:10]
@@ -506,6 +549,7 @@ def listen_stats():
         "total_listens": len(rows),
         "top_shows":     top_shows,
         "top_tracks":    top_tracks,
+        "all_years":     all_years,
     })
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
