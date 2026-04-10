@@ -37,7 +37,7 @@ users_table.create_index("username", unique=True)
 ratings_table.create_index([("username", 1), ("track_id", 1)], unique=True)
 show_ratings_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 listens_table.create_index([("username", 1), ("ts", 1)])
-listens_table.create_index("session_id", sparse=True)
+listens_table.create_index([("username", 1), ("session_id", 1)], unique=True, sparse=True)
 notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 
 # ── Archive.org API ───────────────────────────────────────────────────────────
@@ -229,8 +229,12 @@ def today_in_history():
             "rows": 500,
             "sort[]": "date asc",
         })
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Archive.org timed out"}), 502
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"error": "Unexpected error"}), 500
     docs = data.get("response", {}).get("docs", [])
     result = []
     for doc in docs:
@@ -284,8 +288,12 @@ def shows(year):
             "rows": 1000,
             "sort[]": "date asc",
         })
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Archive.org timed out"}), 502
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"error": "Unexpected error"}), 500
     docs = data.get("response", {}).get("docs", [])
 
     seen = {}
@@ -369,8 +377,12 @@ def show_sources(show_id):
             "output": "json",
             "rows": 100,
         })
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Archive.org timed out"}), 502
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"error": "Unexpected error"}), 500
     docs = data.get("response", {}).get("docs", [])
 
     sources = []
@@ -398,8 +410,12 @@ def source_tracks(identifier):
         return jsonify(cached)
     try:
         meta = archive_metadata(identifier)
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Archive.org timed out"}), 502
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"error": "Unexpected error"}), 500
 
     item_meta = meta.get("metadata", {})
     files = meta.get("files", [])
@@ -593,8 +609,12 @@ def on_this_tour(show_id):
             "rows": 60,
             "sort[]": "date asc",
         })
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Archive.org timed out"}), 502
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"error": "Unexpected error"}), 500
     docs = data.get("response", {}).get("docs", [])
     seen = {}
     result = []
@@ -632,8 +652,12 @@ def venue_history():
             "rows": 200,
             "sort[]": "date asc",
         })
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Archive.org timed out"}), 502
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"error": "Unexpected error"}), 500
     docs = data.get("response", {}).get("docs", [])
     seen = {}
     result = []
@@ -662,8 +686,12 @@ def search_shows():
             "rows": 50,
             "sort[]": "date asc",
         })
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Archive.org timed out"}), 502
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"error": "Unexpected error"}), 500
     docs = data.get("response", {}).get("docs", [])
     seen = {}
     result = []
