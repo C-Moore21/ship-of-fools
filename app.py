@@ -55,7 +55,6 @@ notes_table      = _db["notes"]
 users_table.create_index("username", unique=True)
 ratings_table.create_index([("username", 1), ("track_id", 1)], unique=True)
 show_ratings_table.create_index([("username", 1), ("show_id", 1)], unique=True)
-listens_table.create_index([("username", 1), ("ts", 1)])
 listens_table.create_index("session_id", sparse=True)
 listens_table.create_index([("username", 1), ("show_date", 1)])
 notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
@@ -361,10 +360,6 @@ def _parse_source_type(identifier):
         return "AUD"
     return "UNK"
 
-def _norm(s):
-    import re
-    return re.sub(r'[^a-z0-9]', '', s.lower()) if s else ''
-
 def _parse_duration(raw):
     try:
         s = str(raw or "0")
@@ -513,7 +508,6 @@ def listen_stats():
     all_years_set = set()
     by_show = defaultdict(lambda: {"seconds": 0, "show_date": ""})
     by_track = defaultdict(lambda: {"seconds": 0, "track_title": "", "show_date": ""})
-    by_song = defaultdict(lambda: {"seconds": 0, "shows": set(), "title": ""})
 
     for r in rows:
         show_date = r.get("show_date") or r.get("show_id") or ""
@@ -530,14 +524,6 @@ def listen_stats():
         by_track[k]["seconds"] += r["seconds"]
         by_track[k]["track_title"] = r.get("track_title", k)
         by_track[k]["show_date"] = show_date
-
-        # by_song
-        raw = r.get("track_title", "")
-        norm = _norm(raw)
-        if norm:
-            by_song[norm]["seconds"] += r["seconds"]
-            by_song[norm]["shows"].add(show_date)
-            by_song[norm]["title"] = by_song[norm]["title"] or raw
 
     all_years = sorted(all_years_set, reverse=True)
 
