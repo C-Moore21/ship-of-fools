@@ -295,6 +295,7 @@
     /* ── MOBILE ────────────────────────────────────────────────────────────── */
     .mobile-back { display:none; }
     @media (max-width: 700px) {
+      body { height:auto; min-height:100vh; overflow-y:auto; }
       header { padding:10px 14px; }
       .logo-text { font-size:20px; }
       .logo-sub { display:none; }
@@ -305,8 +306,8 @@
       .tab { padding:8px 14px; font-size:11px; white-space:nowrap; }
 
       /* Stack panels, show only the active one */
-      .layout { display:block; }
-      .years-panel, .shows-panel, .track-panel { height:100%; }
+      .layout { display:block; overflow:visible; }
+      .years-panel, .shows-panel, .track-panel { height:auto; max-height:none; overflow-y:visible; padding-bottom:150px; }
       .panel-divider { display:none; }
       .shows-panel, .track-panel { display:none; }
       .shows-panel.mob-active, .track-panel.mob-active { display:block; }
@@ -323,7 +324,6 @@
       .player-controls { order:1; gap:8px; }
       .progress-wrap { order:2; flex:1; }
       .volume-wrap { display:none; }
-      .years-panel { height:100%; }
     }
   </style>
 </head>
