@@ -37,7 +37,11 @@ users_table.create_index("username", unique=True)
 ratings_table.create_index([("username", 1), ("track_id", 1)], unique=True)
 show_ratings_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 listens_table.create_index([("username", 1), ("ts", 1)])
-listens_table.create_index([("username", 1), ("session_id", 1)], unique=True, sparse=True)
+try:
+    listens_table.create_index([("username", 1), ("session_id", 1)], unique=True, sparse=True)
+except Exception:
+    # Collection may have pre-existing duplicates; index will be enforced for new writes
+    listens_table.create_index([("username", 1), ("session_id", 1)], sparse=True)
 notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 
 # ── Archive.org API ───────────────────────────────────────────────────────────

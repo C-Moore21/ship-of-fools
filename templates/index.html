@@ -912,14 +912,13 @@ async function showHistory() {
 }
 
 async function doLogout() {
-  try {
-    const res = await fetch('/api/auth/logout', {method: 'POST'});
-    if (!res.ok) return;
-  } catch(e) { return; }
   loggedInUser = null;
   showRatings = {};
   updateAuthUI();
   showBrowse();
+  try {
+    await fetch('/api/auth/logout', {method: 'POST'});
+  } catch(e) {}
 }
 
 // ── VIEWS ─────────────────────────────────────────────────────────────────
