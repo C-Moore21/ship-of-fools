@@ -1310,6 +1310,7 @@ function updatePlaybackUI(idx) {
   const t = currentTracks[idx];
   document.getElementById('player-track').textContent = `${idx + 1}. ${t.title}`;
   document.getElementById('player-show').textContent = currentShowInfo;
+  document.getElementById('btn-play').innerHTML = _IC.pause;
 }
 
 function preloadTrack(idx) {
