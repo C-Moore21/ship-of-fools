@@ -1137,6 +1137,7 @@ function buildShowStars(showId, rating) {
 }
 
 function renderSourceButtons() {
+  _lastPlayingIdx = -1;
   const panel = document.getElementById('track-panel');
   const myStars = myShowRatings[currentShowDate] || 0;
   const showStarsHTML = `<div class="show-rating-widget"><span class="show-rating-label">My Show Rating:</span><span id="show-stars-widget">${buildShowStars(currentShowDate, myStars)}</span></div>`;
@@ -1290,13 +1291,26 @@ async function rateStar(e, trackId, stars, rowIdx) {
 }
 
 // ── PLAYBACK ──────────────────────────────────────────────────────────────
+let _lastPlayingIdx = -1;
 function updatePlaybackUI(idx) {
+  // Clear previous
+  if (_lastPlayingIdx >= 0) {
+    const prevRow = document.getElementById(`track-row-${_lastPlayingIdx}`);
+    const prevIcon = document.getElementById(`play-icon-${_lastPlayingIdx}`);
+    if (prevRow) prevRow.classList.remove('playing');
+    if (prevIcon) prevIcon.innerHTML = _IC.playTrDim;
+  }
+  // Set new
+  const row = document.getElementById(`track-row-${idx}`);
+  const icon = document.getElementById(`play-icon-${idx}`);
+  if (row) row.classList.add('playing');
+  if (icon) icon.innerHTML = _IC.playTr;
+  _lastPlayingIdx = idx;
+  // Player bar
   const t = currentTracks[idx];
   document.getElementById('player-track').textContent = `${idx + 1}. ${t.title}`;
-  document.getElementById('player-show').textContent = `${currentShowInfo}  ·  track ${idx + 1} of ${currentTracks.length}`;
+  document.getElementById('player-show').textContent = currentShowInfo;
   document.getElementById('btn-play').innerHTML = _IC.pause;
-  document.querySelectorAll('.track-row').forEach((r,i)=>r.classList.toggle('playing',i===idx));
-  document.querySelectorAll('.play-icon').forEach((ic,i)=>ic.innerHTML=i===idx?_IC.playTr:_IC.playTrDim);
 }
 
 function preloadTrack(idx) {
@@ -1371,11 +1385,28 @@ function updatePositionState() {
 
 let seeking = false;
 const seekSlider = document.getElementById('seek-slider');
+const timeCurEl = document.getElementById('time-cur');
+const timeDurEl = document.getElementById('time-dur');
 
+let _lastUIUpdate = 0;
 function onTimeUpdate() {
   if (this !== audio) return;
-  document.getElementById('time-cur').textContent = fmt(audio.currentTime);
-  document.getElementById('time-dur').textContent = fmt(audio.duration);
+  const now = performance.now();
+  // 75% trigger runs every event (needs accurate position)
+  if (!_preload75Done && audio.duration && (audio.currentTime / audio.duration) >= 0.75) {
+    _preload75Done = true;
+    const nextIdx = currentTrackIdx + 1;
+    if (_ps.ok) {
+      preloadTrack(nextIdx + 1);
+    } else if (_ps.failed && _ps.fbSrcIdx < 0) {
+      _preloadFallbackSource(nextIdx);
+    }
+  }
+  // UI updates throttled to 250ms
+  if (now - _lastUIUpdate < 250) return;
+  _lastUIUpdate = now;
+  timeCurEl.textContent = fmt(audio.currentTime);
+  timeDurEl.textContent = fmt(audio.duration);
   if (!seeking && audio.duration) {
     seekSlider.value = Math.round((audio.currentTime / audio.duration) * 1000);
     updateSliderFill();
@@ -1393,7 +1424,7 @@ seekSlider.addEventListener('touchstart', () => seeking = true);
 seekSlider.addEventListener('input', () => {
   seeking = true;
   const t = (seekSlider.value / 1000) * (audio.duration || 0);
-  document.getElementById('time-cur').textContent = fmt(t);
+  timeCurEl.textContent = fmt(t);
   updateSliderFill();
 });
 seekSlider.addEventListener('change', () => {
