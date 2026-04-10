@@ -40,7 +40,7 @@ listens_table.create_index([("username", 1), ("ts", 1)])
 try:
     listens_table.create_index([("username", 1), ("session_id", 1)], unique=True, sparse=True)
 except Exception:
-    # Collection may have pre-existing duplicates; index will be enforced for new writes
+    app.logger.warning("listens_table: could not create unique (username, session_id) index — pre-existing duplicates detected, falling back to non-unique")
     listens_table.create_index([("username", 1), ("session_id", 1)], sparse=True)
 notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 
