@@ -724,8 +724,12 @@ async function loadNote(showId) {
   if (!loggedInUser) return;
   const ta = document.getElementById('notes-textarea');
   if (!ta) return;
-  const res = await fetch(`/api/notes/${showId}`);
-  if (res.ok) { const d = await res.json(); ta.value = d.note || ''; }
+  try {
+    const res = await fetch(`/api/notes/${showId}`);
+    if (res.ok) { const d = await res.json(); ta.value = d.note || ''; }
+  } catch(e) {
+    ta.placeholder = 'Could not load note — check connection';
+  }
 }
 
 function scheduleNoteSave() {
@@ -739,8 +743,15 @@ async function saveNote() {
   const ta = document.getElementById('notes-textarea');
   const savedEl = document.getElementById('notes-saved');
   if (!ta || !loggedInUser) return;
-  await fetch('/api/notes', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({show_id: currentShowDate, note: ta.value})});
-  if (savedEl) { savedEl.textContent = 'Saved'; setTimeout(() => { if(savedEl) savedEl.textContent = ''; }, 2000); }
+  const showId = currentShowDate;
+  const note = ta.value;
+  try {
+    const res = await fetch('/api/notes', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({show_id: showId, note})});
+    if (!res.ok) throw new Error();
+    if (savedEl) { savedEl.textContent = 'Saved'; setTimeout(()=>{ if(savedEl) savedEl.textContent=''; }, 2000); }
+  } catch(e) {
+    if (savedEl) { savedEl.textContent = 'Save failed'; setTimeout(()=>{ if(savedEl) savedEl.textContent=''; }, 3000); }
+  }
 }
 
 // ── ON THIS TOUR ──────────────────────────────────────────────────────────
@@ -901,9 +912,13 @@ async function showHistory() {
 }
 
 async function doLogout() {
-  await fetch('/api/auth/logout',{method:'POST'});
-  loggedInUser = null; showRatings = {};
-  updateAuthUI(); showBrowse();
+  loggedInUser = null;
+  showRatings = {};
+  updateAuthUI();
+  showBrowse();
+  try {
+    await fetch('/api/auth/logout', {method: 'POST'});
+  } catch(e) {}
 }
 
 // ── VIEWS ─────────────────────────────────────────────────────────────────
@@ -1138,6 +1153,7 @@ function buildShowStars(showId, rating) {
 
 function renderSourceButtons() {
   _lastPlayingIdx = -1;
+  _sourceLoading = false;
   const panel = document.getElementById('track-panel');
   const myStars = myShowRatings[currentShowDate] || 0;
   const showStarsHTML = `<div class="show-rating-widget"><span class="show-rating-label">My Show Rating:</span><span id="show-stars-widget">${buildShowStars(currentShowDate, myStars)}</span></div>`;
@@ -1160,11 +1176,15 @@ function starsLabel(s) {
 async function rateShow(showId, stars) {
   const current = myShowRatings[showId] || 0;
   if (current === stars) {
-    await fetch('/api/show-ratings', {method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({show_id:showId})});
-    delete myShowRatings[showId];
+    try {
+      await fetch('/api/show-ratings', {method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({show_id:showId})});
+      delete myShowRatings[showId];
+    } catch(e) { myShowRatings[showId] = current; }
   } else {
-    await fetch('/api/show-ratings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({show_id:showId, venue:currentShowInfo, stars})});
     myShowRatings[showId] = stars;
+    try {
+      await fetch('/api/show-ratings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({show_id:showId, venue:currentShowInfo, stars})});
+    } catch(e) { myShowRatings[showId] = current; }
   }
   const widget = document.getElementById('show-stars-widget');
   if (widget) widget.innerHTML = buildShowStars(showId, myShowRatings[showId]||0);
@@ -1236,10 +1256,12 @@ function toggleSourceList() {
   if (arrow) arrow.innerHTML = collapsed ? _IC.chevR : _IC.chevD;
 }
 
+let _sourceLoading = false;
 async function switchSource(idx) {
-  await loadSourceTracks(idx);
-  // On mobile, collapse the source list and update the label after picking
-  if (window.innerWidth <= 700) {
+  if (_sourceLoading) return;
+  _sourceLoading = true;
+  try {
+    await loadSourceTracks(idx);
     const list = document.getElementById('source-selector-list');
     const arrow = document.getElementById('source-collapse-arrow');
     const label = document.getElementById('source-collapse-label');
@@ -1249,6 +1271,8 @@ async function switchSource(idx) {
       const src = allSources[idx];
       label.textContent = src ? `${src.source_type||'UNK'} — ${src.title||src.id}` : 'Sources';
     }
+  } finally {
+    _sourceLoading = false;
   }
 }
 
@@ -1279,11 +1303,15 @@ async function rateStar(e, trackId, stars, rowIdx) {
   const track = currentTracks[rowIdx];
   const existing = showRatings[trackId];
   if (existing === stars) {
-    await fetch('/api/ratings',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId})});
-    delete showRatings[trackId];
+    try {
+      await fetch('/api/ratings',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId})});
+      delete showRatings[trackId];
+    } catch(e) { showRatings[trackId] = existing; }
   } else {
-    await fetch('/api/ratings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId,track_title:track.title,show_date:currentShowDate,source_id:currentSourceId,stars})});
     showRatings[trackId] = stars;
+    try {
+      await fetch('/api/ratings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId,track_title:track.title,show_date:currentShowDate,source_id:currentSourceId,stars})});
+    } catch(e) { showRatings[trackId] = existing; }
   }
   const safeId = trackId.replace(/[^a-z0-9]/gi,'_');
   const el = document.getElementById(`stars-${safeId}`);
@@ -1670,11 +1698,13 @@ async function flushListen() {
   if (!loggedInUser) return;
   const payload = _listenPayload();
   if (!payload) return;
-  await fetch('/api/listens', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(payload),
-  }).catch(()=>{});
+  try {
+    await fetch('/api/listens', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+  } catch(e) {}
 }
 
 // Tick every second while playing
