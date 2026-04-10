@@ -102,9 +102,10 @@
     .src-btn { padding:4px 10px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:10px; cursor:pointer; border-radius:2px; transition:all 0.12s; display:flex; align-items:center; gap:5px; }
     .src-btn:hover { border-color:var(--accent); color:var(--text); }
     .src-btn.active { background:var(--surface2); color:var(--text); border-color:var(--accent2); }
-    .source-collapse-header { display:none; align-items:center; justify-content:space-between; padding:8px 16px; border-bottom:1px solid var(--border); cursor:pointer; font-size:11px; color:var(--muted); }
+    .source-collapse-header { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; border-bottom:1px solid var(--border); cursor:pointer; font-size:11px; color:var(--muted); }
     .source-collapse-header:hover { color:var(--text); }
-    @media (max-width:700px) { .source-collapse-header { display:flex; } .source-selector.collapsed { display:none; } }
+    .source-selector.collapsed { display:none; }
+    @media (max-width:700px) { .source-collapse-header { display:flex; } }
     .src-type-badge { font-size:9px; font-weight:700; padding:1px 4px; border-radius:2px; letter-spacing:0.5px; }
     .src-type-SBD { background:var(--accent); color:var(--bg); }
     .src-type-MTX { background:var(--accent2); color:var(--white); }
@@ -203,6 +204,11 @@
     .rating-card-date { font-size:10px; color:var(--muted); margin-top:2px; }
     .rating-card-stars { color:var(--accent); font-size:14px; flex-shrink:0; letter-spacing:2px; }
     .ratings-empty { color:var(--muted); font-size:12px; padding:40px 0; text-align:center; }
+    .rating-popup { width:320px; max-width:95vw; padding:28px 24px; text-align:center; }
+    .rating-popup-track { font-size:13px; color:var(--text); margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .rating-popup-hint { font-size:10px; color:var(--muted); letter-spacing:1px; margin-top:14px; }
+    .rating-popup-stars { display:flex; justify-content:center; gap:6px; font-size:38px; margin:18px 0 4px; }
+    .rating-popup-stars .half-star-wrap { padding:0 3px; }
     .loading { padding:20px 16px; color:var(--muted); font-size:11px; letter-spacing:1px; }
     .loading::after { content:'...'; animation:dots 1s infinite; }
     @keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
@@ -449,6 +455,15 @@
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
     </div>
     <div class="modal-switch" id="modal-switch">Don't have an account? <a onclick="switchMode()">Register</a></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="rating-popup-modal" onclick="closeRatingPopup()">
+  <div class="modal rating-popup" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeRatingPopup()">✕</button>
+    <div class="rating-popup-track" id="rating-popup-track"></div>
+    <div class="rating-popup-stars" id="rating-popup-stars"></div>
+    <div class="rating-popup-hint">Tap to rate · tap same star to remove</div>
   </div>
 </div>
 
@@ -1163,7 +1178,7 @@ function renderSourceButtons() {
   const notesWidget = loggedInUser ? `<div class="notes-widget"><div class="notes-label">My Notes</div><textarea class="notes-textarea" id="notes-textarea" placeholder="Your thoughts on this show…" oninput="scheduleNoteSave()"></textarea><div class="notes-saved" id="notes-saved"></div></div>` : '';
   const tourSection = `<div class="tour-section"><div class="tour-header" onclick="toggleTour()"><span>On This Tour</span><span id="tour-arrow">${_IC.chevR}</span></div><div class="tour-list" id="tour-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
   const venueSection = `<div class="venue-section"><div class="venue-header" onclick="toggleVenue()"><span id="venue-header-text">Venue History</span><span id="venue-arrow">${_IC.chevR}</span></div><div class="venue-list" id="venue-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
-  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div>${notesWidget}${selectorHTML}<div id="tracks-container"><div class="loading">Loading tracks</div></div>${tourSection}${venueSection}`;
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div>${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
 }
 
 function starsLabel(s) {
@@ -1278,13 +1293,49 @@ async function switchSource(idx) {
 
 function buildStars(trackId, rating, rowIdx) {
   const safeId = trackId.replace(/[^a-z0-9]/gi,'_');
-  const inner = renderHalfStars(
-    rating, 13,
-    i => `rateStar(event,'${trackId}',${i - 0.5},${rowIdx})`,
-    i => `rateStar(event,'${trackId}',${i},${rowIdx})`,
-    !loggedInUser
+  const starDisplay = renderHalfStars(rating, 13, ()=>'', ()=>'', true);
+  const clickable = loggedInUser
+    ? `onclick="event.stopPropagation();openRatingPopup('${trackId}',${rowIdx})" style="cursor:pointer"`
+    : `class="logged-out"`;
+  return `<div class="star-rating ${loggedInUser?'':'logged-out'}" id="stars-${safeId}" ${clickable}>${starDisplay}</div>`;
+}
+
+let _ratingPopupTrackId = null, _ratingPopupRowIdx = null;
+
+function openRatingPopup(trackId, rowIdx) {
+  if (!loggedInUser) { openModal('login'); return; }
+  _ratingPopupTrackId = trackId;
+  _ratingPopupRowIdx = rowIdx;
+  const track = currentTracks[rowIdx];
+  document.getElementById('rating-popup-track').textContent = track ? track.title : trackId;
+  const rating = showRatings[trackId] || 0;
+  document.getElementById('rating-popup-stars').innerHTML = renderHalfStars(
+    rating, 38,
+    i => `rateStarPopup(event,'${trackId}',${i - 0.5},${rowIdx})`,
+    i => `rateStarPopup(event,'${trackId}',${i},${rowIdx})`,
+    false
   );
-  return `<div class="star-rating ${loggedInUser?'':'logged-out'}" id="stars-${safeId}">${inner}</div>`;
+  document.getElementById('rating-popup-modal').classList.add('open');
+}
+
+function closeRatingPopup() {
+  document.getElementById('rating-popup-modal').classList.remove('open');
+  _ratingPopupTrackId = null;
+}
+
+async function rateStarPopup(e, trackId, stars, rowIdx) {
+  e.stopPropagation();
+  await rateStar(e, trackId, stars, rowIdx);
+  // Refresh big stars in popup to reflect new rating
+  const newRating = showRatings[trackId] || 0;
+  const starsEl = document.getElementById('rating-popup-stars');
+  if (starsEl) starsEl.innerHTML = renderHalfStars(
+    newRating, 38,
+    i => `rateStarPopup(event,'${trackId}',${i - 0.5},${rowIdx})`,
+    i => `rateStarPopup(event,'${trackId}',${i},${rowIdx})`,
+    false
+  );
+  closeRatingPopup();
 }
 
 function refreshStarsUI() {
@@ -1342,12 +1393,12 @@ function updatePlaybackUI(idx) {
 }
 
 function preloadTrack(idx) {
-  if (idx >= 0 && idx < currentTracks.length && currentTracks[idx].mp3_url) {
-    if (preload.src !== currentTracks[idx].mp3_url) {
-      preload.src = currentTracks[idx].mp3_url;
-      preload.load();
-    }
-  }
+  if (idx < 0 || idx >= currentTracks.length) return;
+  const url = currentTracks[idx].mp3_url;
+  if (!url || _ps.idx === idx) return; // already loading/loaded this index
+  _ps = { idx, url, ok: false, failed: false, retries: 0, fbSrcIdx: -1, fbTracks: null, fbUrl: null };
+  preload.src = url;
+  preload.load();
 }
 
 function playTrack(idx) {
@@ -1373,6 +1424,7 @@ function playTrack(idx) {
     audio.play().catch(() => {});
   }
 
+  _preload75Done = false;
   preloadTrack(idx + 1);
   updatePlaybackUI(idx);
 
@@ -1440,6 +1492,19 @@ function onTimeUpdate() {
     updateSliderFill();
   }
   updatePositionState();
+  // At 75% through the current track, advance preload to N+2 if N+1 is already buffered,
+  // or kick off the fallback source fetch early if N+1 has failed.
+  if (!_preload75Done && audio.duration && (audio.currentTime / audio.duration) >= 0.75) {
+    _preload75Done = true;
+    const nextIdx = currentTrackIdx + 1;
+    if (_ps.ok) {
+      // N+1 is fully buffered — get a head start on N+2
+      preloadTrack(nextIdx + 1);
+    } else if (_ps.failed && _ps.fbSrcIdx < 0) {
+      // N+1 failed and no fallback started yet — start it now with time to spare
+      _preloadFallbackSource(nextIdx);
+    }
+  }
 }
 
 function updateSliderFill() {
@@ -1481,14 +1546,100 @@ function toggleMute() {
   updateVolIcon(v);
 }
 
-function onEnded() { if (this === audio) { playTrack(currentTrackIdx+1); } }
+// ── PRELOAD STATE & RETRY / FAILOVER ──────────────────────────────────────
+// _ps tracks whether the preload element has successfully buffered its track,
+// failed after retries, and whether a fallback source has been pre-fetched.
+let _ps = { idx: -1, url: null, ok: false, failed: false, retries: 0,
+            fbSrcIdx: -1, fbTracks: null, fbUrl: null };
+let _preload75Done = false;
+const PRELOAD_RETRIES = 3;
+
+async function _fetchSourceTracks(src) {
+  if (!src.sets) {
+    const res = await fetch(`/api/sources/${src.id}/tracks`);
+    const data = await res.json();
+    src.sets = data.sets || [];
+    src.lineage = data.lineage || '';
+    src.taper   = data.taper   || '';
+    src.transferer = data.transferer || '';
+  }
+  const tracks = [];
+  (src.sets || []).forEach(set => set.tracks.forEach(t => tracks.push(t)));
+  return tracks;
+}
+
+async function _preloadFallbackSource(trackIdx) {
+  const fbIdx = activeSourceIdx + 1;
+  if (fbIdx >= allSources.length) return;
+  try {
+    const fbTracks = await _fetchSourceTracks(allSources[fbIdx]);
+    const target = fbTracks[Math.min(trackIdx, fbTracks.length - 1)];
+    if (!target?.mp3_url) return;
+    _ps.fbSrcIdx  = fbIdx;
+    _ps.fbTracks  = fbTracks;
+    _ps.fbUrl     = target.mp3_url;
+    preload.src   = target.mp3_url;
+    preload.load();
+  } catch(e) {}
+}
+
+function onEnded() {
+  if (this !== audio) return;
+  const nextIdx = currentTrackIdx + 1;
+  // If preload failed on current source but we buffered a fallback, use it seamlessly
+  if (_ps.failed && _ps.fbSrcIdx >= 0 && _ps.fbTracks) {
+    const src    = allSources[_ps.fbSrcIdx];
+    const tracks = _ps.fbTracks;
+    const tIdx   = Math.min(nextIdx, tracks.length - 1);
+    const t      = tracks[tIdx];
+    if (t?.mp3_url) {
+      flushListen();
+      _newListenSession();
+      activeSourceIdx  = _ps.fbSrcIdx;
+      currentSourceId  = String(src.id || '');
+      currentTracks    = tracks.map((tr, i) => ({...tr, _track_id: `${currentSourceId}_${tr.id||i}`}));
+      currentTrackIdx  = tIdx;
+      document.querySelectorAll('.src-btn').forEach((b, i) => b.classList.toggle('active', i === activeSourceIdx));
+      if (preload.src === _ps.fbUrl && preload.readyState >= 3) {
+        audio.pause();
+        [audio, preload] = [preload, audio];
+        audio.play().catch(() => {});
+      } else {
+        audio.src = t.mp3_url;
+        audio.load();
+        audio.play().catch(() => {});
+      }
+      updatePlaybackUI(tIdx);
+      preloadTrack(tIdx + 1);
+      return;
+    }
+  }
+  playTrack(nextIdx);
+}
+
 function onPause() { if (this === audio) document.getElementById('btn-play').innerHTML = _IC.play; }
 function onPlay()  { if (this === audio) { document.getElementById('btn-play').innerHTML = _IC.pause; _retryCount = 0; } }
+function onCanPlayThrough() { if (this === preload) _ps.ok = true; }
 
 let _failoverInProgress = false;
 let _retryCount = 0;
 const MAX_RETRIES = 3;
 async function onAudioError() {
+  if (this === preload) {
+    // Preload errored — retry up to PRELOAD_RETRIES times, then buffer from next source
+    if (_ps.failed || !_ps.url) return;
+    if (_ps.retries < PRELOAD_RETRIES) {
+      _ps.retries++;
+      await new Promise(r => setTimeout(r, 800 * _ps.retries));
+      preload.src = '';
+      preload.src = _ps.url;
+      preload.load();
+    } else {
+      _ps.failed = true;
+      await _preloadFallbackSource(_ps.idx);
+    }
+    return;
+  }
   if (this !== audio || _failoverInProgress || currentTrackIdx < 0) return;
   if (_retryCount < MAX_RETRIES) {
     _retryCount++;
@@ -1503,33 +1654,21 @@ async function onAudioError() {
     return;
   }
   _retryCount = 0;
+  // If fallback already pre-buffered by the preload path, jump straight to it
+  if (_ps.fbSrcIdx >= 0 && _ps.fbTracks) { onEnded.call(audio); return; }
   const nextSourceIdx = activeSourceIdx + 1;
-  if (nextSourceIdx >= allSources.length) return; // no more sources to try
+  if (nextSourceIdx >= allSources.length) return;
   _failoverInProgress = true;
   try {
-    const src = allSources[nextSourceIdx];
-    if (!src.sets) {
-      const res = await fetch(`/api/sources/${src.id}/tracks`);
-      const data = await res.json();
-      src.sets = data.sets || [];
-      src.lineage = data.lineage || '';
-      src.taper = data.taper || '';
-      src.transferer = data.transferer || '';
-    }
-    // Build a flat track list for the new source
-    const newTracks = [];
-    (src.sets || []).forEach(set => set.tracks.forEach(t => newTracks.push(t)));
+    const newTracks = await _fetchSourceTracks(allSources[nextSourceIdx]);
     if (!newTracks.length) return;
     const targetIdx = Math.min(currentTrackIdx, newTracks.length - 1);
-    const newTrack = newTracks[targetIdx];
+    const newTrack  = newTracks[targetIdx];
     if (!newTrack?.mp3_url) return;
-
-    // Switch state to new source without re-rendering the full track list
     activeSourceIdx = nextSourceIdx;
-    currentSourceId = String(src.id || '');
-    currentTracks = newTracks.map((t, i) => ({...t, _track_id: `${currentSourceId}_${t.id || i}`}));
+    currentSourceId = String(allSources[nextSourceIdx].id || '');
+    currentTracks   = newTracks.map((t, i) => ({...t, _track_id: `${currentSourceId}_${t.id||i}`}));
     document.querySelectorAll('.src-btn').forEach((b, i) => b.classList.toggle('active', i === nextSourceIdx));
-
     audio.src = newTrack.mp3_url;
     audio.load();
     audio.play().catch(() => {});
@@ -1544,6 +1683,7 @@ async function onAudioError() {
   a.addEventListener('pause', onPause);
   a.addEventListener('play', onPlay);
   a.addEventListener('error', onAudioError);
+  a.addEventListener('canplaythrough', onCanPlayThrough);
 });
 
 document.getElementById('btn-play').onclick = ()=>{ if(audio.paused) audio.play(); else audio.pause(); };
@@ -1571,7 +1711,7 @@ async function loadLeaderboard() {
   el.innerHTML = rows.map((r, i) => `
     <div class="lb-row ${r.username===loggedInUser?'me':''}">
       <div class="lb-rank ${rankClass(i)}">${rankSymbol(i)}</div>
-      <div class="lb-name" style="cursor:pointer" onclick="openUserModal('${escapeHTML(r.username)}')">${escapeHTML(r.username)}${r.username===loggedInUser?' <span style="font-size:9px;color:var(--accent2)">you</span>':''}</div>
+      <div class="lb-name" style="cursor:pointer" onclick="openUserModal('${escapeHTML(r.username)}')">${escapeHTML(r.display_name||r.username)}${r.username===loggedInUser?' <span style="font-size:9px;color:var(--accent2)">you</span>':''}</div>
       <div class="lb-stats">
         <div class="lb-stat"><div class="lb-stat-val">${fmtDuration(r.seconds)}</div><div class="lb-stat-label">Listened</div></div>
         <div class="lb-stat"><div class="lb-stat-val">${r.shows}</div><div class="lb-stat-label">Shows</div></div>
@@ -1739,12 +1879,16 @@ function fmtDuration(seconds) {
   return `${s}s`;
 }
 
-async function loadStats() {
+let _statsYear = '';
+
+async function loadStats(year) {
+  if (year !== undefined) _statsYear = year;
   const el = document.getElementById('stats-content');
   el.innerHTML = '<div class="loading">Loading</div>';
   let d;
   try {
-    const res = await fetch('/api/listens/stats');
+    const url = '/api/listens/stats' + (_statsYear ? `?year=${encodeURIComponent(_statsYear)}` : '');
+    const res = await fetch(url);
     if (!res.ok) { el.innerHTML = '<div class="ratings-empty">Not logged in.</div>'; return; }
     d = await res.json();
   } catch(e) {
@@ -1756,6 +1900,7 @@ async function loadStats() {
 
   const maxShowSecs  = d.top_shows[0]?.seconds  || 1;
   const maxTrackSecs = d.top_tracks[0]?.seconds || 1;
+  const maxSongShows = d.top_songs?.[0]?.show_count || 1;
 
   const showsRows = d.top_shows.map(s => `
     <tr>
@@ -1772,13 +1917,30 @@ async function loadStats() {
       <td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(t.seconds/maxTrackSecs*100)}%"></div></td>
     </tr>`).join('');
 
+  const songsRows = (d.top_songs || []).map(s => `
+    <tr>
+      <td>${escapeHTML(s.title)}</td>
+      <td style="color:var(--accent);font-weight:700">${s.show_count}</td>
+      <td>${fmtDuration(s.seconds)}</td>
+      <td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(s.show_count/maxSongShows*100)}%"></div></td>
+    </tr>`).join('');
+
+  const yearBtns = (d.years || []).length > 1
+    ? `<div class="period-toggle" style="margin-bottom:20px">
+        <button class="period-btn ${!_statsYear?'active':''}" onclick="loadStats('')">All Time</button>
+        ${d.years.map(y => `<button class="period-btn ${_statsYear===y?'active':''}" onclick="loadStats('${y}')">${y}</button>`).join('')}
+      </div>` : '';
+
   el.innerHTML = `
+    ${yearBtns}
     <div class="stats-hero">
-      <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened</div></div>
+      <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened${_statsYear?' · '+_statsYear:''}</div></div>
     </div>
-    ${d.top_shows.length ? `<div class="ratings-section-title">Top Shows</div>
+    ${songsRows ? `<div class="ratings-section-title">Top Songs${_statsYear?' · '+_statsYear:''}</div>
+    <table class="stats-table"><thead><tr><th>Song</th><th>Shows</th><th>Time</th><th></th></tr></thead><tbody>${songsRows}</tbody></table>` : ''}
+    ${d.top_shows.length ? `<div class="ratings-section-title" style="margin-top:20px">Top Shows${_statsYear?' · '+_statsYear:''}</div>
     <table class="stats-table"><thead><tr><th>Date</th><th>Time</th><th></th></tr></thead><tbody>${showsRows}</tbody></table>` : ''}
-    ${d.top_tracks.length ? `<div class="ratings-section-title">Top Tracks</div>
+    ${d.top_tracks.length ? `<div class="ratings-section-title" style="margin-top:20px">Top Tracks (by session)</div>
     <table class="stats-table"><thead><tr><th>Track</th><th>Show</th><th>Time</th><th></th></tr></thead><tbody>${tracksRows}</tbody></table>` : ''}
   `;
 }

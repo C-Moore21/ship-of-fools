@@ -134,6 +134,30 @@ def me():
         return jsonify({"username": session["username"]})
     return jsonify({"username": None})
 
+@app.route("/api/admin/rename-user", methods=["POST"])
+@login_required
+def rename_user():
+    """Rename a user across all collections. Only the logged-in user can rename themselves,
+    or any user can rename another if they know the old username (admin-style for small deployments)."""
+    data = request.get_json()
+    old_name = (data.get("old_username") or "").strip().lower()
+    new_name = (data.get("new_username") or "").strip().lower()
+    if not old_name or not new_name:
+        return jsonify({"error": "old_username and new_username required"}), 400
+    import re
+    if not re.match(r'^[a-z0-9_-]+$', new_name):
+        return jsonify({"error": "new_username may only contain letters, numbers, _ and -"}), 400
+    if users_table.find_one({"username": new_name}):
+        return jsonify({"error": "Username already taken"}), 409
+    if not users_table.find_one({"username": old_name}):
+        return jsonify({"error": "User not found"}), 404
+    users_table.update_one({"username": old_name}, {"$set": {"username": new_name}})
+    for col in [listens_table, ratings_table, show_ratings_table, notes_table]:
+        col.update_many({"username": old_name}, {"$set": {"username": new_name}})
+    if session.get("username") == old_name:
+        session["username"] = new_name
+    return jsonify({"ok": True, "old_username": old_name, "new_username": new_name})
+
 # ── Ratings routes ────────────────────────────────────────────────────────────
 @app.route("/api/ratings", methods=["POST"])
 @login_required
@@ -518,9 +542,15 @@ def record_listen():
 @app.route("/api/listens/stats")
 @login_required
 def listen_stats():
+    import re as _re
     from collections import defaultdict
     username = current_user()
+    year     = request.args.get("year", "")  # optional e.g. "2024"
+
     query = {"username": username}
+    if year:
+        query["show_date"] = {"$regex": f"^{year}-"}
+
     rows = list(listens_table.find(query, {"seconds": 1, "show_date": 1, "show_id": 1, "track_id": 1, "track_title": 1, "_id": 0}))
 
     total_seconds = sum(r["seconds"] for r in rows)
@@ -547,15 +577,76 @@ def listen_stats():
 
     all_years = sorted(all_years_set, reverse=True)
 
+    # Top songs: group by normalized title across all shows
+    # Keys and values are both in normalized (no-punctuation) form so the lookup
+    # works after stripping apostrophes/punctuation from the raw title.
+    _ALIASES = {
+        "gdtrfb":                         "going down the road feeling bad",
+        "going down the road feelin bad": "going down the road feeling bad",
+        "goin down the road feeling bad": "going down the road feeling bad",
+        "goin down the road feelin bad":  "going down the road feeling bad",
+        "nfa":                            "not fade away",
+        "pitb":                           "playing in the band",
+        "tleo":                           "the other one",
+        "st stephen":                     "saint stephen",
+        "lovelight":                      "turn on your lovelight",
+        "turn on your love light":        "turn on your lovelight",
+        "sugar mag":                      "sugar magnolia",
+        "truckin":                        "truckin",
+        "me  my uncle":                   "me and my uncle",   # "me & my uncle" after stripping &
+        "iko":                            "iko iko",
+        "china cat":                      "china cat sunflower",
+        "its all over now":               "its all over now",
+        "death dont have no mercy":       "death dont have no mercy",
+        "deaths dont have no mercy":      "death dont have no mercy",
+        "death don t have no mercy":      "death dont have no mercy",
+    }
+
+    def _norm(title):
+        t = (title or "").lower().strip()
+        t = _re.sub(r'^[\d\s\.\-]+', '', t)       # strip leading track numbers
+        t = _re.sub(r'\s*[-=>]+\s*.*$', '', t)    # strip transitions e.g. "-> Eyes", "> China"
+        t = _re.sub(r"[''`&]", '', t)              # remove apostrophes/ampersands
+        t = _re.sub(r'[^\w\s]', '', t)             # strip remaining punctuation
+        t = _re.sub(r'\s+', ' ', t).strip()
+        return _ALIASES.get(t, t)
+
+    by_song = defaultdict(lambda: {"seconds": 0, "shows": set(), "title": ""})
+    for r in rows:
+        raw = r.get("track_title", "")
+        norm = _norm(raw)
+        if not norm:
+            continue
+        show = r.get("show_date") or r.get("show_id") or ""
+        by_song[norm]["seconds"] += r["seconds"]
+        by_song[norm]["shows"].add(show)
+        by_song[norm]["title"] = by_song[norm]["title"] or raw  # keep first seen display title
+
+    top_songs = sorted(
+        [{"title": v["title"], "norm": k, "seconds": v["seconds"], "show_count": len(v["shows"])}
+         for k, v in by_song.items()],
+        key=lambda x: x["show_count"],
+        reverse=True,
+    )[:20]
+
     top_shows  = sorted(by_show.values(),  key=lambda x: x["seconds"], reverse=True)[:10]
     top_tracks = sorted(by_track.values(), key=lambda x: x["seconds"], reverse=True)[:10]
+
+    # Available years the user has listens for
+    all_years = sorted({
+        r.get("show_date", "")[:4]
+        for r in listens_table.find({"username": username}, {"show_date": 1, "_id": 0})
+        if r.get("show_date", "")[:4].isdigit()
+    }, reverse=True)
 
     return jsonify({
         "total_seconds": total_seconds,
         "total_listens": len(rows),
         "top_shows":     top_shows,
         "top_tracks":    top_tracks,
-        "all_years":     all_years,
+        "top_songs":     top_songs,
+        "years":         all_years,
+        "year":          year,
     })
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
@@ -580,8 +671,17 @@ def leaderboard():
         sid = r.get("show_id") or r.get("show_date", "")
         if sid:
             by_user[u]["shows"].add(sid)
+    usernames = list(by_user.keys())
+    user_docs = {d["username"]: d for d in users_table.find(
+        {"username": {"$in": usernames}}, {"username": 1, "display_name": 1, "_id": 0}
+    )}
     result = sorted([
-        {"username": u, "seconds": v["seconds"], "shows": len(v["shows"])}
+        {
+            "username": u,
+            "display_name": user_docs.get(u, {}).get("display_name") or u,
+            "seconds": v["seconds"],
+            "shows": len(v["shows"]),
+        }
         for u, v in by_user.items()
     ], key=lambda x: x["seconds"], reverse=True)
     return jsonify(result)
