@@ -1354,6 +1354,8 @@ function preloadTrack(idx) {
 
 function playTrack(idx) {
   if (idx < 0 || idx >= currentTracks.length) return;
+  // Don't restart a track that's already playing (prevents double-click double-play)
+  if (idx === currentTrackIdx && !audio.paused && audio.currentTime > 0.5) return;
   flushListen(); // save time on the outgoing track before switching
   _newListenSession(); // fresh session ID for the new track
   currentTrackIdx = idx;
@@ -1581,7 +1583,10 @@ async function onAudioError() {
     if (_ps.failed || !_ps.url) return;
     if (_ps.retries < PRELOAD_RETRIES) {
       _ps.retries++;
+      const psSnapshot = _ps;
       await new Promise(r => setTimeout(r, 800 * _ps.retries));
+      // If _ps was replaced (new track preloading) during the delay, bail
+      if (_ps !== psSnapshot) return;
       preload.src = '';
       preload.src = _ps.url;
       preload.load();
@@ -1596,9 +1601,12 @@ async function onAudioError() {
     _retryCount++;
     _failoverInProgress = true;
     const url = audio.src;
+    const trackIdxSnapshot = currentTrackIdx;
     audio.src = '';
     await new Promise(r => setTimeout(r, 500 * _retryCount));
     _failoverInProgress = false;
+    // If user navigated to a different track during the retry delay, don't clobber it
+    if (currentTrackIdx !== trackIdxSnapshot) return;
     audio.src = url;
     audio.load();
     audio.play().catch(() => {});
