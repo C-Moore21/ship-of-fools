@@ -428,7 +428,7 @@
     <input type="range" class="volume-slider" id="vol-slider" min="0" max="1" step="0.02" value="1">
   </div>
   <audio id="audio-player"></audio>
-  <audio id="audio-preload" preload="auto" style="display:none"></audio>
+  <audio id="audio-preload" preload="auto" muted style="display:none"></audio>
 </div>
 
 <div class="modal-overlay" id="auth-modal">
@@ -479,7 +479,9 @@ const _IC = {
 let audioA = document.getElementById('audio-player');
 let audioB = document.getElementById('audio-preload');
 let audio = audioA; // active element
-let preload = audioB; // buffering next track
+let preload = audioB; // buffering next track — always kept muted
+audioA.muted = false;
+audioB.muted = true;
 let currentTracks = [], currentTrackIdx = -1, currentShowInfo = '';
 let currentSourceId = '', currentShowDate = '', currentShowLocation = '';
 let allSources = [], activeSourceIdx = 0;
@@ -1370,6 +1372,8 @@ function playTrack(idx) {
   if (!isIOS && !isCasting && preload.src === t.mp3_url && preload.readyState >= 3) {
     audio.pause();
     [audio, preload] = [preload, audio];
+    audio.muted = false;   // unmute the new active element
+    preload.muted = true;  // silence the old active (now buffering)
     audio.play().catch(() => {});
   } else {
     audio.src = t.mp3_url;
@@ -1556,6 +1560,8 @@ function onEnded() {
       if (preload.src === _ps.fbUrl && preload.readyState >= 3) {
         audio.pause();
         [audio, preload] = [preload, audio];
+        audio.muted = false;
+        preload.muted = true;
         audio.play().catch(() => {});
       } else {
         audio.src = t.mp3_url;
