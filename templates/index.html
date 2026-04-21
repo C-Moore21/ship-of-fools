@@ -2145,12 +2145,16 @@ async function openToursModal() {
 
 function renderTourList(tours, body) {
   if (!tours.length) { body.innerHTML = '<div class="ratings-empty">No tours defined.</div>'; return; }
-  body.innerHTML = tours.map(t => `
-    <div class="tour-card" onclick="openTourDetail('${escapeHTML(t.id)}','${escapeHTML(t.name)}',${t.show_count})">
+  body.innerHTML = tours.map((t, i) => `
+    <div class="tour-card" data-tour-idx="${i}">
       <div class="tour-card-name">${escapeHTML(t.name)}</div>
       <div class="tour-card-count">${t.show_count} shows</div>
-      <button class="tour-card-btn" onclick="event.stopPropagation();openTourDetail('${escapeHTML(t.id)}','${escapeHTML(t.name)}',${t.show_count})">View Progress</button>
+      <button class="tour-card-btn">View Progress</button>
     </div>`).join('');
+  // Attach click handlers after render to avoid quote-escaping issues with tour names
+  body.querySelectorAll('.tour-card').forEach((el, i) => {
+    el.addEventListener('click', () => openTourDetail(tours[i].id, tours[i].name, tours[i].show_count));
+  });
 }
 
 async function openTourDetail(tourId, tourName, showCount) {
