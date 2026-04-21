@@ -344,6 +344,12 @@
     .tour-cohort-table td { padding:7px 8px 7px 0; border-bottom:1px solid rgba(30,42,69,0.5); }
     .tour-cohort-bar { height:3px; background:var(--accent2); border-radius:2px; display:inline-block; vertical-align:middle; }
     .tour-section-title { font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:10px; padding-bottom:5px; border-bottom:1px solid var(--border); }
+    .tour-era-section { margin-bottom:6px; }
+    .tour-era-header { display:flex; align-items:center; justify-content:space-between; width:100%; padding:10px 14px; background:var(--surface2); border:1px solid var(--border); color:var(--white); font-family:'Space Mono',monospace; font-size:12px; cursor:pointer; text-align:left; transition:background 0.12s; }
+    .tour-era-header:hover { background:rgba(255,255,255,0.06); }
+    .tour-era-name { flex:1; font-weight:700; letter-spacing:0.5px; }
+    .tour-era-arrow { color:var(--muted); font-size:10px; margin-left:8px; transition:transform 0.15s; }
+    .tour-era-runs { padding:4px 0 4px 12px; border-left:2px solid var(--border); margin-left:14px; }
 
     /* ── MOBILE ────────────────────────────────────────────────────────────── */
     .mobile-back { display:none; }
@@ -2136,28 +2142,59 @@ async function openToursModal() {
   try {
     const res = await fetch('/api/tours');
     if (!res.ok) throw new Error(res.statusText);
-    const tours = await res.json();
-    renderTourList(tours, body);
+    const data = await res.json();
+    renderTourList(data.eras || [], body);
   } catch(e) {
     body.innerHTML = `<div style="color:var(--red);font-size:11px;">${escapeHTML(String(e))}</div>`;
   }
 }
 
-function renderTourList(tours, body) {
-  if (!tours.length) { body.innerHTML = '<div class="ratings-empty">No tours defined.</div>'; return; }
-  body.innerHTML = tours.map((t, i) => `
-    <div class="tour-card" data-tour-idx="${i}">
-      <div class="tour-card-name">${escapeHTML(t.name)}</div>
-      <div class="tour-card-count">${t.show_count} shows</div>
-      <button class="tour-card-btn">View Progress</button>
-    </div>`).join('');
-  // Attach click handlers after render to avoid quote-escaping issues with tour names
-  body.querySelectorAll('.tour-card').forEach((el, i) => {
-    el.addEventListener('click', () => openTourDetail(tours[i].id, tours[i].name, tours[i].show_count));
+function renderTourList(eras, body) {
+  if (!eras.length) { body.innerHTML = '<div class="ratings-empty">No tours defined.</div>'; return; }
+
+  // Build era accordion HTML
+  let html = '';
+  eras.forEach((era, ei) => {
+    html += `<div class="tour-era-section">
+      <button class="tour-era-header" data-era-idx="${ei}">
+        <span class="tour-era-name">${escapeHTML(era.name)}</span>
+        <span class="tour-era-arrow">▶</span>
+      </button>
+      <div class="tour-era-runs" data-era-runs="${ei}" style="display:none;">`;
+    era.runs.forEach((r, ri) => {
+      html += `<div class="tour-card" data-era="${ei}" data-run="${ri}">
+        <div class="tour-card-name">${escapeHTML(r.name)}</div>
+        <div class="tour-card-count">${escapeHTML(r.start)} – ${escapeHTML(r.end)}</div>
+        <button class="tour-card-btn">View Progress</button>
+      </div>`;
+    });
+    html += `</div></div>`;
+  });
+  body.innerHTML = html;
+
+  // Era toggle handlers
+  body.querySelectorAll('.tour-era-header').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = btn.dataset.eraIdx;
+      const runsEl = body.querySelector(`[data-era-runs="${idx}"]`);
+      const arrow = btn.querySelector('.tour-era-arrow');
+      const open = runsEl.style.display !== 'none';
+      runsEl.style.display = open ? 'none' : 'block';
+      arrow.textContent = open ? '▶' : '▼';
+    });
+  });
+
+  // Run card click handlers
+  body.querySelectorAll('.tour-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const era = eras[+card.dataset.era];
+      const run = era.runs[+card.dataset.run];
+      openTourDetail(run.id, run.name);
+    });
   });
 }
 
-async function openTourDetail(tourId, tourName, showCount) {
+async function openTourDetail(tourId, tourName) {
   if (!loggedInUser) { openModal('login'); return; }
   const body = document.getElementById('tours-modal-body');
   body.innerHTML = '<div class="loading">Loading</div>';
@@ -2173,50 +2210,53 @@ async function openTourDetail(tourId, tourName, showCount) {
 
 function renderTourDetail(data, body) {
   const tour = data.tour;
-  const heardSet = new Set(data.my_progress || []);
-  const total = tour.shows.length;
-  const heard = heardSet.size;
-  const pct = total > 0 ? Math.round((heard / total) * 100) : 0;
+  const heardDates = (data.my_progress || []).slice().sort();
+  const heard = heardDates.length;
 
-  // Show list with checkmarks
-  const showsHTML = tour.shows.map(date => {
-    const isHeard = heardSet.has(date);
-    return `<div class="tour-show-row" onclick="tourRunGoTo('${escapeHTML(date)}')">
-      <span class="tour-show-check ${isHeard ? 'heard' : ''}">${isHeard ? '✓' : '○'}</span>
-      <span class="tour-show-date">${escapeHTML(date)}</span>
-    </div>`;
-  }).join('');
+  // Shows I've heard in this run
+  const showsHTML = heardDates.length
+    ? heardDates.map(date => `
+        <div class="tour-show-row" data-show-date="${escapeHTML(date)}">
+          <span class="tour-show-check heard">✓</span>
+          <span class="tour-show-date">${escapeHTML(date)}</span>
+        </div>`).join('')
+    : '<div class="ratings-empty" style="padding:8px 0">No shows heard in this run yet.</div>';
 
   // Cohort table
   const maxCount = data.cohort.length ? data.cohort[0].completed_count : 1;
   const cohortRows = data.cohort.map(u => {
-    const barW = maxCount > 0 ? Math.round((u.completed_count / total) * 120) : 0;
+    const barW = maxCount > 0 ? Math.round((u.completed_count / maxCount) * 120) : 0;
     return `<tr>
       <td>${escapeHTML(u.display_name)}</td>
-      <td style="color:var(--accent);font-weight:700">${u.completed_count} / ${total}</td>
+      <td style="color:var(--accent);font-weight:700">${u.completed_count} shows</td>
       <td><span class="tour-cohort-bar" style="width:${barW}px"></span></td>
       <td style="color:var(--muted);font-size:11px">${escapeHTML(u.last_show || '')}</td>
     </tr>`;
   }).join('');
 
   body.innerHTML = `
-    <div class="tour-detail-back" onclick="openToursModal()">
+    <div class="tour-detail-back" id="tour-back-btn">
       ${_IC.back} All Tours
     </div>
-    <div style="font-family:'Playfair Display',serif;font-size:19px;font-weight:700;color:var(--white);margin-bottom:4px;">${escapeHTML(tour.name)}</div>
-    <div class="tour-progress-bar-wrap"><div class="tour-progress-bar" style="width:${pct}%"></div></div>
-    <div class="tour-progress-label">You've heard <strong style="color:var(--text)">${heard}</strong> of <strong style="color:var(--text)">${total}</strong> shows (${pct}%)</div>
+    <div style="font-family:'Playfair Display',serif;font-size:19px;font-weight:700;color:var(--white);margin-bottom:2px;">${escapeHTML(tour.name)}</div>
+    <div style="color:var(--muted);font-size:12px;margin-bottom:12px;">${escapeHTML(tour.start)} – ${escapeHTML(tour.end)}</div>
+    <div class="tour-progress-label">You've heard <strong style="color:var(--text)">${heard}</strong> show${heard !== 1 ? 's' : ''} in this run</div>
 
-    <div class="tour-section-title">Shows in This Run</div>
+    <div class="tour-section-title">Your Shows</div>
     <div class="tour-shows-list">${showsHTML}</div>
 
     ${data.cohort.length ? `
     <div class="tour-section-title">Cohort Progress</div>
     <table class="tour-cohort-table">
-      <thead><tr><th>Listener</th><th>Progress</th><th></th><th>Last Show</th></tr></thead>
+      <thead><tr><th>Listener</th><th>Shows</th><th></th><th>Last Show</th></tr></thead>
       <tbody>${cohortRows}</tbody>
-    </table>` : '<div class="ratings-empty" style="padding:16px 0">No one else is on this run yet. Be the first!</div>'}
+    </table>` : '<div class="ratings-empty" style="padding:16px 0">No one else has listened to this run yet. Be the first!</div>'}
   `;
+
+  body.querySelector('#tour-back-btn').addEventListener('click', openToursModal);
+  body.querySelectorAll('.tour-show-row[data-show-date]').forEach(row => {
+    row.addEventListener('click', () => tourRunGoTo(row.dataset.showDate));
+  });
 }
 
 async function tourRunGoTo(showId) {

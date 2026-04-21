@@ -39,12 +39,145 @@ def _cache_get(key):
 def _cache_set(key, val):
     _cache[key] = {"val": val, "ts": time.time()}
 
+# Each tour run uses date ranges; progress queries use $gte/$lte — no hardcoded show lists needed.
+TOUR_ERAS = [
+    {"id": "proto",    "name": "1965–1969 · Proto-Touring Era"},
+    {"id": "classic",  "name": "1970–1974 · Classic Era"},
+    {"id": "hiatus",   "name": "1975 · Hiatus Year"},
+    {"id": "comeback", "name": "1976–1979 · Post-Hiatus"},
+    {"id": "regular",  "name": "1980–1985 · Regular Cycle"},
+    {"id": "brent",    "name": "1986–1990 · Brent Era"},
+    {"id": "final",    "name": "1991–1995 · Final Era"},
+]
 TOUR_RUNS = [
-    {"id": "europe72",   "name": "Europe '72",        "shows": ["1972-04-07","1972-04-08","1972-04-14","1972-04-16","1972-04-17","1972-04-21","1972-04-22","1972-04-24","1972-04-26","1972-05-03","1972-05-04","1972-05-07","1972-05-10","1972-05-11","1972-05-13","1972-05-16","1972-05-17","1972-05-18","1972-05-19","1972-05-23","1972-05-24","1972-05-25","1972-05-26"]},
-    {"id": "spring77",   "name": "Spring '77",         "shows": ["1977-04-22","1977-04-23","1977-04-25","1977-04-26","1977-04-27","1977-04-29","1977-04-30","1977-05-01","1977-05-03","1977-05-04","1977-05-05","1977-05-07","1977-05-08","1977-05-09","1977-05-10","1977-05-11","1977-05-12","1977-05-13","1977-05-15","1977-05-17","1977-05-18","1977-05-19","1977-05-21","1977-05-22","1977-05-25","1977-05-26","1977-05-28"]},
-    {"id": "fall80",     "name": "Fall '80",           "shows": ["1980-09-25","1980-09-26","1980-09-27","1980-09-28","1980-10-01","1980-10-03","1980-10-04","1980-10-13","1980-10-14","1980-10-15","1980-10-18","1980-10-19","1980-10-21","1980-10-22","1980-10-23","1980-10-25","1980-10-26","1980-10-27","1980-10-28","1980-10-29","1980-10-30","1980-10-31"]},
-    {"id": "summer89",   "name": "Summer '89",         "shows": ["1989-06-16","1989-06-17","1989-06-18","1989-06-20","1989-06-21","1989-06-22","1989-06-24","1989-06-25","1989-06-26","1989-07-02","1989-07-04","1989-07-06","1989-07-07","1989-07-08","1989-07-09","1989-07-12","1989-07-13","1989-07-14","1989-07-15","1989-07-16"]},
-    {"id": "spring90",   "name": "Spring '90",         "shows": ["1990-03-14","1990-03-15","1990-03-16","1990-03-17","1990-03-18","1990-03-20","1990-03-21","1990-03-22","1990-03-24","1990-03-25","1990-03-27","1990-03-28","1990-03-29","1990-03-30","1990-04-01","1990-04-02","1990-04-03"]},
+    # 1965
+    {"id":"1965-spring",    "era":"proto",    "name":"Spring '65",         "start":"1965-05-05","end":"1965-06-30"},
+    {"id":"1965-summer",    "era":"proto",    "name":"Summer '65",         "start":"1965-07-01","end":"1965-08-31"},
+    {"id":"1965-fall",      "era":"proto",    "name":"Fall/Winter '65",    "start":"1965-11-30","end":"1965-12-31"},
+    # 1966
+    {"id":"1966-winter",    "era":"proto",    "name":"Winter '66",         "start":"1966-01-04","end":"1966-02-28"},
+    {"id":"1966-spring",    "era":"proto",    "name":"Spring '66",         "start":"1966-03-03","end":"1966-05-28"},
+    {"id":"1966-summer",    "era":"proto",    "name":"Summer '66",         "start":"1966-06-01","end":"1966-08-31"},
+    {"id":"1966-fall",      "era":"proto",    "name":"Fall '66",           "start":"1966-09-01","end":"1966-12-31"},
+    # 1967
+    {"id":"1967-winter",    "era":"proto",    "name":"Winter '67",         "start":"1967-01-01","end":"1967-02-28"},
+    {"id":"1967-spring",    "era":"proto",    "name":"Spring '67",         "start":"1967-03-18","end":"1967-04-30"},
+    {"id":"1967-summer",    "era":"proto",    "name":"Summer '67",         "start":"1967-06-01","end":"1967-08-31"},
+    {"id":"1967-fall",      "era":"proto",    "name":"Fall '67",           "start":"1967-09-01","end":"1967-12-31"},
+    # 1968
+    {"id":"1968-winter",    "era":"proto",    "name":"Winter '68",         "start":"1968-01-01","end":"1968-02-29"},
+    {"id":"1968-spring",    "era":"proto",    "name":"Spring '68",         "start":"1968-03-01","end":"1968-05-31"},
+    {"id":"1968-summer",    "era":"proto",    "name":"Summer '68",         "start":"1968-06-01","end":"1968-08-31"},
+    {"id":"1968-fall",      "era":"proto",    "name":"Fall '68",           "start":"1968-09-01","end":"1968-12-31"},
+    # 1969
+    {"id":"1969-winter",    "era":"proto",    "name":"Winter '69",         "start":"1969-01-01","end":"1969-03-02"},
+    {"id":"1969-spring",    "era":"proto",    "name":"Spring '69",         "start":"1969-04-01","end":"1969-06-30"},
+    {"id":"1969-summer",    "era":"proto",    "name":"Summer '69",         "start":"1969-07-01","end":"1969-08-31"},
+    {"id":"1969-fall",      "era":"proto",    "name":"Fall/Winter '69",    "start":"1969-09-01","end":"1969-12-31"},
+    # 1970
+    {"id":"1970-winter",    "era":"classic",  "name":"Winter '70",         "start":"1970-01-02","end":"1970-02-14"},
+    {"id":"1970-spring",    "era":"classic",  "name":"Spring '70",         "start":"1970-03-20","end":"1970-05-24"},
+    {"id":"1970-summer",    "era":"classic",  "name":"Summer '70",         "start":"1970-06-04","end":"1970-08-30"},
+    {"id":"1970-fall",      "era":"classic",  "name":"Fall '70",           "start":"1970-09-17","end":"1970-12-31"},
+    # 1971
+    {"id":"1971-winter",    "era":"classic",  "name":"Winter '71",         "start":"1971-01-21","end":"1971-02-24"},
+    {"id":"1971-spring",    "era":"classic",  "name":"Spring '71",         "start":"1971-04-04","end":"1971-04-29"},
+    {"id":"1971-summer",    "era":"classic",  "name":"Summer '71",         "start":"1971-07-02","end":"1971-08-24"},
+    {"id":"1971-fall",      "era":"classic",  "name":"Fall '71",           "start":"1971-10-19","end":"1971-12-31"},
+    # 1972
+    {"id":"1972-europe",    "era":"classic",  "name":"Europe '72",         "start":"1972-04-07","end":"1972-05-26"},
+    {"id":"1972-summer",    "era":"classic",  "name":"Summer '72",         "start":"1972-07-18","end":"1972-08-27"},
+    {"id":"1972-fall",      "era":"classic",  "name":"Fall '72",           "start":"1972-09-17","end":"1972-11-26"},
+    # 1973
+    {"id":"1973-winter",    "era":"classic",  "name":"Winter/Spring '73",  "start":"1973-02-09","end":"1973-04-02"},
+    {"id":"1973-summer",    "era":"classic",  "name":"Summer '73",         "start":"1973-06-10","end":"1973-07-31"},
+    {"id":"1973-fall",      "era":"classic",  "name":"Fall '73",           "start":"1973-10-19","end":"1973-12-19"},
+    # 1974
+    {"id":"1974-spring",    "era":"classic",  "name":"Spring '74",         "start":"1974-02-23","end":"1974-02-24"},
+    {"id":"1974-summer",    "era":"classic",  "name":"Summer '74",         "start":"1974-06-08","end":"1974-08-06"},
+    {"id":"1974-fall",      "era":"classic",  "name":"Fall '74 (pre-hiatus)","start":"1974-10-16","end":"1974-10-20"},
+    # 1975
+    {"id":"1975-only",      "era":"hiatus",   "name":"'75 (Hiatus Year)",  "start":"1975-06-17","end":"1975-09-28"},
+    # 1976
+    {"id":"1976-summer",    "era":"comeback", "name":"Summer Comeback '76","start":"1976-06-03","end":"1976-06-29"},
+    {"id":"1976-fall",      "era":"comeback", "name":"Fall '76",           "start":"1976-09-23","end":"1976-10-15"},
+    # 1977
+    {"id":"1977-winter",    "era":"comeback", "name":"Winter '77",         "start":"1977-02-26","end":"1977-03-20"},
+    {"id":"1977-spring",    "era":"comeback", "name":"Spring '77",         "start":"1977-04-22","end":"1977-05-22"},
+    {"id":"1977-fall",      "era":"comeback", "name":"Fall '77",           "start":"1977-09-03","end":"1977-10-30"},
+    # 1978
+    {"id":"1978-winter",    "era":"comeback", "name":"Winter '78",         "start":"1978-01-06","end":"1978-02-05"},
+    {"id":"1978-spring",    "era":"comeback", "name":"Spring '78",         "start":"1978-04-06","end":"1978-04-15"},
+    {"id":"1978-summer",    "era":"comeback", "name":"Summer '78",         "start":"1978-07-01","end":"1978-09-16"},
+    {"id":"1978-fall",      "era":"comeback", "name":"Fall/Winter '78",    "start":"1978-10-17","end":"1978-12-31"},
+    # 1979
+    {"id":"1979-winter",    "era":"comeback", "name":"Winter '79",         "start":"1979-01-10","end":"1979-01-20"},
+    {"id":"1979-spring",    "era":"comeback", "name":"Spring '79",         "start":"1979-04-15","end":"1979-04-22"},
+    {"id":"1979-summer",    "era":"comeback", "name":"Summer '79",         "start":"1979-08-04","end":"1979-09-01"},
+    {"id":"1979-fall",      "era":"comeback", "name":"Fall '79",           "start":"1979-10-24","end":"1979-12-28"},
+    # 1980
+    {"id":"1980-spring",    "era":"regular",  "name":"Spring '80",         "start":"1980-03-29","end":"1980-05-16"},
+    {"id":"1980-summer",    "era":"regular",  "name":"Summer '80",         "start":"1980-08-30","end":"1980-09-06"},
+    {"id":"1980-fall",      "era":"regular",  "name":"Fall '80",           "start":"1980-09-25","end":"1980-10-31"},
+    # 1981
+    {"id":"1981-spring",    "era":"regular",  "name":"Spring '81",         "start":"1981-02-26","end":"1981-03-14"},
+    {"id":"1981-summer",    "era":"regular",  "name":"Summer '81",         "start":"1981-07-04","end":"1981-07-13"},
+    {"id":"1981-fall",      "era":"regular",  "name":"Fall '81",           "start":"1981-08-28","end":"1981-10-19"},
+    # 1982
+    {"id":"1982-spring",    "era":"regular",  "name":"Spring '82",         "start":"1982-04-06","end":"1982-04-19"},
+    {"id":"1982-summer",    "era":"regular",  "name":"Summer '82",         "start":"1982-07-17","end":"1982-08-10"},
+    {"id":"1982-fall",      "era":"regular",  "name":"Fall '82",           "start":"1982-09-15","end":"1982-10-17"},
+    # 1983
+    {"id":"1983-spring",    "era":"regular",  "name":"Spring '83",         "start":"1983-04-09","end":"1983-04-17"},
+    {"id":"1983-summer",    "era":"regular",  "name":"Summer '83",         "start":"1983-06-18","end":"1983-07-31"},
+    {"id":"1983-fall",      "era":"regular",  "name":"Fall '83",           "start":"1983-09-02","end":"1983-10-17"},
+    # 1984
+    {"id":"1984-spring",    "era":"regular",  "name":"Spring '84",         "start":"1984-04-19","end":"1984-05-07"},
+    {"id":"1984-summer",    "era":"regular",  "name":"Summer '84",         "start":"1984-06-21","end":"1984-07-22"},
+    {"id":"1984-fall",      "era":"regular",  "name":"Fall '84",           "start":"1984-10-05","end":"1984-10-20"},
+    # 1985
+    {"id":"1985-spring",    "era":"regular",  "name":"Spring '85",         "start":"1985-03-27","end":"1985-04-14"},
+    {"id":"1985-summer",    "era":"regular",  "name":"Summer '85",         "start":"1985-06-14","end":"1985-07-13"},
+    {"id":"1985-fall",      "era":"regular",  "name":"Fall '85",           "start":"1985-10-25","end":"1985-11-10"},
+    # 1986
+    {"id":"1986-spring",    "era":"brent",    "name":"Spring '86",         "start":"1986-03-19","end":"1986-04-13"},
+    {"id":"1986-summer",    "era":"brent",    "name":"Summer '86",         "start":"1986-06-20","end":"1986-07-04"},
+    {"id":"1986-fall",      "era":"brent",    "name":"Fall '86",           "start":"1986-12-15","end":"1986-12-31"},
+    # 1987
+    {"id":"1987-spring",    "era":"brent",    "name":"Spring '87",         "start":"1987-03-22","end":"1987-04-19"},
+    {"id":"1987-summer",    "era":"brent",    "name":"Summer '87 (Dylan)", "start":"1987-07-04","end":"1987-07-26"},
+    {"id":"1987-fall",      "era":"brent",    "name":"Fall '87",           "start":"1987-09-18","end":"1987-10-04"},
+    # 1988
+    {"id":"1988-spring",    "era":"brent",    "name":"Spring '88",         "start":"1988-03-27","end":"1988-04-11"},
+    {"id":"1988-summer",    "era":"brent",    "name":"Summer '88",         "start":"1988-06-30","end":"1988-07-17"},
+    {"id":"1988-fall",      "era":"brent",    "name":"Fall '88",           "start":"1988-09-02","end":"1988-09-24"},
+    # 1989
+    {"id":"1989-spring",    "era":"brent",    "name":"Spring '89",         "start":"1989-03-27","end":"1989-04-15"},
+    {"id":"1989-summer",    "era":"brent",    "name":"Summer '89",         "start":"1989-07-02","end":"1989-07-19"},
+    {"id":"1989-fall",      "era":"brent",    "name":"Fall '89",           "start":"1989-10-08","end":"1989-10-26"},
+    # 1990
+    {"id":"1990-spring",    "era":"brent",    "name":"Spring '90",         "start":"1990-03-14","end":"1990-04-03"},
+    {"id":"1990-summer",    "era":"brent",    "name":"Summer '90",         "start":"1990-07-08","end":"1990-07-19"},
+    {"id":"1990-fall",      "era":"brent",    "name":"Fall '90",           "start":"1990-09-07","end":"1990-09-20"},
+    # 1991
+    {"id":"1991-spring",    "era":"final",    "name":"Spring '91",         "start":"1991-03-17","end":"1991-04-01"},
+    {"id":"1991-summer",    "era":"final",    "name":"Summer '91",         "start":"1991-06-01","end":"1991-06-17"},
+    {"id":"1991-fall",      "era":"final",    "name":"Fall '91",           "start":"1991-09-06","end":"1991-09-16"},
+    # 1992
+    {"id":"1992-spring",    "era":"final",    "name":"Spring '92",         "start":"1992-03-09","end":"1992-03-24"},
+    {"id":"1992-summer",    "era":"final",    "name":"Summer '92",         "start":"1992-06-06","end":"1992-06-25"},
+    {"id":"1992-fall",      "era":"final",    "name":"Fall '92",           "start":"1992-12-06","end":"1992-12-16"},
+    # 1993
+    {"id":"1993-spring",    "era":"final",    "name":"Spring '93",         "start":"1993-02-21","end":"1993-03-17"},
+    {"id":"1993-summer",    "era":"final",    "name":"Summer '93",         "start":"1993-06-11","end":"1993-06-26"},
+    {"id":"1993-fall",      "era":"final",    "name":"Fall '93",           "start":"1993-09-22","end":"1993-10-05"},
+    # 1994
+    {"id":"1994-spring",    "era":"final",    "name":"Spring '94",         "start":"1994-03-21","end":"1994-04-04"},
+    {"id":"1994-summer",    "era":"final",    "name":"Summer '94",         "start":"1994-06-13","end":"1994-07-19"},
+    {"id":"1994-fall",      "era":"final",    "name":"Fall '94",           "start":"1994-10-01","end":"1994-10-14"},
+    # 1995
+    {"id":"1995-spring",    "era":"final",    "name":"Spring '95",         "start":"1995-02-19","end":"1995-03-26"},
+    {"id":"1995-summer",    "era":"final",    "name":"Summer '95 (Final)", "start":"1995-06-02","end":"1995-07-09"},
 ]
 
 app = Flask(__name__)
@@ -955,7 +1088,20 @@ def random_show():
 # ── Tour Runs ────────────────────────────────────────────────────────────────
 @app.route("/api/tours")
 def list_tours():
-    return jsonify([{"id": t["id"], "name": t["name"], "show_count": len(t["shows"])} for t in TOUR_RUNS])
+    runs_by_era = {}
+    for t in TOUR_RUNS:
+        runs_by_era.setdefault(t["era"], []).append({
+            "id": t["id"],
+            "name": t["name"],
+            "start": t["start"],
+            "end": t["end"],
+        })
+    eras = [
+        {"id": e["id"], "name": e["name"], "runs": runs_by_era.get(e["id"], [])}
+        for e in TOUR_ERAS
+        if e["id"] in runs_by_era
+    ]
+    return jsonify({"eras": eras})
 
 @app.route("/api/tours/<tour_id>/progress")
 @login_required
@@ -964,15 +1110,15 @@ def tour_progress(tour_id):
     if not tour:
         return jsonify({"error": "Tour not found"}), 404
     username = current_user()
-    tour_shows = tour["shows"]
+    date_filter = {"$gte": tour["start"], "$lte": tour["end"]}
 
     # My progress: distinct show_dates this user has listened to within this tour
-    my_heard = listens_table.distinct("show_date", {"username": username, "show_date": {"$in": tour_shows}})
+    my_heard = listens_table.distinct("show_date", {"username": username, "show_date": date_filter})
     my_heard_set = set(my_heard)
 
     # Cohort: all users who have at least 1 listen in this tour
     pipeline = [
-        {"$match": {"show_date": {"$in": tour_shows}}},
+        {"$match": {"show_date": date_filter}},
         {"$group": {
             "_id": "$username",
             "completed_count": {"$addToSet": "$show_date"},
@@ -1002,7 +1148,7 @@ def tour_progress(tour_id):
     ]
 
     return jsonify({
-        "tour": {"id": tour["id"], "name": tour["name"], "shows": tour["shows"]},
+        "tour": {"id": tour["id"], "name": tour["name"], "start": tour["start"], "end": tour["end"]},
         "my_progress": list(my_heard_set),
         "cohort": cohort,
     })
