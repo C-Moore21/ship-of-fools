@@ -49,14 +49,17 @@
     .panel-divider:hover, .panel-divider.dragging { background:var(--accent2); }
     .years-panel { overflow-y:auto; height:100%; scrollbar-width:thin; -webkit-overflow-scrolling:touch; padding-bottom:90px; }
     .panel-label { padding:10px 16px 7px; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); }
-    .year-item { display:flex; align-items:center; justify-content:space-between; padding:9px 16px; cursor:pointer; transition:background 0.15s; }
+    .year-item { display:flex; align-items:center; justify-content:space-between; padding:9px 16px; cursor:pointer; transition:background 0.15s; position:relative; }
     .year-item:hover { background:var(--surface); }
-    .year-item.active { background:var(--surface2); border-left:3px solid var(--accent); padding-left:13px; color:var(--accent); }
+    .year-item.active { background:var(--surface2); padding-left:13px; color:var(--accent); }
+    .year-item.active::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent); transform-origin:left center; animation:accent-slide-in 0.2s cubic-bezier(0.22,1,0.36,1) both; }
+    @keyframes accent-slide-in { from { transform:scaleX(0); opacity:0; } to { transform:scaleX(1); opacity:1; } }
     .year-count { font-size:11px; color:var(--muted); }
     .shows-panel { overflow-y:auto; height:100%; scrollbar-width:thin; -webkit-overflow-scrolling:touch; padding-bottom:90px; }
-    .show-item { padding:11px 18px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.12s; }
+    .show-item { padding:11px 18px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.12s; position:relative; }
     .show-item:hover { background:var(--surface); }
-    .show-item.active { background:var(--surface2); border-left:3px solid var(--accent2); padding-left:15px; color:var(--text); }
+    .show-item.active { background:var(--surface2); padding-left:15px; color:var(--text); }
+    .show-item.active::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent2); transform-origin:left center; animation:accent-slide-in 0.2s cubic-bezier(0.22,1,0.36,1) both; }
     .show-date { font-size:13px; color:var(--accent); font-weight:700; margin-bottom:3px; }
     .show-venue { font-size:12px; color:var(--text); margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .show-location { font-size:11px; color:var(--muted); }
@@ -96,7 +99,9 @@
     .track-panel { overflow-y:auto; overflow-x:auto; height:100%; scrollbar-width:thin; -webkit-overflow-scrolling:touch; padding-bottom:90px; }
     .track-panel-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:300px; gap:12px; color:var(--muted); }
     .track-panel-empty .big-skull { font-size:57px; opacity:0.3; }
-    .source-header { padding:10px 16px 8px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); }
+    .source-header { padding:10px 16px 8px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); overflow:hidden; }
+    .source-header-content { position:relative; z-index:1; }
+    .dateline-watermark { position:absolute; bottom:-8px; right:10px; font-size:58px; font-family:'Space Mono',monospace; font-weight:700; color:var(--text); opacity:0.08; pointer-events:none; user-select:none; letter-spacing:4px; line-height:1; white-space:nowrap; z-index:0; }
     .source-meta { font-size:11px; color:var(--muted); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .source-selector { display:flex; gap:6px; padding:8px 16px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
     .src-btn { padding:4px 10px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; display:flex; align-items:center; gap:5px; }
@@ -314,6 +319,32 @@
     .resume-dismiss { padding:4px 10px; background:transparent; color:var(--muted); border:1px solid var(--border); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; flex-shrink:0; }
     .resume-dismiss:hover { color:var(--text); border-color:var(--text); }
 
+    /* ── Tour Runs modal ──────────────────────────────────────────────────── */
+    .tours-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); padding:28px; width:620px; max-width:96vw; max-height:88vh; display:flex; flex-direction:column; position:relative; }
+    .tours-modal-body { overflow-y:auto; flex:1; margin-top:14px; }
+    .tour-card { display:flex; align-items:center; gap:14px; padding:14px 16px; border:1px solid var(--border); margin-bottom:8px; background:var(--surface); cursor:pointer; transition:background 0.12s; }
+    .tour-card:hover { background:var(--surface2); }
+    .tour-card-name { font-size:15px; font-weight:700; flex:1; }
+    .tour-card-count { font-size:11px; color:var(--muted); flex-shrink:0; }
+    .tour-card-btn { padding:4px 14px; border:1px solid var(--accent2); background:transparent; color:var(--accent2-light); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; flex-shrink:0; }
+    .tour-card-btn:hover { background:var(--accent2); color:var(--white); }
+    .tour-detail-back { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--accent2-light); cursor:pointer; margin-bottom:16px; user-select:none; }
+    .tour-detail-back:hover { color:var(--white); }
+    .tour-progress-bar-wrap { height:8px; background:var(--border); border-radius:4px; margin:10px 0 6px; overflow:hidden; }
+    .tour-progress-bar { height:100%; background:var(--accent2); border-radius:4px; transition:width 0.3s; }
+    .tour-progress-label { font-size:12px; color:var(--muted); margin-bottom:18px; }
+    .tour-shows-list { margin-bottom:20px; }
+    .tour-show-row { display:flex; align-items:center; gap:10px; padding:6px 10px; border-bottom:1px solid rgba(30,42,69,0.5); cursor:pointer; transition:background 0.1s; font-size:12px; border-radius:2px; }
+    .tour-show-row:hover { background:var(--surface2); }
+    .tour-show-check { width:16px; flex-shrink:0; color:var(--border); font-size:13px; }
+    .tour-show-check.heard { color:#2a9d6f; }
+    .tour-show-date { color:var(--accent); font-weight:700; flex-shrink:0; width:88px; }
+    .tour-cohort-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
+    .tour-cohort-table th { text-align:left; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); padding:0 8px 8px 0; border-bottom:1px solid var(--border); }
+    .tour-cohort-table td { padding:7px 8px 7px 0; border-bottom:1px solid rgba(30,42,69,0.5); }
+    .tour-cohort-bar { height:3px; background:var(--accent2); border-radius:2px; display:inline-block; vertical-align:middle; }
+    .tour-section-title { font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:10px; padding-bottom:5px; border-bottom:1px solid var(--border); }
+
     /* ── MOBILE ────────────────────────────────────────────────────────────── */
     .mobile-back { display:none; }
     @media (max-width: 700px) {
@@ -381,6 +412,7 @@
   <button class="tab" id="tab-stats" style="display:none" onclick="showStatsView()">◈ Stats</button>
   <button class="tab" id="tab-history" style="display:none" onclick="showHistory()">⏱ History</button>
   <button class="tab" id="tab-leaderboard" onclick="showLeaderboard()">⬡ Leaderboard</button>
+  <button class="tab" id="tab-tours" onclick="openToursModal()">⟳ Tour Runs</button>
   <button class="tab" onclick="openToday()">📅 TIH</button>
   <button class="tab tab-gambler" id="tab-gambler" onclick="rollGambler()">🎲 Gambler</button><select class="gambler-era" id="gambler-era" onclick="event.stopPropagation()" onchange="event.stopPropagation()">
     <option value="">All Eras</option>
@@ -1251,7 +1283,10 @@ function renderSourceButtons() {
   const notesWidget = loggedInUser ? `<div class="notes-widget"><div class="notes-label">My Notes</div><textarea class="notes-textarea" id="notes-textarea" placeholder="Your thoughts on this show…" oninput="scheduleNoteSave()"></textarea><div class="notes-saved" id="notes-saved"></div></div>` : '';
   const tourSection = `<div class="tour-section"><div class="tour-header" onclick="toggleTour()"><span>On This Tour</span><span id="tour-arrow">${_IC.chevR}</span></div><div class="tour-list" id="tour-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
   const venueSection = `<div class="venue-section"><div class="venue-header" onclick="toggleVenue()"><span id="venue-header-text">Venue History</span><span id="venue-arrow">${_IC.chevR}</span></div><div class="venue-list" id="venue-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
-  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div>${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+  const dateParts = currentShowDate ? currentShowDate.split('-') : [];
+  const datelineText = dateParts.length === 3 ? `${dateParts[1]} · ${dateParts[2]} · ${dateParts[0].slice(2)}` : '';
+  const datelineHTML = datelineText ? `<div class="dateline-watermark">${datelineText}</div>` : '';
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${datelineHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div></div>${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
 }
 
 function starsLabel(s) {
