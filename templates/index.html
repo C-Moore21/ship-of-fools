@@ -524,6 +524,15 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="tours-modal" onclick="closeTourModal(event)">
+  <div class="tours-modal">
+    <button class="modal-close" onclick="document.getElementById('tours-modal').classList.remove('open')">&times;</button>
+    <div class="modal-title">Tour Run Listening Parties</div>
+    <div class="modal-sub" id="tours-modal-sub">Self-paced runs through legendary tours — see where your cohort is</div>
+    <div class="tours-modal-body" id="tours-modal-body"><div class="loading">Loading</div></div>
+  </div>
+</div>
+
 <script>
 const _IC = {
   play:  `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="4,2 20,12 4,22"/></svg>`,
@@ -2111,6 +2120,119 @@ function eraTooltipShow(event, era, time) {
 function eraTooltipHide() {
   const tip = document.getElementById('era-tooltip');
   if (tip) tip.style.display = 'none';
+}
+
+// ── TOUR RUNS ──────────────────────────────────────────────────────────────
+function closeTourModal(e) {
+  if (e && e.target !== document.getElementById('tours-modal')) return;
+  document.getElementById('tours-modal').classList.remove('open');
+}
+
+async function openToursModal() {
+  const overlay = document.getElementById('tours-modal');
+  const body = document.getElementById('tours-modal-body');
+  overlay.classList.add('open');
+  body.innerHTML = '<div class="loading">Loading</div>';
+  try {
+    const res = await fetch('/api/tours');
+    if (!res.ok) throw new Error(res.statusText);
+    const tours = await res.json();
+    renderTourList(tours, body);
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--red);font-size:11px;">${escapeHTML(String(e))}</div>`;
+  }
+}
+
+function renderTourList(tours, body) {
+  if (!tours.length) { body.innerHTML = '<div class="ratings-empty">No tours defined.</div>'; return; }
+  body.innerHTML = tours.map(t => `
+    <div class="tour-card" onclick="openTourDetail('${escapeHTML(t.id)}','${escapeHTML(t.name)}',${t.show_count})">
+      <div class="tour-card-name">${escapeHTML(t.name)}</div>
+      <div class="tour-card-count">${t.show_count} shows</div>
+      <button class="tour-card-btn" onclick="event.stopPropagation();openTourDetail('${escapeHTML(t.id)}','${escapeHTML(t.name)}',${t.show_count})">View Progress</button>
+    </div>`).join('');
+}
+
+async function openTourDetail(tourId, tourName, showCount) {
+  if (!loggedInUser) { openModal('login'); return; }
+  const body = document.getElementById('tours-modal-body');
+  body.innerHTML = '<div class="loading">Loading</div>';
+  try {
+    const res = await fetch(`/api/tours/${encodeURIComponent(tourId)}/progress`);
+    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error || res.statusText);
+    const data = await res.json();
+    renderTourDetail(data, body);
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--red);font-size:11px;">${escapeHTML(String(e))}</div>`;
+  }
+}
+
+function renderTourDetail(data, body) {
+  const tour = data.tour;
+  const heardSet = new Set(data.my_progress || []);
+  const total = tour.shows.length;
+  const heard = heardSet.size;
+  const pct = total > 0 ? Math.round((heard / total) * 100) : 0;
+
+  // Show list with checkmarks
+  const showsHTML = tour.shows.map(date => {
+    const isHeard = heardSet.has(date);
+    return `<div class="tour-show-row" onclick="tourRunGoTo('${escapeHTML(date)}')">
+      <span class="tour-show-check ${isHeard ? 'heard' : ''}">${isHeard ? '✓' : '○'}</span>
+      <span class="tour-show-date">${escapeHTML(date)}</span>
+    </div>`;
+  }).join('');
+
+  // Cohort table
+  const maxCount = data.cohort.length ? data.cohort[0].completed_count : 1;
+  const cohortRows = data.cohort.map(u => {
+    const barW = maxCount > 0 ? Math.round((u.completed_count / total) * 120) : 0;
+    return `<tr>
+      <td>${escapeHTML(u.display_name)}</td>
+      <td style="color:var(--accent);font-weight:700">${u.completed_count} / ${total}</td>
+      <td><span class="tour-cohort-bar" style="width:${barW}px"></span></td>
+      <td style="color:var(--muted);font-size:11px">${escapeHTML(u.last_show || '')}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="tour-detail-back" onclick="openToursModal()">
+      ${_IC.back} All Tours
+    </div>
+    <div style="font-family:'Playfair Display',serif;font-size:19px;font-weight:700;color:var(--white);margin-bottom:4px;">${escapeHTML(tour.name)}</div>
+    <div class="tour-progress-bar-wrap"><div class="tour-progress-bar" style="width:${pct}%"></div></div>
+    <div class="tour-progress-label">You've heard <strong style="color:var(--text)">${heard}</strong> of <strong style="color:var(--text)">${total}</strong> shows (${pct}%)</div>
+
+    <div class="tour-section-title">Shows in This Run</div>
+    <div class="tour-shows-list">${showsHTML}</div>
+
+    ${data.cohort.length ? `
+    <div class="tour-section-title">Cohort Progress</div>
+    <table class="tour-cohort-table">
+      <thead><tr><th>Listener</th><th>Progress</th><th></th><th>Last Show</th></tr></thead>
+      <tbody>${cohortRows}</tbody>
+    </table>` : '<div class="ratings-empty" style="padding:16px 0">No one else is on this run yet. Be the first!</div>'}
+  `;
+}
+
+async function tourRunGoTo(showId) {
+  document.getElementById('tours-modal').classList.remove('open');
+  const year = showId.slice(0, 4);
+  document.querySelectorAll('.year-item').forEach(el => {
+    el.classList.toggle('active', el.querySelector('span')?.textContent === year);
+  });
+  showBrowse();
+  await loadShows(year);
+  const showItem = document.getElementById(`show-item-${showId}`);
+  if (showItem) {
+    document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
+    showItem.classList.add('active');
+    showItem.scrollIntoView({ block: 'center' });
+    const venue = JSON.parse(showItem.dataset.venue || '{}');
+    await loadSources(showId, showItem.dataset.date, venue);
+  } else {
+    await loadSources(showId, showId, {});
+  }
 }
 
 checkMe();

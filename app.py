@@ -39,6 +39,14 @@ def _cache_get(key):
 def _cache_set(key, val):
     _cache[key] = {"val": val, "ts": time.time()}
 
+TOUR_RUNS = [
+    {"id": "europe72",   "name": "Europe '72",        "shows": ["1972-04-07","1972-04-08","1972-04-14","1972-04-16","1972-04-17","1972-04-21","1972-04-22","1972-04-24","1972-04-26","1972-05-03","1972-05-04","1972-05-07","1972-05-10","1972-05-11","1972-05-13","1972-05-16","1972-05-17","1972-05-18","1972-05-19","1972-05-23","1972-05-24","1972-05-25","1972-05-26"]},
+    {"id": "spring77",   "name": "Spring '77",         "shows": ["1977-04-22","1977-04-23","1977-04-25","1977-04-26","1977-04-27","1977-04-29","1977-04-30","1977-05-01","1977-05-03","1977-05-04","1977-05-05","1977-05-07","1977-05-08","1977-05-09","1977-05-10","1977-05-11","1977-05-12","1977-05-13","1977-05-15","1977-05-17","1977-05-18","1977-05-19","1977-05-21","1977-05-22","1977-05-25","1977-05-26","1977-05-28"]},
+    {"id": "fall80",     "name": "Fall '80",           "shows": ["1980-09-25","1980-09-26","1980-09-27","1980-09-28","1980-10-01","1980-10-03","1980-10-04","1980-10-13","1980-10-14","1980-10-15","1980-10-18","1980-10-19","1980-10-21","1980-10-22","1980-10-23","1980-10-25","1980-10-26","1980-10-27","1980-10-28","1980-10-29","1980-10-30","1980-10-31"]},
+    {"id": "summer89",   "name": "Summer '89",         "shows": ["1989-06-16","1989-06-17","1989-06-18","1989-06-20","1989-06-21","1989-06-22","1989-06-24","1989-06-25","1989-06-26","1989-07-02","1989-07-04","1989-07-06","1989-07-07","1989-07-08","1989-07-09","1989-07-12","1989-07-13","1989-07-14","1989-07-15","1989-07-16"]},
+    {"id": "spring90",   "name": "Spring '90",         "shows": ["1990-03-14","1990-03-15","1990-03-16","1990-03-17","1990-03-18","1990-03-20","1990-03-21","1990-03-22","1990-03-24","1990-03-25","1990-03-27","1990-03-28","1990-03-29","1990-03-30","1990-04-01","1990-04-02","1990-04-03"]},
+]
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-prod")
 
@@ -943,6 +951,69 @@ def random_show():
         "venue": chosen["venue"],
         "location": chosen["location"],
     })
+
+# ── Tour Runs ────────────────────────────────────────────────────────────────
+@app.route("/api/tours")
+def list_tours():
+    return jsonify([{"id": t["id"], "name": t["name"], "show_count": len(t["shows"])} for t in TOUR_RUNS])
+
+@app.route("/api/tours/<tour_id>/progress")
+@login_required
+def tour_progress(tour_id):
+    tour = next((t for t in TOUR_RUNS if t["id"] == tour_id), None)
+    if not tour:
+        return jsonify({"error": "Tour not found"}), 404
+    username = current_user()
+    tour_shows = tour["shows"]
+
+    # My progress: distinct show_dates this user has listened to within this tour
+    my_heard = listens_table.distinct("show_date", {"username": username, "show_date": {"$in": tour_shows}})
+    my_heard_set = set(my_heard)
+
+    # Cohort: all users who have at least 1 listen in this tour
+    pipeline = [
+        {"$match": {"show_date": {"$in": tour_shows}}},
+        {"$group": {
+            "_id": "$username",
+            "completed_count": {"$addToSet": "$show_date"},
+            "last_show": {"$max": "$show_date"},
+        }},
+        {"$project": {
+            "_id": 1,
+            "completed_count": {"$size": "$completed_count"},
+            "last_show": 1,
+        }},
+        {"$sort": {"completed_count": -1}},
+        {"$limit": 20},
+    ]
+    cohort_raw = list(listens_table.aggregate(pipeline))
+    usernames_in_cohort = [r["_id"] for r in cohort_raw]
+    user_docs = {d["username"]: d for d in users_table.find(
+        {"username": {"$in": usernames_in_cohort}},
+        {"username": 1, "display_name": 1, "_id": 0}
+    )}
+    cohort = [
+        {
+            "display_name": user_docs.get(r["_id"], {}).get("display_name") or r["_id"],
+            "completed_count": r["completed_count"],
+            "last_show": r["last_show"],
+        }
+        for r in cohort_raw
+    ]
+
+    return jsonify({
+        "tour": {"id": tour["id"], "name": tour["name"], "shows": tour["shows"]},
+        "my_progress": list(my_heard_set),
+        "cohort": cohort,
+    })
+
+@app.route("/api/tours/<tour_id>/join", methods=["POST"])
+@login_required
+def join_tour(tour_id):
+    tour = next((t for t in TOUR_RUNS if t["id"] == tour_id), None)
+    if not tour:
+        return jsonify({"error": "Tour not found"}), 404
+    return jsonify({"ok": True})
 
 # ── Keep-alive (Render free tier) ────────────────────────────────────────────
 _RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
