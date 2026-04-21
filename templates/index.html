@@ -184,6 +184,13 @@
     .stats-table td.dim { color:var(--muted); }
     .stats-bar-cell { width:120px; }
     .stats-bar { height:3px; background:var(--accent); border-radius:2px; }
+    .era-bar-wrap { position:relative; display:flex; height:32px; border-radius:4px; overflow:hidden; margin-bottom:12px; }
+    .era-segment { height:100%; transition:opacity 0.15s; cursor:default; }
+    .era-segment:hover { opacity:0.8; }
+    .era-tooltip { position:fixed; background:var(--surface2,#1a2640); border:1px solid var(--border); color:var(--text); font-size:11px; padding:5px 9px; border-radius:3px; pointer-events:none; white-space:nowrap; z-index:9999; display:none; }
+    .era-legend { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:4px; }
+    .era-legend-item { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--muted); }
+    .era-legend-dot { width:10px; height:10px; border-radius:2px; flex-shrink:0; }
     .lb-rank { font-size:20px; font-weight:700; color:var(--border); width:32px; flex-shrink:0; text-align:center; }
     .lb-rank.gold { color:#f5c518; } .lb-rank.silver { color:#aaa; } .lb-rank.bronze { color:#cd7f32; }
     .lb-row { display:flex; align-items:center; gap:16px; padding:12px 16px; border:1px solid var(--border); margin-bottom:6px; background:var(--surface); }
@@ -263,6 +270,12 @@
     .history-dur { font-size:11px; color:var(--muted); flex-shrink:0; }
     .btn-today { padding:5px 12px; border:1px solid var(--accent2); background:transparent; color:var(--accent2-light); font-family:'Space Mono',monospace; font-size:12px; cursor:pointer; border-radius:2px; transition:all 0.12s; letter-spacing:0.5px; white-space:nowrap; }
     .btn-today:hover { background:var(--accent2); color:var(--white); }
+    /* ── Gambler tab ── */
+    .tab-gambler { color:#c8a84b; border-bottom-color:transparent; }
+    .tab-gambler:hover { color:#e8c86a; }
+    .tab-gambler.rolling { color:var(--muted); cursor:wait; }
+    .gambler-era { margin-left:4px; padding:2px 6px; background:var(--surface2); border:1px solid var(--border); color:var(--muted); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; outline:none; vertical-align:middle; }
+    .gambler-era:focus { border-color:var(--accent2); }
     .today-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); padding:28px; width:580px; max-width:95vw; max-height:85vh; display:flex; flex-direction:column; position:relative; }
     .today-list { overflow-y:auto; flex:1; margin-top:10px; }
     /* TIH date group — collapsed header */
@@ -291,6 +304,15 @@
     .tih-FOB { background:#2e7d4f; color:var(--white); }
     .tih-AUD { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
     .tih-UNK { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
+
+    /* ── Resume Banner ────────────────────────────────────────────────────── */
+    .resume-banner { display:flex; align-items:center; gap:10px; padding:9px 14px; background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--accent); margin:8px 10px; flex-wrap:wrap; }
+    .resume-banner-text { flex:1; min-width:0; font-size:12px; color:var(--text); }
+    .resume-banner-text strong { color:var(--accent); }
+    .resume-btn { padding:4px 12px; background:var(--accent); color:var(--bg); border:none; font-family:'Space Mono',monospace; font-size:11px; font-weight:700; cursor:pointer; border-radius:2px; flex-shrink:0; }
+    .resume-btn:hover { background:var(--accent-hover); }
+    .resume-dismiss { padding:4px 10px; background:transparent; color:var(--muted); border:1px solid var(--border); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; flex-shrink:0; }
+    .resume-dismiss:hover { color:var(--text); border-color:var(--text); }
 
     /* ── MOBILE ────────────────────────────────────────────────────────────── */
     .mobile-back { display:none; }
@@ -360,6 +382,13 @@
   <button class="tab" id="tab-history" style="display:none" onclick="showHistory()">⏱ History</button>
   <button class="tab" id="tab-leaderboard" onclick="showLeaderboard()">⬡ Leaderboard</button>
   <button class="tab" onclick="openToday()">📅 TIH</button>
+  <button class="tab tab-gambler" id="tab-gambler" onclick="rollGambler()">🎲 Gambler</button><select class="gambler-era" id="gambler-era" onclick="event.stopPropagation()" onchange="event.stopPropagation()">
+    <option value="">All Eras</option>
+    <option value="60s">60s</option>
+    <option value="70s">70s</option>
+    <option value="80s">80s</option>
+    <option value="90s">90s</option>
+  </select>
 </div>
 
 <div class="layout" id="browse-view">
@@ -637,6 +666,56 @@ async function openToday() {
     tihToggle('tih-g-0');
   } catch(e) {
     list.innerHTML = `<div style="color:var(--red);padding:20px;font-size:11px;">${escapeHTML(String(e))}</div>`;
+  }
+}
+
+// ── THE GAMBLER ───────────────────────────────────────────────────────────
+async function rollGambler() {
+  const btn = document.getElementById('tab-gambler');
+  if (btn.classList.contains('rolling')) return;
+  const eraMap = { '60s': [1965, 1969], '70s': [1970, 1979], '80s': [1980, 1989], '90s': [1990, 1995] };
+  const eraVal = document.getElementById('gambler-era')?.value || '';
+  let url = '/api/random-show';
+  if (eraVal && eraMap[eraVal]) {
+    // Pick a random year within the era range, then let backend cache that era pool
+    const [lo, hi] = eraMap[eraVal];
+    const year = lo + Math.floor(Math.random() * (hi - lo + 1));
+    url += `?year=${year}`;
+  }
+  const origText = btn.textContent;
+  btn.classList.add('rolling');
+  btn.textContent = '🎲 Rolling...';
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const d = await res.json().catch(()=>({}));
+      alert('Gambler error: ' + (d.error || res.statusText));
+      return;
+    }
+    const show = await res.json();
+    const showId = show.show_id;
+    const year = showId.slice(0, 4);
+    // Navigate to the show: select year, load shows list, highlight & load the show
+    showBrowse();
+    document.querySelectorAll('.year-item').forEach(el => {
+      el.classList.toggle('active', el.querySelector('span')?.textContent === year);
+    });
+    await loadShows(year);
+    const showItem = document.getElementById(`show-item-${showId}`);
+    if (showItem) {
+      document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
+      showItem.classList.add('active');
+      showItem.scrollIntoView({ block: 'center' });
+      showItem.click();
+    } else {
+      // Fallback: load sources directly using venue info returned by API
+      await loadSources(showId, showId, { name: show.venue, location: show.location });
+    }
+  } catch(e) {
+    alert('Gambler error: ' + e);
+  } finally {
+    btn.classList.remove('rolling');
+    btn.textContent = origText;
   }
 }
 
@@ -1098,6 +1177,11 @@ async function loadSources(showId, date, venue) {
   }
   allSources = await res.json();
   activeSourceIdx = 0;
+  // Clear resume data if navigating to a different show
+  try {
+    const _savedCheck = JSON.parse(localStorage.getItem('sof_resume') || 'null');
+    if (_savedCheck && _savedCheck.showId !== date) localStorage.removeItem('sof_resume');
+  } catch(e) {}
   currentShowInfo = `${date} — ${venue?.name||''}`;
   currentShowDate = date;
   currentShowLocation = venue?.location || '';
@@ -1250,6 +1334,47 @@ async function loadSourceTracks(idx) {
     });
   });
   container.innerHTML = tracksHTML || '<div style="padding:20px 16px;color:var(--muted);font-size:11px;">No playable tracks found for this source.</div>';
+
+  // Check for a saved resume position matching this show + source
+  try {
+    const saved = JSON.parse(localStorage.getItem('sof_resume') || 'null');
+    if (saved && saved.showId === currentShowDate && saved.sourceId === currentSourceId
+        && saved.currentTime > 5 && saved.trackIdx < currentTracks.length) {
+      const track = currentTracks[saved.trackIdx];
+      const trackName = track ? escapeHTML(track.title) : `Track ${saved.trackIdx + 1}`;
+      const timeStr = fmt(saved.currentTime);
+      const banner = document.createElement('div');
+      banner.className = 'resume-banner';
+      banner.id = 'resume-banner';
+      banner.innerHTML = `<div class="resume-banner-text">Resume from <strong>${trackName}</strong> · <strong>${timeStr}</strong></div>`
+        + `<button class="resume-btn" onclick="resumePlayback()">Resume</button>`
+        + `<button class="resume-dismiss" onclick="dismissResume()">Start Over</button>`;
+      container.insertBefore(banner, container.firstChild);
+    }
+  } catch(e) {}
+}
+
+function resumePlayback() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('sof_resume') || 'null');
+    if (!saved) return;
+    dismissResume();
+    playTrack(saved.trackIdx);
+    // Wait for audio to load enough to seek reliably
+    const seekOnce = () => {
+      audio.currentTime = saved.currentTime;
+      audio.removeEventListener('canplay', seekOnce);
+    };
+    audio.addEventListener('canplay', seekOnce);
+    // Fallback: also try after a short delay
+    setTimeout(() => { if (Math.abs(audio.currentTime - saved.currentTime) > 2) audio.currentTime = saved.currentTime; }, 600);
+  } catch(e) {}
+}
+
+function dismissResume() {
+  try { localStorage.removeItem('sof_resume'); } catch(e) {}
+  const banner = document.getElementById('resume-banner');
+  if (banner) banner.remove();
 }
 
 function toggleSourceList() {
@@ -1449,6 +1574,17 @@ function onTimeUpdate() {
     updateSliderFill();
   }
   updatePositionState();
+  // Save resume position to localStorage
+  if (currentShowDate && currentSourceId && currentTrackIdx >= 0) {
+    try {
+      localStorage.setItem('sof_resume', JSON.stringify({
+        showId: currentShowDate,
+        sourceId: currentSourceId,
+        trackIdx: currentTrackIdx,
+        currentTime: audio.currentTime
+      }));
+    } catch(e) {}
+  }
   // At 75% through the current track, advance preload to N+2 if N+1 is already buffered,
   // or kick off the fallback source fetch early if N+1 has failed.
   if (!_preload75Done && audio.duration && (audio.currentTime / audio.duration) >= 0.75) {
@@ -1543,6 +1679,10 @@ async function _preloadFallbackSource(trackIdx) {
 function onEnded() {
   if (this !== audio) return;
   const nextIdx = currentTrackIdx + 1;
+  // If this is the last track, clear the resume position
+  if (nextIdx >= currentTracks.length) {
+    try { localStorage.removeItem('sof_resume'); } catch(e) {}
+  }
   // If preload failed on current source but we buffered a fallback, use it seamlessly
   if (_ps.failed && _ps.fbSrcIdx >= 0 && _ps.fbTracks) {
     const src    = allSources[_ps.fbSrcIdx];
@@ -1887,16 +2027,55 @@ async function loadStats(year) {
         ${d.years.map(y => `<button class="period-btn ${_statsYear===y?'active':''}" onclick="loadStats('${y}')">${y}</button>`).join('')}
       </div>` : '';
 
+  // Era Affinity
+  const ERA_COLORS = ['#3b6fd4','#2a9d6f','#7c4daf','#c0392b','#d97b1a','#1a8a9a'];
+  const eraData = d.by_era || [];
+  const eraTotal = eraData.reduce((s, e) => s + e.seconds, 0);
+  let eraBarHTML = '';
+  if (eraData.length > 0 && eraTotal > 0) {
+    const segments = eraData.map((e, i) => {
+      const pct = (e.seconds / eraTotal * 100).toFixed(3);
+      const color = ERA_COLORS[i % ERA_COLORS.length];
+      return `<div class="era-segment" style="width:${pct}%;background:${color};"
+        onmouseenter="eraTooltipShow(event,${JSON.stringify(e.era)},${JSON.stringify(fmtDuration(e.seconds))})"
+        onmouseleave="eraTooltipHide()"></div>`;
+    }).join('');
+    const legend = eraData.map((e, i) => {
+      const color = ERA_COLORS[i % ERA_COLORS.length];
+      return `<div class="era-legend-item"><div class="era-legend-dot" style="background:${color}"></div><span>${escapeHTML(e.era)}</span><span style="color:var(--text);margin-left:3px">${fmtDuration(e.seconds)}</span></div>`;
+    }).join('');
+    eraBarHTML = `
+      <div class="ratings-section-title" style="margin-top:20px">Era Affinity</div>
+      <div class="era-bar-wrap" id="era-bar">${segments}</div>
+      <div class="era-legend">${legend}</div>
+    `;
+  }
+
   el.innerHTML = `
+    <div id="era-tooltip" class="era-tooltip"></div>
     ${yearBtns}
     <div class="stats-hero">
       <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened${_statsYear?' · '+_statsYear:''}</div></div>
     </div>
-    ${songsRows ? `<div class="ratings-section-title">Top Songs${_statsYear?' · '+_statsYear:''}</div>
+    ${eraBarHTML}
+    ${songsRows ? `<div class="ratings-section-title" style="margin-top:20px">Top Songs${_statsYear?' · '+_statsYear:''}</div>
     <table class="stats-table"><thead><tr><th>Song</th><th>Shows</th><th>Time</th><th></th></tr></thead><tbody>${songsRows}</tbody></table>` : ''}
     ${d.top_shows.length ? `<div class="ratings-section-title" style="margin-top:20px">Top Shows${_statsYear?' · '+_statsYear:''}</div>
     <table class="stats-table"><thead><tr><th>Date</th><th>Time</th><th></th></tr></thead><tbody>${showsRows}</tbody></table>` : ''}
   `;
+}
+
+function eraTooltipShow(event, era, time) {
+  const tip = document.getElementById('era-tooltip');
+  if (!tip) return;
+  tip.textContent = era + ' \u00b7 ' + time;
+  tip.style.display = 'block';
+  tip.style.left = (event.clientX + 12) + 'px';
+  tip.style.top  = (event.clientY - 28) + 'px';
+}
+function eraTooltipHide() {
+  const tip = document.getElementById('era-tooltip');
+  if (tip) tip.style.display = 'none';
 }
 
 checkMe();

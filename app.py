@@ -5,6 +5,7 @@ import requests
 import os
 import functools
 import time
+import random
 from collections import OrderedDict
 
 class _LRUCache:
@@ -639,6 +640,28 @@ def listen_stats():
         if r.get("show_date", "")[:4].isdigit()
     }, reverse=True)
 
+    # Era bucketing
+    ERAS = [
+        ("Primal Dead",   1965, 1969),
+        ("Anthem Era",    1970, 1972),
+        ("Wall of Sound", 1973, 1974),
+        ("Comeback",      1976, 1979),
+        ("Brent Years",   1980, 1990),
+        ("Final Years",   1991, 1995),
+    ]
+    era_seconds = {name: 0 for name, _, _ in ERAS}
+    for r in rows:
+        show_date = r.get("show_date") or r.get("show_id") or ""
+        yr_str = show_date[:4]
+        if not yr_str.isdigit():
+            continue
+        yr = int(yr_str)
+        for name, start, end in ERAS:
+            if start <= yr <= end:
+                era_seconds[name] += r["seconds"]
+                break
+    by_era = [{"era": name, "seconds": era_seconds[name]} for name, _, _ in ERAS if era_seconds[name] > 0]
+
     return jsonify({
         "total_seconds": total_seconds,
         "total_listens": len(rows),
@@ -647,6 +670,7 @@ def listen_stats():
         "top_songs":     top_songs,
         "years":         all_years,
         "year":          year,
+        "by_era":        by_era,
     })
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
@@ -847,6 +871,78 @@ def search_shows():
             "venue": {"name": venue_name or title[:60], "location": doc.get("coverage", "")},
         })
     return jsonify(result)
+
+# ── Random Show (The Gambler) ─────────────────────────────────────────────────
+@app.route("/api/random-show")
+def random_show():
+    year = request.args.get("year", "").strip()
+    cache_key = f"gambler:{year or 'all'}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        pool = cached
+    else:
+        if year:
+            q = f"collection:{COLLECTION} AND year:{year}"
+        else:
+            # Spread across all active GD years
+            q = f"collection:{COLLECTION} AND year:[1965 TO 1995]"
+        try:
+            data = archive_search({
+                "q": q,
+                "fl[]": "identifier,title,date,coverage,avg_rating,num_reviews",
+                "output": "json",
+                "rows": 1000,
+                "sort[]": "date asc",
+            })
+        except requests.exceptions.Timeout:
+            return jsonify({"error": "Archive.org timed out"}), 502
+        except requests.exceptions.RequestException:
+            return jsonify({"error": "Archive.org unavailable"}), 502
+        except Exception:
+            return jsonify({"error": "Unexpected error"}), 500
+
+        docs = data.get("response", {}).get("docs", [])
+        seen = {}
+        pool = []
+        for doc in docs:
+            date_str = doc.get("date") or ""
+            if isinstance(date_str, list):
+                date_str = date_str[0] if date_str else ""
+            date_str = date_str[:10]
+            if not date_str or date_str in seen:
+                continue
+            seen[date_str] = True
+            title = doc.get("title", "")
+            venue_name = ""
+            if " at " in title and " on " in title:
+                venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
+            avg_rating = doc.get("avg_rating")
+            num_reviews = doc.get("num_reviews", 0) or 0
+            pool.append({
+                "show_id": date_str,
+                "show_date": date_str,
+                "venue": venue_name or title[:60],
+                "location": doc.get("coverage", ""),
+                "avg_rating": avg_rating,
+                "num_reviews": num_reviews,
+            })
+        if not pool:
+            return jsonify({"error": "No shows found"}), 404
+        _cache_set(cache_key, pool)
+
+    # Weighted random pick: use avg_rating as weight if available, else uniform
+    weights = []
+    for show in pool:
+        r = show.get("avg_rating")
+        weights.append(float(r) if r is not None else 3.5)
+
+    chosen = random.choices(pool, weights=weights, k=1)[0]
+    return jsonify({
+        "show_id": chosen["show_id"],
+        "show_date": chosen["show_date"],
+        "venue": chosen["venue"],
+        "location": chosen["location"],
+    })
 
 # ── Keep-alive (Render free tier) ────────────────────────────────────────────
 _RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
