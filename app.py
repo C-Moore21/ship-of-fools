@@ -1047,6 +1047,7 @@ _OBS_SONGS = [
 @app.route("/api/observatory")
 def observatory():
     import re as _re
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     song_id = request.args.get("song", "dark star").lower().strip()
     song_meta = next((s for s in _OBS_SONGS if s["id"] == song_id), _OBS_SONGS[0])
 
@@ -1055,12 +1056,10 @@ def observatory():
     if cached:
         return jsonify(cached)
 
-    # Search Archive.org for recordings that have this song in the title/description
-    # We fetch up to 500 identifiers then batch-fetch their track metadata
     try:
         data = archive_search({
             "q": f'collection:{COLLECTION} AND (title:"{song_meta["label"]}" OR description:"{song_meta["label"]}")',
-            "fl[]": "identifier,date,coverage,avg_rating,num_reviews,source",
+            "fl[]": "identifier,date,avg_rating,num_reviews,source",
             "output": "json",
             "rows": 500,
             "sort[]": "date asc",
@@ -1074,8 +1073,7 @@ def observatory():
 
     docs = data.get("response", {}).get("docs", [])
 
-    # For each recording, fetch its track list and find the matching song duration
-    # We cap at 80 recordings to stay under response time limits; prefer variety by date
+    # One candidate per date; cap at 40 to stay well under 25s worker timeout
     seen_dates = {}
     candidates = []
     for doc in docs:
@@ -1088,28 +1086,27 @@ def observatory():
         if date_str not in seen_dates:
             seen_dates[date_str] = doc
             candidates.append(doc)
-    candidates = candidates[:80]
+    candidates = candidates[:40]
 
-    performances = []
     pattern = _re.compile(_re.escape(song_meta["label"]), _re.IGNORECASE)
 
-    for doc in candidates:
+    def fetch_perf(doc):
         identifier = doc.get("identifier") or ""
         date_str = doc.get("date") or ""
         if isinstance(date_str, list):
             date_str = date_str[0] if date_str else ""
         date_str = date_str[:10]
         if not date_str or not identifier:
-            continue
+            return None
 
-        # Try cache first
         track_key = f"tracks:{identifier}"
         track_data = _cache_get(track_key)
         if track_data is None:
             try:
-                meta = archive_metadata(identifier)
-                files = meta.get("files", [])
-                sets_raw = []
+                meta = requests.get(f"{ARCHIVE_METADATA}/{identifier}", timeout=6)
+                meta.raise_for_status()
+                files = meta.json().get("files", [])
+                track_data = []
                 for f in files:
                     fname = f.get("name", "")
                     if not fname.lower().endswith((".mp3", ".flac", ".ogg")):
@@ -1120,25 +1117,21 @@ def observatory():
                     except (ValueError, TypeError):
                         dur = 0
                     if dur > 0:
-                        sets_raw.append({"title": title, "duration": dur})
-                track_data = sets_raw
+                        track_data.append({"title": title, "duration": dur})
                 _cache_set(track_key, track_data)
             except Exception:
-                continue
+                return None
 
-        # Find this song in the track list
         matched_dur = None
         for t in (track_data or []):
             if pattern.search(t.get("title", "")):
                 dur = t.get("duration", 0)
-                if dur and dur > 60:  # ignore sub-minute false matches
+                if dur and dur > 60:
                     matched_dur = dur
                     break
-
         if matched_dur is None:
-            continue
+            return None
 
-        # Infer source type from identifier string
         ident_lower = identifier.lower()
         if "sbd" in ident_lower or "soundboard" in ident_lower:
             src = "SBD"
@@ -1157,24 +1150,33 @@ def observatory():
         except (ValueError, TypeError):
             reviews, rating = 0, 0.0
 
-        performances.append({
+        return {
             "date":     date_str,
             "duration": round(matched_dur),
             "source":   src,
             "reviews":  reviews,
             "rating":   round(rating, 1),
             "id":       identifier,
-        })
+        }
+
+    # Fetch all candidates in parallel — 8 workers, 6s per request ≈ well under 25s
+    performances = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(fetch_perf, doc): doc for doc in candidates}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                performances.append(result)
 
     performances.sort(key=lambda x: x["date"])
-    result = {
-        "song":     song_meta["label"],
-        "song_id":  song_id,
-        "songs":    _OBS_SONGS,
+    out = {
+        "song":         song_meta["label"],
+        "song_id":      song_id,
+        "songs":        _OBS_SONGS,
         "performances": performances,
     }
-    _cache_set(cache_key, result)
-    return jsonify(result)
+    _cache_set(cache_key, out)
+    return jsonify(out)
 
 # ── Search ────────────────────────────────────────────────────────────────────
 @app.route("/api/search")
