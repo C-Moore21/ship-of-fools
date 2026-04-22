@@ -1293,8 +1293,12 @@ def tour_progress(tour_id):
                         venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
                     yr_shows.append({
                         "id": date,
-                        "venue": venue_name or title[:60],
-                        "location": doc.get("coverage", ""),
+                        "display_date": date,
+                        "venue": {
+                            "name": venue_name or title[:60],
+                            "location": doc.get("coverage", ""),
+                        },
+                        "avg_rating": None,
                     })
                 _cache_set(cache_key, yr_shows)
             except Exception:
