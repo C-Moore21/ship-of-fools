@@ -971,6 +971,104 @@ def venue_history():
         result.append({"id": date_str, "display_date": date_str})
     return jsonify({"venue": venue, "shows": result})
 
+# ── The Parking Lot ──────────────────────────────────────────────────────────
+# Hardcoded lore for landmark shows
+_SHOW_LORE = {
+    "1977-05-08": "The night Cornell became a legend. Widely regarded as the greatest single GD performance on tape.",
+    "1972-08-27": "Veneta, OR — the 'Sunshine Daydream' film shoot. A brutally hot Oregon afternoon that produced one of the most beloved recordings in the archive.",
+    "1972-04-26": "Wembley Empire Pool, London. The Europe '72 tour at full power on British soil.",
+    "1972-05-04": "Olympia Theatre, Paris. Dark Stars and improvisation that still sounds untethered fifty years later.",
+    "1973-02-09": "Roscoe Maples Pavilion. 'Dark Star' into 'El Paso' — the setlist that launched a thousand arguments.",
+    "1973-11-11": "Winterland. The Wall of Sound in peak form; often cited as one of the best-recorded shows of the era.",
+    "1973-12-19": "Curtis Hixon Hall. 'Eyes of the World' debut perfection.",
+    "1974-02-23": "Winterland. Pre-hiatus energy, second set a 90-minute continuous improvisation.",
+    "1974-08-06": "Roosevelt Stadium. Last truly monster show before the hiatus — 'Playing' jam goes somewhere unreachable.",
+    "1969-02-27": "Fillmore West. Early psychedelic peak; 'Dark Star' debut on tape.",
+    "1970-02-13": "Fillmore East. 'Dark Star' > 'St. Stephen' > 'The Eleven' run that defined the acoustic/electric era.",
+    "1971-04-26": "Fillmore East closing run. Acoustic set, then one of the strongest second sets of the year.",
+    "1976-06-03": "Boston Music Hall. Post-hiatus comeback; the band sounds reborn and slightly dangerous.",
+    "1978-05-11": "Providence Civic Center. 'Terrapin' still sounding new; Egypt tour energy at home.",
+    "1989-10-09": "Hampton, VA. Considered one of the great late-era shows — 'Dark Star' returns after six years.",
+    "1995-07-09": "Soldier Field. The last show. 'Box of Rain' closes the set; five days later Garcia was gone.",
+}
+
+_SHOW_NOTES = {}  # cache: show_id -> {hot_songs, lore}
+
+@app.route("/api/shows/<path:show_id>/parking-lot")
+def parking_lot(show_id):
+    import re
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', show_id):
+        return jsonify({"error": "invalid show_id"}), 400
+
+    cached = _cache_get(f"pl:{show_id}")
+    if cached:
+        return jsonify(cached)
+
+    from datetime import date, timedelta
+    try:
+        d = date.fromisoformat(show_id)
+    except ValueError:
+        return jsonify({"error": "invalid show_id"}), 400
+
+    # Hot songs this week: community listens for shows ±7 days, same year
+    week_start = (d - timedelta(days=7)).isoformat()
+    week_end   = (d + timedelta(days=7)).isoformat()
+    pipeline = [
+        {"$match": {"show_date": {"$gte": week_start, "$lte": week_end, "$ne": show_id}}},
+        {"$group": {"_id": "$track_title", "plays": {"$sum": 1}}},
+        {"$sort": {"plays": -1}},
+        {"$limit": 8},
+    ]
+    hot_raw = list(listens_table.aggregate(pipeline))
+    hot_songs = [r["_id"] for r in hot_raw if r["_id"]]
+
+    lore = _SHOW_LORE.get(show_id, "")
+
+    result = {"show_id": show_id, "lore": lore, "hot_songs": hot_songs}
+    _cache_set(f"pl:{show_id}", result)
+    return jsonify(result)
+
+# ── Dark Star Observatory ──────────────────────────────────────────────────────
+_OBSERVATORY_SONGS = [
+    "dark star", "the other one", "terrapin station", "playing in the band",
+    "drums", "space", "eyes of the world", "truckin", "casey jones",
+    "st. stephen", "the eleven", "cryptical envelopment",
+]
+
+@app.route("/api/observatory")
+def observatory():
+    song = request.args.get("song", "dark star").lower().strip()
+    # Match track_title loosely
+    import re as _re
+    # Build a pattern that matches the song name within the title
+    pattern = _re.compile(_re.escape(song), _re.IGNORECASE)
+
+    cache_key = f"obs:{song}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    # Aggregate: for each show_date, find max seconds listened for matching tracks
+    # Uses community data (all users) — no username filter
+    pipeline = [
+        {"$match": {"track_title": {"$regex": _re.escape(song), "$options": "i"}}},
+        {"$group": {
+            "_id": "$show_date",
+            "max_seconds": {"$max": "$seconds"},
+            "play_count": {"$sum": 1},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    rows = list(listens_table.aggregate(pipeline))
+    performances = [
+        {"date": r["_id"], "seconds": r["max_seconds"], "plays": r["play_count"]}
+        for r in rows if r["_id"] and r["max_seconds"] and r["max_seconds"] > 60
+    ]
+
+    result = {"song": song, "performances": performances, "songs": _OBSERVATORY_SONGS}
+    _cache_set(cache_key, result)
+    return jsonify(result)
+
 # ── Search ────────────────────────────────────────────────────────────────────
 @app.route("/api/search")
 def search_shows():
@@ -1088,6 +1186,20 @@ def random_show():
 # ── Tour Runs ────────────────────────────────────────────────────────────────
 @app.route("/api/tours")
 def list_tours():
+    # Compute momentum: average show rating per tour run from community data
+    # One aggregation across all runs at once
+    pipeline = [
+        {"$group": {"_id": "$show_id", "avg": {"$avg": "$stars"}}},
+    ]
+    all_ratings = {r["_id"]: r["avg"] for r in show_ratings_table.aggregate(pipeline)}
+
+    def run_momentum(t):
+        # Average rating for shows whose date falls in this run's range
+        scores = [v for k, v in all_ratings.items() if t["start"] <= k <= t["end"]]
+        if not scores:
+            return None
+        return round(sum(scores) / len(scores), 2)
+
     runs_by_era = {}
     for t in TOUR_RUNS:
         runs_by_era.setdefault(t["era"], []).append({
@@ -1095,6 +1207,7 @@ def list_tours():
             "name": t["name"],
             "start": t["start"],
             "end": t["end"],
+            "momentum": run_momentum(t),
         })
     eras = [
         {"id": e["id"], "name": e["name"], "runs": runs_by_era.get(e["id"], [])}

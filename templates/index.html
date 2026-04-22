@@ -337,6 +337,37 @@
     .resume-dismiss { padding:4px 10px; background:transparent; color:var(--muted); border:1px solid var(--border); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; flex-shrink:0; }
     .resume-dismiss:hover { color:var(--text); border-color:var(--text); }
 
+    /* ── Parking Lot ─────────────────────────────────────────────────────── */
+    .parking-lot { margin:0 0 8px; padding:10px 16px 10px; border-bottom:1px solid var(--border); background:var(--surface); position:relative; }
+    .parking-lot-lore { font-family:'Playfair Display',serif; font-style:italic; font-size:13px; color:var(--text); line-height:1.5; margin-bottom:8px; padding-left:10px; border-left:2px solid var(--accent); }
+    .parking-lot-label { font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:5px; }
+    .parking-lot-songs { display:flex; flex-wrap:wrap; gap:5px; }
+    .parking-lot-song { font-size:11px; padding:2px 8px; background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:2px; }
+
+    /* ── Tour Momentum ────────────────────────────────────────────────────── */
+    .tour-momentum-wrap { flex:1; display:flex; flex-direction:column; gap:2px; justify-content:center; min-width:60px; }
+    .tour-momentum-bar-bg { height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
+    .tour-momentum-bar-fill { height:100%; background:linear-gradient(90deg, var(--accent2), var(--accent)); border-radius:2px; transition:width 0.4s; }
+    .tour-momentum-label { font-size:9px; color:var(--muted); letter-spacing:0.5px; }
+
+    /* ── Observatory ──────────────────────────────────────────────────────── */
+    .obs-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent); padding:28px; width:700px; max-width:96vw; max-height:88vh; display:flex; flex-direction:column; position:relative; }
+    .obs-modal-body { overflow-y:auto; flex:1; margin-top:14px; }
+    .obs-song-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:18px; }
+    .obs-song-tab { padding:4px 12px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; }
+    .obs-song-tab:hover { border-color:var(--accent); color:var(--text); }
+    .obs-song-tab.active { background:var(--accent); color:var(--bg); border-color:var(--accent); font-weight:700; }
+    .obs-chart { position:relative; height:180px; margin:8px 0 6px; border-bottom:1px solid var(--border); border-left:1px solid var(--border); }
+    .obs-dot { position:absolute; width:8px; height:8px; border-radius:50%; background:var(--accent); transform:translate(-50%, 50%); cursor:pointer; transition:transform 0.1s, background 0.1s; opacity:0.7; }
+    .obs-dot:hover { transform:translate(-50%, 50%) scale(1.6); opacity:1; background:var(--accent-hover); }
+    .obs-axis-label { position:absolute; font-size:9px; color:var(--muted); letter-spacing:0.5px; }
+    .obs-tooltip { position:fixed; background:var(--surface2); border:1px solid var(--border); padding:6px 10px; font-size:11px; pointer-events:none; z-index:9999; border-left:2px solid var(--accent); display:none; }
+    .obs-empty { color:var(--muted); font-size:12px; padding:40px 0; text-align:center; }
+    .obs-stats { display:flex; gap:24px; margin-top:10px; flex-wrap:wrap; }
+    .obs-stat { display:flex; flex-direction:column; gap:2px; }
+    .obs-stat-val { font-size:18px; font-weight:700; color:var(--accent); font-family:'Playfair Display',serif; }
+    .obs-stat-lbl { font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+
     /* ── Tour Runs modal ──────────────────────────────────────────────────── */
     .tours-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); padding:28px; width:620px; max-width:96vw; max-height:88vh; display:flex; flex-direction:column; position:relative; }
     .tours-modal-body { overflow-y:auto; flex:1; margin-top:14px; }
@@ -438,6 +469,7 @@
   <button class="tab" id="tab-history" style="display:none" onclick="showHistory()">⏱ History</button>
   <button class="tab" id="tab-leaderboard" onclick="showLeaderboard()">⬡ Leaderboard</button>
   <button class="tab" id="tab-tours" onclick="openToursModal()">⟳ Tour Runs</button>
+  <button class="tab" onclick="openObservatory()">🔭 Observatory</button>
   <button class="tab" onclick="openToday()">📅 TIH</button>
   <button class="tab tab-gambler" id="tab-gambler" onclick="rollGambler()">🎲 Gambler</button><select class="gambler-era" id="gambler-era" onclick="event.stopPropagation()" onchange="event.stopPropagation()">
     <option value="">All Eras</option>
@@ -557,6 +589,16 @@
     <div class="tours-modal-body" id="tours-modal-body"><div class="loading">Loading</div></div>
   </div>
 </div>
+
+<div class="modal-overlay" id="obs-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="obs-modal">
+    <button class="modal-close" onclick="document.getElementById('obs-modal').classList.remove('open')">&times;</button>
+    <div class="modal-title">🔭 Dark Star Observatory</div>
+    <div class="modal-sub">Duration of community-heard performances across the archive</div>
+    <div class="obs-modal-body" id="obs-modal-body"><div class="loading">Loading</div></div>
+  </div>
+</div>
+<div class="obs-tooltip" id="obs-tooltip"></div>
 
 <script>
 const _IC = {
@@ -1359,7 +1401,10 @@ function renderSourceButtons() {
       ${venueLine ? `<div class="ticket-stub-sub">${escapeHTML(venueLine)}</div>` : ''}
     </div></div>`;
   }
-  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div></div>${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+  const parkingLotSection = `<div id="parking-lot-slot"></div>`;
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div></div>${parkingLotSection}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+  // Load parking lot asynchronously — don't block track rendering
+  loadParkingLot(currentShowDate);
 }
 
 function starsLabel(s) {
@@ -2220,10 +2265,17 @@ function renderTourList(eras, body) {
       </button>
       <div class="tour-era-runs" data-era-runs="${ei}" style="display:none;">`;
     era.runs.forEach((r, ri) => {
+      const momHTML = r.momentum != null
+        ? `<div class="tour-momentum-wrap">
+            <div class="tour-momentum-bar-bg"><div class="tour-momentum-bar-fill" style="width:${Math.round((r.momentum/5)*100)}%"></div></div>
+            <div class="tour-momentum-label">${r.momentum.toFixed(1)} ★ avg</div>
+          </div>`
+        : '';
       html += `<div class="tour-card" data-era="${ei}" data-run="${ri}">
         <div class="tour-card-name">${escapeHTML(r.name)}</div>
-        <div class="tour-card-count">${escapeHTML(r.start)} – ${escapeHTML(r.end)}</div>
-        <button class="tour-card-btn">View Progress</button>
+        ${momHTML}
+        <div class="tour-card-count" style="font-size:10px;">${escapeHTML(r.start.slice(0,7))} – ${escapeHTML(r.end.slice(0,7))}</div>
+        <button class="tour-card-btn">View</button>
       </div>`;
     });
     html += `</div></div>`;
@@ -2343,6 +2395,135 @@ async function tourRunGoTo(showId) {
   } else {
     await loadSources(showId, showId, {});
   }
+}
+
+// ── Parking Lot ───────────────────────────────────────────────────────────────
+async function loadParkingLot(showId) {
+  const slot = document.getElementById('parking-lot-slot');
+  if (!slot) return;
+  try {
+    const res = await fetch(`/api/shows/${showId}/parking-lot`);
+    if (!res.ok) return;
+    const d = await res.json();
+    if (!d.lore && !d.hot_songs?.length) return;
+    let html = '<div class="parking-lot">';
+    if (d.lore) html += `<div class="parking-lot-lore">${escapeHTML(d.lore)}</div>`;
+    if (d.hot_songs?.length) {
+      html += `<div class="parking-lot-label">Hot this week on tour</div><div class="parking-lot-songs">`;
+      d.hot_songs.forEach(s => { html += `<span class="parking-lot-song">${escapeHTML(s)}</span>`; });
+      html += `</div>`;
+    }
+    html += '</div>';
+    slot.innerHTML = html;
+  } catch(e) { /* silent — parking lot is decorative */ }
+}
+
+// ── Observatory ───────────────────────────────────────────────────────────────
+let _obsCurrentSong = 'dark star';
+
+function openObservatory() {
+  document.getElementById('obs-modal').classList.add('open');
+  renderObservatory(_obsCurrentSong);
+}
+
+async function renderObservatory(song) {
+  _obsCurrentSong = song;
+  const body = document.getElementById('obs-modal-body');
+  body.innerHTML = '<div class="loading">Loading</div>';
+  try {
+    const res = await fetch(`/api/observatory?song=${encodeURIComponent(song)}`);
+    if (!res.ok) throw new Error(res.statusText);
+    const d = await res.json();
+    buildObsChart(d, body);
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--red);font-size:11px;padding:20px">${escapeHTML(String(e))}</div>`;
+  }
+}
+
+function buildObsChart(d, body) {
+  const perfs = d.performances || [];
+  const songs = d.songs || [];
+
+  // Song tab strip
+  const tabsHTML = songs.map(s =>
+    `<button class="obs-song-tab${s === d.song ? ' active' : ''}" data-song="${escapeHTML(s)}">${escapeHTML(s)}</button>`
+  ).join('');
+
+  if (!perfs.length) {
+    body.innerHTML = `<div class="obs-song-tabs">${tabsHTML}</div><div class="obs-empty">No community listens recorded for "${escapeHTML(d.song)}" yet.<br>Play some shows and come back!</div>`;
+    body.querySelectorAll('.obs-song-tab').forEach(btn => btn.addEventListener('click', () => renderObservatory(btn.dataset.song)));
+    return;
+  }
+
+  // Chart: x = year (date), y = seconds
+  const minYear = parseInt(perfs[0].date);
+  const maxYear = parseInt(perfs[perfs.length - 1].date);
+  const yearSpan = Math.max(maxYear - minYear, 1);
+  const maxSec = Math.max(...perfs.map(p => p.seconds));
+  const minSec = Math.min(...perfs.map(p => p.seconds));
+  const avgSec = Math.round(perfs.reduce((a, p) => a + p.seconds, 0) / perfs.length);
+  const longestPerf = perfs.reduce((a, b) => b.seconds > a.seconds ? b : a);
+
+  const CHART_H = 160;
+  const CHART_W = 100; // percent
+
+  const dotsHTML = perfs.map(p => {
+    const xPct = ((parseInt(p.date) - minYear) / yearSpan) * 96 + 2;
+    const yPct = ((p.seconds - minSec) / Math.max(maxSec - minSec, 1)) * 90;
+    const yPos = CHART_H - (yPct / 100 * CHART_H) - 4;
+    const sizePx = Math.min(4 + Math.sqrt(p.plays) * 2, 14);
+    return `<div class="obs-dot" style="left:${xPct.toFixed(1)}%;bottom:${(yPos/CHART_H*100).toFixed(1)}%;width:${sizePx}px;height:${sizePx}px;margin-bottom:-${sizePx/2}px" data-date="${escapeHTML(p.date)}" data-sec="${p.seconds}" data-plays="${p.plays}"></div>`;
+  }).join('');
+
+  // Axis labels — a few years
+  const yearLabels = [];
+  const step = yearSpan > 20 ? 5 : (yearSpan > 10 ? 3 : 2);
+  for (let y = minYear; y <= maxYear; y += step) {
+    const xPct = ((y - minYear) / yearSpan) * 96 + 2;
+    yearLabels.push(`<span class="obs-axis-label" style="left:${xPct.toFixed(1)}%;bottom:-18px">${y}</span>`);
+  }
+
+  body.innerHTML = `
+    <div class="obs-song-tabs">${tabsHTML}</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">${perfs.length} performances · dot size = number of listeners · y-axis = duration</div>
+    <div class="obs-chart" style="height:${CHART_H}px">
+      ${dotsHTML}
+      ${yearLabels.join('')}
+    </div>
+    <div class="obs-stats" style="margin-top:24px;">
+      <div class="obs-stat"><div class="obs-stat-val">${perfs.length}</div><div class="obs-stat-lbl">Performances</div></div>
+      <div class="obs-stat"><div class="obs-stat-val">${fmtMins(avgSec)}</div><div class="obs-stat-lbl">Avg Duration</div></div>
+      <div class="obs-stat"><div class="obs-stat-val">${fmtMins(longestPerf.seconds)}</div><div class="obs-stat-lbl">Longest · ${escapeHTML(longestPerf.date)}</div></div>
+      <div class="obs-stat"><div class="obs-stat-val">${fmtMins(minSec)}</div><div class="obs-stat-lbl">Shortest</div></div>
+    </div>`;
+
+  body.querySelectorAll('.obs-song-tab').forEach(btn => btn.addEventListener('click', () => renderObservatory(btn.dataset.song)));
+
+  // Tooltip on dots
+  const tooltip = document.getElementById('obs-tooltip');
+  body.querySelectorAll('.obs-dot').forEach(dot => {
+    dot.addEventListener('mouseenter', e => {
+      const mins = fmtMins(+dot.dataset.sec);
+      tooltip.textContent = `${dot.dataset.date} · ${mins} · ${dot.dataset.plays} listener${dot.dataset.plays==1?'':'s'}`;
+      tooltip.style.display = 'block';
+    });
+    dot.addEventListener('mousemove', e => {
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top  = (e.clientY - 28) + 'px';
+    });
+    dot.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    dot.addEventListener('click', () => {
+      document.getElementById('obs-modal').classList.remove('open');
+      tourRunGoTo(dot.dataset.date);
+    });
+  });
+}
+
+function fmtMins(sec) {
+  if (!sec) return '—';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2,'0')}`;
 }
 
 checkMe();
