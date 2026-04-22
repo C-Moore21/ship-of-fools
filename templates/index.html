@@ -412,6 +412,10 @@
     .crows-nest-legend-item { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--muted); }
     .crows-nest-legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
     .crows-nest-show-count { font-size:10px; color:var(--muted); margin-top:4px; }
+    .cn-popover { position:fixed; z-index:10000; background:var(--surface2); border:1px solid var(--border); border-left:2px solid var(--accent); padding:8px 0; max-height:260px; overflow-y:auto; box-shadow:0 4px 24px rgba(0,0,0,0.6); }
+    .cn-pop-title { font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); padding:0 12px 6px; border-bottom:1px solid var(--border); margin-bottom:4px; }
+    .cn-pop-row { padding:5px 12px; font-size:12px; cursor:pointer; color:var(--accent); font-family:'Space Mono',monospace; transition:background 0.1s; }
+    .cn-pop-row:hover { background:var(--surface); color:var(--white); }
     .crows-nest-stats-row { display:flex; gap:20px; flex-wrap:wrap; margin-top:10px; }
     .crows-nest-stat { text-align:center; }
     .crows-nest-stat-val { font-size:16px; font-weight:700; color:var(--accent); font-family:'Playfair Display',serif; }
@@ -2635,21 +2639,108 @@ const ERA_LEGEND = [
   {label:'91–95 Final',   color:'#e8332a'},
 ];
 
-// Mercator projection clipped to North America + tiny Europe window
-function _project(lat, lng, W, H) {
-  // Bounding box: lat 22–55, lng -130–-60 (NA focus, most shows)
-  // Europe shows lat 45–60, lng -10–20 — we'll stretch canvas to fit both
-  const LNG_MIN = -130, LNG_MAX = 25, LAT_MIN = 22, LAT_MAX = 62;
-  const x = ((lng - LNG_MIN) / (LNG_MAX - LNG_MIN)) * W;
-  // Mercator y
+// ── Map geographic outlines (simplified lat/lng polylines) ────────────────
+const _MAP_OUTLINES = [
+  // US East coast N→S
+  [[47.5,-67.0],[46.5,-67.7],[44.8,-66.9],[44.0,-68.0],[43.6,-70.2],[43.1,-70.7],[42.5,-70.9],[42.0,-70.0],[41.5,-70.5],[41.3,-71.8],[41.0,-72.9],[40.9,-72.6],[40.7,-74.0],[39.7,-74.1],[38.9,-74.9],[38.1,-75.4],[37.2,-76.0],[36.9,-76.3],[36.5,-75.9],[35.2,-75.5],[34.0,-77.9],[33.8,-78.5],[33.1,-79.0],[32.2,-80.9],[31.0,-81.3],[30.5,-81.4],[29.9,-81.4],[29.4,-82.8]],
+  // US Gulf coast
+  [[29.4,-82.8],[30.0,-84.1],[29.9,-85.4],[30.2,-87.7],[30.3,-88.9],[29.5,-89.4],[29.0,-90.2],[29.0,-90.7],[29.3,-91.5],[29.7,-93.8],[29.7,-94.8],[29.3,-94.7],[29.0,-95.4],[28.1,-97.0],[27.5,-97.4],[26.2,-97.3],[25.9,-97.1]],
+  // US-Mexico border
+  [[25.9,-97.1],[26.6,-98.7],[26.9,-101.4],[29.7,-104.5],[31.4,-106.5],[31.8,-107.9],[32.0,-109.0],[32.0,-111.1],[32.5,-114.7],[32.5,-117.1]],
+  // US West coast
+  [[32.5,-117.1],[32.7,-117.2],[33.6,-118.1],[34.0,-120.5],[35.4,-120.9],[36.6,-122.0],[37.5,-122.5],[37.8,-122.5],[38.0,-123.0],[38.3,-123.1],[39.0,-123.7],[40.7,-124.2],[41.8,-124.2],[42.8,-124.5],[43.3,-124.4],[44.0,-124.1],[44.9,-124.0],[46.2,-124.1],[47.0,-124.0],[47.5,-122.5],[47.9,-122.4],[48.4,-122.8],[48.5,-124.7]],
+  // US-Canada border
+  [[48.5,-124.7],[49.0,-116.0],[49.0,-110.0],[49.0,-100.7],[49.0,-95.2],[49.4,-94.8],[48.9,-89.5],[47.5,-86.6],[46.5,-84.5],[46.0,-83.9],[44.0,-76.8],[45.0,-74.8],[45.0,-71.5],[45.3,-71.0],[45.9,-67.8],[47.2,-67.8],[47.5,-67.0]],
+  // Great Lakes (simplified outer)
+  [[42.0,-83.1],[42.7,-82.9],[43.0,-82.5],[43.9,-82.4],[44.5,-82.5],[44.5,-82.0],[44.0,-81.0],[43.6,-79.5],[43.3,-79.1],[43.0,-79.0],[42.9,-79.0],[43.2,-77.7],[43.5,-76.3],[43.9,-77.0],[44.2,-76.4],[44.5,-76.5],[44.9,-76.0],[45.0,-75.0],[44.6,-75.7],[44.2,-76.1],[43.9,-77.4],[43.5,-79.5],[43.0,-79.0]],
+  // Lake Michigan
+  [[42.0,-87.5],[42.5,-87.5],[43.2,-86.8],[44.1,-86.6],[45.8,-84.7],[46.1,-84.1],[45.7,-84.7],[44.8,-86.5],[44.0,-86.7],[43.0,-87.5],[42.0,-87.5]],
+  // Lake Superior
+  [[46.5,-84.5],[46.8,-84.9],[47.2,-85.1],[47.5,-86.0],[47.5,-88.0],[47.0,-89.5],[46.5,-90.5],[46.8,-92.0],[47.8,-92.2],[48.2,-89.8],[48.7,-88.2],[48.5,-84.5],[47.5,-84.4],[46.5,-84.5]],
+  // Florida peninsula
+  [[29.4,-82.8],[28.7,-81.1],[28.0,-80.6],[26.5,-80.0],[25.7,-80.2],[24.6,-81.8],[25.1,-81.0],[25.5,-81.5],[26.3,-81.8],[26.9,-82.0],[27.5,-82.5],[28.0,-82.8],[29.4,-82.8]],
+  // UK rough coastline
+  [[51.5,-0.1],[51.4,0.9],[53.0,1.8],[53.8,0.0],[54.7,-1.2],[55.9,-2.1],[57.6,-1.9],[58.6,-3.1],[58.7,-5.0],[57.5,-5.8],[56.0,-4.8],[55.2,-4.9],[54.6,-4.4],[53.4,-3.1],[52.8,-3.2],[52.0,-4.2],[51.5,-5.2],[51.1,-4.6],[50.1,-5.7],[49.9,-5.1],[50.6,-4.0],[50.8,-2.0],[51.5,-0.1]],
+  // Ireland rough
+  [[55.1,-7.0],[54.1,-7.8],[53.2,-9.9],[52.0,-10.3],[51.5,-9.5],[51.9,-8.5],[52.2,-7.5],[52.0,-6.2],[52.5,-6.0],[53.2,-6.0],[53.7,-6.2],[54.5,-5.5],[55.1,-7.0]],
+  // Western Europe outline (France, Benelux, Germany, Netherlands, Denmark)
+  [[43.5,-1.8],[44.0,-1.3],[45.5,-1.2],[47.0,-2.1],[47.3,-2.2],[48.2,-1.6],[49.4,-0.2],[50.5,1.6],[51.5,2.5],[51.9,4.5],[52.4,4.9],[53.5,5.0],[53.7,7.1],[54.9,8.2],[55.4,8.6],[56.5,8.1],[57.8,10.6],[56.5,12.1],[55.5,12.3],[55.2,12.7],[55.7,14.3],[54.5,14.4],[53.9,14.2],[53.4,13.5],[52.5,14.6],[51.0,15.0],[50.0,12.5],[48.7,13.8],[47.7,13.0],[47.5,11.0],[47.0,10.5],[46.5,9.0],[44.4,8.0],[43.5,4.6],[43.5,1.3],[43.5,-1.8]],
+];
+
+// ── Mercator projection with viewport transform ────────────────────────────
+const _MAP_BOUNDS = { lngMin:-130, lngMax:25, latMin:22, latMax:62 };
+
+function _project(lat, lng, W, H, vp) {
+  const {lngMin,lngMax,latMin,latMax} = _MAP_BOUNDS;
+  const xBase = ((lng - lngMin) / (lngMax - lngMin)) * W;
   const latRad = lat * Math.PI / 180;
   const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
-  const latMaxRad = LAT_MAX * Math.PI / 180;
-  const latMinRad = LAT_MIN * Math.PI / 180;
-  const mercMax = Math.log(Math.tan(Math.PI / 4 + latMaxRad / 2));
-  const mercMin = Math.log(Math.tan(Math.PI / 4 + latMinRad / 2));
-  const y = H - ((mercN - mercMin) / (mercMax - mercMin)) * H;
-  return [x, y];
+  const mercMax = Math.log(Math.tan(Math.PI / 4 + latMax * Math.PI / 360));
+  const mercMin = Math.log(Math.tan(Math.PI / 4 + latMin * Math.PI / 360));
+  const yBase = H - ((mercN - mercMin) / (mercMax - mercMin)) * H;
+  if (!vp) return [xBase, yBase];
+  return [xBase * vp.scale + vp.x, yBase * vp.scale + vp.y];
+}
+
+function _drawOutlines(ctx, W, H, vp) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = 0.8;
+  ctx.lineJoin = 'round';
+  _MAP_OUTLINES.forEach(poly => {
+    ctx.beginPath();
+    poly.forEach(([lat,lng], i) => {
+      const [x,y] = _project(lat, lng, W, H, vp);
+      i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  });
+}
+
+// ── Cluster shows by lat/lng (rounded to 2 dp) ───────────────────────────
+function _clusterShows(shows) {
+  const map = {};
+  shows.forEach(s => {
+    const key = `${s.lat.toFixed(2)},${s.lng.toFixed(2)}`;
+    if (!map[key]) map[key] = {lat:s.lat, lng:s.lng, location:s.location, shows:[]};
+    map[key].shows.push(s);
+  });
+  return Object.values(map);
+}
+
+// ── Crow's Nest popover ───────────────────────────────────────────────────
+let _cnPopover = null;
+function _cnClosePopover() {
+  if (_cnPopover) { _cnPopover.remove(); _cnPopover = null; }
+}
+
+function _cnShowPopover(cluster, clientX, clientY) {
+  _cnClosePopover();
+  const sorted = [...cluster.shows].sort((a,b) => a.date.localeCompare(b.date));
+  const rows = sorted.map(s => {
+    const stars = s.rating > 0 ? `<span style="color:var(--accent);margin-left:6px">★${s.rating}</span>` : '';
+    return `<div class="cn-pop-row" data-date="${escapeHTML(s.date)}">${escapeHTML(s.date)}${stars}</div>`;
+  }).join('');
+  const pop = document.createElement('div');
+  pop.className = 'cn-popover';
+  pop.innerHTML = `<div class="cn-pop-title">${escapeHTML(cluster.location)}</div>${rows}`;
+  document.body.appendChild(pop);
+  _cnPopover = pop;
+  const pw = Math.min(220, window.innerWidth - 20);
+  pop.style.width = pw + 'px';
+  let left = clientX + 10, top = clientY - 20;
+  if (left + pw > window.innerWidth - 10) left = clientX - pw - 10;
+  if (top < 10) top = 10;
+  pop.style.left = left + 'px';
+  pop.style.top  = top + 'px';
+  pop.querySelectorAll('.cn-pop-row').forEach(row => {
+    row.addEventListener('click', () => {
+      _cnClosePopover();
+      document.getElementById('obs-modal').classList.remove('open');
+      tourRunGoTo(row.dataset.date);
+    });
+  });
+  // close on outside click
+  setTimeout(() => document.addEventListener('click', _cnClosePopover, {once:true}), 10);
 }
 
 async function renderCrowsNest() {
@@ -2672,20 +2763,21 @@ function _buildCrowsNest(shows, body) {
     return;
   }
   const years = [...new Set(shows.map(s => s.date.slice(0,4)))].sort();
-  const minYearIdx = 0, maxYearIdx = years.length - 1;
+  const maxYearIdx = years.length - 1;
 
   body.innerHTML = `
     <div class="crows-nest-wrap">
-      <canvas class="crows-nest-map" id="cn-canvas" height="360"></canvas>
+      <canvas class="crows-nest-map" id="cn-canvas" height="380"></canvas>
       <div class="crows-nest-controls">
         <button class="crows-nest-play-btn" id="cn-play-btn" onclick="cnTogglePlay()">▶ Play</button>
         <input type="range" class="crows-nest-scrubber" id="cn-scrubber" min="0" max="${maxYearIdx}" value="${maxYearIdx}" step="1">
         <span class="crows-nest-year-label" id="cn-year-label">All</span>
         <button class="crows-nest-play-btn" onclick="cnReset()">⟳ Reset</button>
+        <button class="crows-nest-play-btn" onclick="cnZoomReset()" title="Reset zoom">⊞ Fit</button>
       </div>
       <div class="crows-nest-show-count" id="cn-show-count"></div>
       <div class="crows-nest-legend">${ERA_LEGEND.map(e=>`<div class="crows-nest-legend-item"><div class="crows-nest-legend-dot" style="background:${e.color}"></div>${e.label}</div>`).join('')}</div>
-      <div style="font-size:9px;color:var(--muted);margin-top:6px;">dot size = archive rating · hover for details · click to navigate to show</div>
+      <div style="font-size:9px;color:var(--muted);margin-top:5px;">scroll to zoom · drag to pan · click city to browse shows</div>
     </div>`;
 
   const canvas = document.getElementById('cn-canvas');
@@ -2694,110 +2786,187 @@ function _buildCrowsNest(shows, body) {
   const showCount = document.getElementById('cn-show-count');
   const tooltip = document.getElementById('obs-tooltip');
 
-  function draw(upToYearIdx) {
-    const W = canvas.offsetWidth || 800;
-    canvas.width = W;
-    const H = 360;
+  // Viewport state
+  let vp = {x:0, y:0, scale:1};
+
+  // Cluster hit radius scales with zoom
+  function hitRadius() { return Math.max(8, 14 / vp.scale); }
+
+  function getVisible() {
+    const upTo = parseInt(scrubber.value);
+    const filterYear = upTo < maxYearIdx ? years[upTo] : null;
+    return filterYear ? shows.filter(s => s.date.slice(0,4) <= filterYear) : shows;
+  }
+
+  function draw() {
+    const W = canvas.offsetWidth || 840;
+    if (canvas.width !== W) canvas.width = W;
+    const H = 380;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, W, H);
 
-    // faint land silhouette (simplified rectangles as placeholders)
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    // rough NA landmass
-    ctx.fillRect(0, 0, W * 0.68, H);
-    ctx.fillStyle = 'rgba(255,255,255,0.02)';
-    // rough Atlantic ocean separator visual
-    ctx.fillRect(W * 0.68, 0, W * 0.32, H);
+    // Background ocean tint
+    ctx.fillStyle = 'rgba(10,20,50,0.5)';
+    ctx.fillRect(0,0,W,H);
 
-    const filterYear = upToYearIdx < maxYearIdx ? years[upToYearIdx] : null;
-    const visible = filterYear ? shows.filter(s => s.date.slice(0,4) <= filterYear) : shows;
+    // Geographic outlines
+    _drawOutlines(ctx, W, H, vp);
 
-    // Draw route line connecting shows in chronological order (filtered)
+    const visible = getVisible();
+    const clusters = _clusterShows(visible);
+    const upTo = parseInt(scrubber.value);
+    const filterYear = upTo < maxYearIdx ? years[upTo] : null;
+
+    // Tour route line (when time-scrubbing)
     if (filterYear && visible.length > 1) {
       ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1 / vp.scale;
       let first = true;
       visible.forEach(s => {
-        const [x, y] = _project(s.lat, s.lng, W, H);
-        if (first) { ctx.moveTo(x, y); first = false; }
-        else ctx.lineTo(x, y);
+        const [x, y] = _project(s.lat, s.lng, W, H, vp);
+        first ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+        first = false;
       });
       ctx.stroke();
     }
 
-    // Draw dots
-    visible.forEach(s => {
-      const [x, y] = _project(s.lat, s.lng, W, H);
-      const yr = s.date.slice(0,4);
-      const col = ERA_COLORS_MAP[yr] || '#5a6e8a';
-      const r = Math.max(2.5, Math.min(7, 2.5 + (s.rating / 5) * 4.5));
+    // Draw clusters
+    clusters.forEach(cl => {
+      const [x, y] = _project(cl.lat, cl.lng, W, H, vp);
+      const n = cl.shows.length;
+      const avgRating = cl.shows.reduce((a,s) => a + (s.rating||0), 0) / n;
+      // Most recent year's era color
+      const latestYr = cl.shows.reduce((a,s) => s.date > a ? s.date : a, cl.shows[0].date).slice(0,4);
+      const col = ERA_COLORS_MAP[latestYr] || '#5a6e8a';
+      const r = Math.max(3, Math.min(10, 3 + (avgRating / 5) * 5 + Math.log(n+1) * 1.5));
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = col + (filterYear && yr === filterYear ? 'ff' : '99');
+      ctx.fillStyle = col + (filterYear && latestYr === filterYear ? 'ff' : 'bb');
       ctx.fill();
+      // badge for multiple shows
+      if (n > 1) {
+        ctx.font = `bold ${Math.max(8, 9/vp.scale)}px monospace`;
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(n > 99 ? '99+' : n, x, y);
+      }
     });
 
-    const countLabel = filterYear
-      ? `${visible.length} shows through ${filterYear}`
-      : `${visible.length} total shows`;
-    showCount.textContent = countLabel;
-    yearLabel.textContent = filterYear || 'All';
+    const upToIdx = parseInt(scrubber.value);
+    const fy = upToIdx < maxYearIdx ? years[upToIdx] : null;
+    showCount.textContent = fy ? `${visible.length} shows through ${fy}` : `${visible.length} total shows`;
+    yearLabel.textContent = fy || 'All';
   }
 
-  // Canvas hover for tooltip
+  // Hit testing against clusters
+  function hitCluster(mx, my) {
+    const W = canvas.width, H = 380;
+    const visible = getVisible();
+    const clusters = _clusterShows(visible);
+    const thresh = hitRadius() * vp.scale;
+    let best = null, bestDist = thresh;
+    clusters.forEach(cl => {
+      const [x, y] = _project(cl.lat, cl.lng, W, H, vp);
+      const d = Math.hypot(x - mx, y - my);
+      if (d < bestDist) { bestDist = d; best = cl; }
+    });
+    return best;
+  }
+
+  // Mouse events
   canvas.addEventListener('mousemove', e => {
+    if (_cnDragging) {
+      const dx = e.clientX - _cnDragStart.x;
+      const dy = e.clientY - _cnDragStart.y;
+      vp.x = _cnDragVP.x + dx;
+      vp.y = _cnDragVP.y + dy;
+      draw();
+      tooltip.style.display = 'none';
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
     const rect = canvas.getBoundingClientRect();
     const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
     const my = (e.clientY - rect.top) * (canvas.height / rect.height);
-    const W = canvas.width, H = 360;
-    const upTo = parseInt(scrubber.value);
-    const filterYear = upTo < maxYearIdx ? years[upTo] : null;
-    const visible = filterYear ? shows.filter(s => s.date.slice(0,4) <= filterYear) : shows;
-    let hit = null, minDist = 12;
-    visible.forEach(s => {
-      const [x, y] = _project(s.lat, s.lng, W, H);
-      const d = Math.hypot(x - mx, y - my);
-      if (d < minDist) { minDist = d; hit = s; }
-    });
-    if (hit) {
-      tooltip.innerHTML = `<strong style="color:var(--accent)">${hit.date}</strong> · ${escapeHTML(hit.location)}${hit.rating > 0 ? ` · ★${hit.rating}` : ''}`;
+    const cl = hitCluster(mx, my);
+    if (cl) {
+      const s = cl.shows.length === 1 ? cl.shows[0] : null;
+      tooltip.innerHTML = s
+        ? `<strong style="color:var(--accent)">${s.date}</strong> · ${escapeHTML(s.location)}${s.rating > 0 ? ` · ★${s.rating}` : ''}`
+        : `<strong style="color:var(--accent)">${escapeHTML(cl.location)}</strong> · ${cl.shows.length} shows`;
       tooltip.style.display = 'block';
       tooltip.style.left = (e.clientX + 14) + 'px';
       tooltip.style.top  = (e.clientY - 32) + 'px';
       canvas.style.cursor = 'pointer';
     } else {
       tooltip.style.display = 'none';
-      canvas.style.cursor = 'crosshair';
-    }
-  });
-  canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
-  canvas.addEventListener('click', e => {
-    const rect = canvas.getBoundingClientRect();
-    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
-    const W = canvas.width, H = 360;
-    const upTo = parseInt(scrubber.value);
-    const filterYear = upTo < maxYearIdx ? years[upTo] : null;
-    const visible = filterYear ? shows.filter(s => s.date.slice(0,4) <= filterYear) : shows;
-    let hit = null, minDist = 12;
-    visible.forEach(s => {
-      const [x, y] = _project(s.lat, s.lng, W, H);
-      const d = Math.hypot(x - mx, y - my);
-      if (d < minDist) { minDist = d; hit = s; }
-    });
-    if (hit) {
-      document.getElementById('obs-modal').classList.remove('open');
-      tourRunGoTo(hit.date);
+      canvas.style.cursor = 'grab';
     }
   });
 
-  scrubber.addEventListener('input', () => { draw(parseInt(scrubber.value)); });
-  draw(maxYearIdx);
+  canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+  canvas.addEventListener('click', e => {
+    if (_cnDragMoved) return; // was a drag, not a click
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const cl = hitCluster(mx, my);
+    if (!cl) return;
+    tooltip.style.display = 'none';
+    if (cl.shows.length === 1) {
+      document.getElementById('obs-modal').classList.remove('open');
+      tourRunGoTo(cl.shows[0].date);
+    } else {
+      _cnShowPopover(cl, e.clientX, e.clientY);
+    }
+  });
+
+  // Drag state
+  let _cnDragging = false, _cnDragStart = {}, _cnDragVP = {}, _cnDragMoved = false;
+  canvas.addEventListener('mousedown', e => {
+    _cnDragging = true; _cnDragMoved = false;
+    _cnDragStart = {x:e.clientX, y:e.clientY};
+    _cnDragVP = {x:vp.x, y:vp.y};
+  });
+  window.addEventListener('mouseup', () => { _cnDragging = false; });
+  canvas.addEventListener('mousemove', e => {
+    if (_cnDragging && (Math.abs(e.clientX - _cnDragStart.x) > 3 || Math.abs(e.clientY - _cnDragStart.y) > 3)) {
+      _cnDragMoved = true;
+    }
+  });
+
+  // Scroll to zoom
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const factor = e.deltaY < 0 ? 1.15 : 0.87;
+    const newScale = Math.max(0.5, Math.min(20, vp.scale * factor));
+    // Zoom centered on cursor
+    vp.x = mx - (mx - vp.x) * (newScale / vp.scale);
+    vp.y = my - (my - vp.y) * (newScale / vp.scale);
+    vp.scale = newScale;
+    _cnClosePopover();
+    draw();
+  }, {passive:false});
+
+  scrubber.addEventListener('input', draw);
 
   window._cnDraw = draw;
   window._cnYears = years;
   window._cnMaxIdx = maxYearIdx;
+  window._cnVP = vp;
+
+  draw();
+}
+
+function cnZoomReset() {
+  if (window._cnVP) { window._cnVP.x = 0; window._cnVP.y = 0; window._cnVP.scale = 1; }
+  if (window._cnDraw) window._cnDraw();
 }
 
 function cnTogglePlay() {
@@ -2815,7 +2984,7 @@ function cnTogglePlay() {
   _obsMapAnim = setInterval(() => {
     idx++;
     scrubber.value = idx;
-    window._cnDraw(idx);
+    if (window._cnDraw) window._cnDraw();
     if (idx >= window._cnMaxIdx) {
       clearInterval(_obsMapAnim);
       _obsMapAnim = null;
@@ -2828,7 +2997,8 @@ function cnReset() {
   if (_obsMapAnim) { clearInterval(_obsMapAnim); _obsMapAnim = null; }
   const scrubber = document.getElementById('cn-scrubber');
   const btn = document.getElementById('cn-play-btn');
-  if (scrubber) { scrubber.value = window._cnMaxIdx; window._cnDraw(window._cnMaxIdx); }
+  if (scrubber && window._cnMaxIdx !== undefined) { scrubber.value = window._cnMaxIdx; }
+  if (window._cnDraw) window._cnDraw();
   if (btn) btn.textContent = '▶ Play';
 }
 
