@@ -351,6 +351,33 @@
     .tour-momentum-label { font-size:9px; color:var(--muted); letter-spacing:0.5px; }
 
 
+    /* ── Observatory ─────────────────────────────────────────────────────── */
+    .obs-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent); padding:28px; width:720px; max-width:96vw; max-height:88vh; display:flex; flex-direction:column; position:relative; }
+    .obs-modal-body { overflow-y:auto; flex:1; margin-top:14px; }
+    .obs-song-tabs { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:16px; }
+    .obs-song-tab { padding:3px 11px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; }
+    .obs-song-tab:hover { border-color:var(--accent); color:var(--text); }
+    .obs-song-tab.active { background:var(--accent); color:var(--bg); border-color:var(--accent); font-weight:700; }
+    .obs-chart-wrap { position:relative; margin:6px 0 28px; }
+    .obs-chart { position:relative; width:100%; height:180px; border-bottom:1px solid var(--border); border-left:1px solid var(--border); }
+    .obs-dot { position:absolute; border-radius:50%; transform:translate(-50%,50%); cursor:pointer; transition:transform 0.1s,opacity 0.1s; opacity:0.8; }
+    .obs-dot:hover { transform:translate(-50%,50%) scale(1.7); opacity:1; z-index:2; }
+    .obs-dot-SBD { background:#c8a84b; }
+    .obs-dot-AUD { background:var(--accent2-light); }
+    .obs-dot-MTX { background:#7c4dff; }
+    .obs-dot-FOB { background:#2a9d6f; }
+    .obs-dot-UNK { background:var(--muted); }
+    .obs-axis-x { position:absolute; bottom:-20px; font-size:9px; color:var(--muted); transform:translateX(-50%); }
+    .obs-axis-y { position:absolute; left:-36px; font-size:9px; color:var(--muted); transform:translateY(50%); }
+    .obs-legend { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:12px; }
+    .obs-legend-item { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--muted); }
+    .obs-legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    .obs-stats { display:flex; gap:20px; flex-wrap:wrap; margin-top:8px; }
+    .obs-stat-val { font-size:18px; font-weight:700; color:var(--accent); font-family:'Playfair Display',serif; }
+    .obs-stat-lbl { font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-top:1px; }
+    .obs-tooltip { position:fixed; background:var(--surface2); border:1px solid var(--border); border-left:2px solid var(--accent); padding:6px 10px; font-size:11px; pointer-events:none; z-index:9999; display:none; white-space:nowrap; }
+    .obs-empty { color:var(--muted); font-size:12px; padding:40px 0; text-align:center; }
+
     /* ── Tour Runs modal ──────────────────────────────────────────────────── */
     .tours-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); padding:28px; width:620px; max-width:96vw; max-height:88vh; display:flex; flex-direction:column; position:relative; }
     .tours-modal-body { overflow-y:auto; flex:1; margin-top:14px; }
@@ -452,6 +479,7 @@
   <button class="tab" id="tab-history" style="display:none" onclick="showHistory()">⏱ History</button>
   <button class="tab" id="tab-leaderboard" onclick="showLeaderboard()">⬡ Leaderboard</button>
   <button class="tab" id="tab-tours" onclick="openToursModal()">⟳ Tour Runs</button>
+  <button class="tab tab-obs" onclick="openObservatory()"><img src="/static/observatory.svg" width="16" height="16" style="vertical-align:middle;margin-right:5px;border-radius:50%"> Observatory</button>
   <button class="tab" onclick="openToday()">📅 TIH</button>
   <button class="tab tab-gambler" id="tab-gambler" onclick="rollGambler()">🎲 Gambler</button><select class="gambler-era" id="gambler-era" onclick="event.stopPropagation()" onchange="event.stopPropagation()">
     <option value="">All Eras</option>
@@ -572,6 +600,20 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="obs-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="obs-modal">
+    <button class="modal-close" onclick="document.getElementById('obs-modal').classList.remove('open')">&times;</button>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <img src="/static/observatory.svg" width="36" height="36" style="border-radius:50%;flex-shrink:0;">
+      <div>
+        <div class="modal-title" style="margin-bottom:2px;">Dark Star Observatory</div>
+        <div class="modal-sub">Song duration across every known Archive.org performance · dot size = review count · color = source type</div>
+      </div>
+    </div>
+    <div class="obs-modal-body" id="obs-modal-body"><div class="loading">Loading</div></div>
+  </div>
+</div>
+<div class="obs-tooltip" id="obs-tooltip"></div>
 
 <script>
 const _IC = {
@@ -2391,6 +2433,123 @@ async function loadParkingLot(showId) {
   } catch(e) { /* silent — parking lot is decorative */ }
 }
 
+
+// ── Dark Star Observatory ─────────────────────────────────────────────────────
+let _obsSong = 'dark star';
+
+function openObservatory() {
+  document.getElementById('obs-modal').classList.add('open');
+  if (!document.querySelector('#obs-modal-body .obs-chart')) renderObservatory(_obsSong);
+}
+
+async function renderObservatory(songId) {
+  _obsSong = songId;
+  const body = document.getElementById('obs-modal-body');
+  body.innerHTML = '<div class="loading">Scanning the archive — this may take a moment…</div>';
+  try {
+    const res = await fetch(`/api/observatory?song=${encodeURIComponent(songId)}`);
+    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error || res.statusText);
+    const d = await res.json();
+    buildObsChart(d, body);
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--red);font-size:11px;padding:20px">${escapeHTML(String(e))}</div>`;
+  }
+}
+
+function buildObsChart(d, body) {
+  const perfs = d.performances || [];
+  const songs = d.songs || [];
+
+  const tabsHTML = songs.map(s =>
+    `<button class="obs-song-tab${s.id === d.song_id ? ' active' : ''}" data-song="${escapeHTML(s.id)}">${escapeHTML(s.label)}</button>`
+  ).join('');
+
+  const legendHTML = `<div class="obs-legend">
+    ${[['SBD','#c8a84b'],['AUD','#2d65e0'],['MTX','#7c4dff'],['FOB','#2a9d6f'],['UNK','#5a6e8a']].map(([l,c])=>
+      `<div class="obs-legend-item"><div class="obs-legend-dot" style="background:${c}"></div>${l}</div>`).join('')}
+    <div class="obs-legend-item" style="margin-left:8px;">dot size = review count</div>
+  </div>`;
+
+  if (!perfs.length) {
+    body.innerHTML = `<div class="obs-song-tabs">${tabsHTML}</div>${legendHTML}
+      <div class="obs-empty">No Archive.org performances found for "${escapeHTML(d.song)}" yet.</div>`;
+    body.querySelectorAll('.obs-song-tab').forEach(b => b.addEventListener('click', () => renderObservatory(b.dataset.song)));
+    return;
+  }
+
+  const dates   = perfs.map(p => p.date);
+  const minDate = dates[0], maxDate = dates[dates.length - 1];
+  const minYear = parseInt(minDate), maxYear = parseInt(maxDate);
+  const yearSpan = Math.max(maxYear - minYear, 1);
+  const durs     = perfs.map(p => p.duration);
+  const minDur   = Math.min(...durs), maxDur = Math.max(...durs);
+  const durSpan  = Math.max(maxDur - minDur, 1);
+  const maxRev   = Math.max(...perfs.map(p => p.reviews), 1);
+
+  const CHART_H = 180;
+
+  // Y-axis labels (duration in min:sec)
+  const yLabels = [0, 0.25, 0.5, 0.75, 1].map(f => {
+    const sec = minDur + f * durSpan;
+    const m = Math.floor(sec/60), s = Math.round(sec%60);
+    return `<span class="obs-axis-y" style="bottom:${(f*90+5).toFixed(0)}%">${m}:${String(s).padStart(2,'0')}</span>`;
+  }).join('');
+
+  // X-axis year labels
+  const step = yearSpan > 20 ? 5 : yearSpan > 10 ? 3 : 2;
+  const xLabels = [];
+  for (let y = minYear; y <= maxYear; y += step) {
+    const xPct = ((y - minYear) / yearSpan) * 94 + 3;
+    xLabels.push(`<span class="obs-axis-x" style="left:${xPct.toFixed(1)}%">${y}</span>`);
+  }
+
+  const srcColors = {SBD:'#c8a84b', AUD:'#2d65e0', MTX:'#7c4dff', FOB:'#2a9d6f', UNK:'#5a6e8a'};
+
+  const dotsHTML = perfs.map(p => {
+    const xPct = ((parseInt(p.date) - minYear) / yearSpan) * 94 + 3;
+    const yPct = ((p.duration - minDur) / durSpan) * 90 + 5;
+    const sz   = Math.max(5, Math.min(16, 5 + (p.reviews / maxRev) * 11));
+    const col  = srcColors[p.source] || srcColors.UNK;
+    return `<div class="obs-dot" style="left:${xPct.toFixed(1)}%;bottom:${yPct.toFixed(1)}%;width:${sz}px;height:${sz}px;background:${col};margin-left:-${sz/2}px;margin-bottom:-${sz/2}px" data-date="${escapeHTML(p.date)}" data-dur="${p.duration}" data-src="${escapeHTML(p.source)}" data-rev="${p.reviews}" data-id="${escapeHTML(p.id)}"></div>`;
+  }).join('');
+
+  const avgDur = Math.round(perfs.reduce((a, p) => a + p.duration, 0) / perfs.length);
+  const longest = perfs.reduce((a,b) => b.duration > a.duration ? b : a);
+  const fmtDur = s => { const m=Math.floor(s/60),ss=Math.round(s%60); return `${m}:${String(ss).padStart(2,'0')}`; };
+
+  body.innerHTML = `
+    <div class="obs-song-tabs">${tabsHTML}</div>
+    ${legendHTML}
+    <div class="obs-chart-wrap">
+      <div class="obs-chart" style="height:${CHART_H}px">${dotsHTML}${xLabels.join('')}${yLabels}</div>
+    </div>
+    <div class="obs-stats">
+      <div><div class="obs-stat-val">${perfs.length}</div><div class="obs-stat-lbl">Performances</div></div>
+      <div><div class="obs-stat-val">${fmtDur(avgDur)}</div><div class="obs-stat-lbl">Avg Duration</div></div>
+      <div><div class="obs-stat-val">${fmtDur(longest.duration)}</div><div class="obs-stat-lbl">Longest · ${escapeHTML(longest.date)}</div></div>
+      <div><div class="obs-stat-val">${fmtDur(Math.min(...durs))}</div><div class="obs-stat-lbl">Shortest</div></div>
+    </div>`;
+
+  body.querySelectorAll('.obs-song-tab').forEach(b => b.addEventListener('click', () => renderObservatory(b.dataset.song)));
+
+  const tooltip = document.getElementById('obs-tooltip');
+  body.querySelectorAll('.obs-dot').forEach(dot => {
+    dot.addEventListener('mouseenter', () => {
+      const m=Math.floor(+dot.dataset.dur/60), s=Math.round(+dot.dataset.dur%60);
+      tooltip.innerHTML = `<strong style="color:var(--accent)">${dot.dataset.date}</strong> · ${m}:${String(s).padStart(2,'0')} · ${dot.dataset.src} · ${dot.dataset.rev} review${dot.dataset.rev==1?'':'s'}`;
+      tooltip.style.display = 'block';
+    });
+    dot.addEventListener('mousemove', e => {
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top  = (e.clientY - 32) + 'px';
+    });
+    dot.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    dot.addEventListener('click', () => {
+      document.getElementById('obs-modal').classList.remove('open');
+      tourRunGoTo(dot.dataset.date);
+    });
+  });
+}
 
 checkMe();
 loadYears().then(async () => {

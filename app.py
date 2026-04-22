@@ -1069,6 +1069,154 @@ def observatory():
     _cache_set(cache_key, result)
     return jsonify(result)
 
+# ── Dark Star Observatory ─────────────────────────────────────────────────────
+_OBS_SONGS = [
+    {"id": "dark star",         "label": "Dark Star"},
+    {"id": "the other one",     "label": "The Other One"},
+    {"id": "terrapin station",  "label": "Terrapin Station"},
+    {"id": "playing in the band","label": "Playing in the Band"},
+    {"id": "st. stephen",       "label": "St. Stephen"},
+    {"id": "eyes of the world", "label": "Eyes of the World"},
+    {"id": "estimated prophet", "label": "Estimated Prophet"},
+    {"id": "china cat sunflower","label": "China Cat Sunflower"},
+    {"id": "truckin",           "label": "Truckin'"},
+    {"id": "drums",             "label": "Drums"},
+    {"id": "space",             "label": "Space"},
+    {"id": "scarlet begonias",  "label": "Scarlet Begonias"},
+]
+
+@app.route("/api/observatory")
+def observatory():
+    import re as _re
+    song_id = request.args.get("song", "dark star").lower().strip()
+    song_meta = next((s for s in _OBS_SONGS if s["id"] == song_id), _OBS_SONGS[0])
+
+    cache_key = f"obs2:{song_id}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    # Search Archive.org for recordings that have this song in the title/description
+    # We fetch up to 500 identifiers then batch-fetch their track metadata
+    try:
+        data = archive_search({
+            "q": f'collection:{COLLECTION} AND (title:"{song_meta["label"]}" OR description:"{song_meta["label"]}")',
+            "fl[]": "identifier,date,coverage,avg_rating,num_reviews,source",
+            "output": "json",
+            "rows": 500,
+            "sort[]": "date asc",
+        })
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Archive.org timed out"}), 502
+    except requests.exceptions.RequestException:
+        return jsonify({"error": "Archive.org unavailable"}), 502
+    except Exception:
+        return jsonify({"error": "Unexpected error"}), 500
+
+    docs = data.get("response", {}).get("docs", [])
+
+    # For each recording, fetch its track list and find the matching song duration
+    # We cap at 80 recordings to stay under response time limits; prefer variety by date
+    seen_dates = {}
+    candidates = []
+    for doc in docs:
+        date_str = doc.get("date") or ""
+        if isinstance(date_str, list):
+            date_str = date_str[0] if date_str else ""
+        date_str = date_str[:10]
+        if not date_str:
+            continue
+        if date_str not in seen_dates:
+            seen_dates[date_str] = doc
+            candidates.append(doc)
+    candidates = candidates[:80]
+
+    performances = []
+    pattern = _re.compile(_re.escape(song_meta["label"]), _re.IGNORECASE)
+
+    for doc in candidates:
+        identifier = doc.get("identifier") or ""
+        date_str = doc.get("date") or ""
+        if isinstance(date_str, list):
+            date_str = date_str[0] if date_str else ""
+        date_str = date_str[:10]
+        if not date_str or not identifier:
+            continue
+
+        # Try cache first
+        track_key = f"tracks:{identifier}"
+        track_data = _cache_get(track_key)
+        if track_data is None:
+            try:
+                meta = archive_metadata(identifier)
+                files = meta.get("files", [])
+                sets_raw = []
+                for f in files:
+                    fname = f.get("name", "")
+                    if not fname.lower().endswith((".mp3", ".flac", ".ogg")):
+                        continue
+                    title = f.get("title", "") or fname
+                    try:
+                        dur = float(f.get("length") or 0)
+                    except (ValueError, TypeError):
+                        dur = 0
+                    if dur > 0:
+                        sets_raw.append({"title": title, "duration": dur})
+                track_data = sets_raw
+                _cache_set(track_key, track_data)
+            except Exception:
+                continue
+
+        # Find this song in the track list
+        matched_dur = None
+        for t in (track_data or []):
+            if pattern.search(t.get("title", "")):
+                dur = t.get("duration", 0)
+                if dur and dur > 60:  # ignore sub-minute false matches
+                    matched_dur = dur
+                    break
+
+        if matched_dur is None:
+            continue
+
+        # Infer source type from identifier string
+        ident_lower = identifier.lower()
+        if "sbd" in ident_lower or "soundboard" in ident_lower:
+            src = "SBD"
+        elif "mtx" in ident_lower or "matrix" in ident_lower:
+            src = "MTX"
+        elif "fob" in ident_lower:
+            src = "FOB"
+        elif "aud" in ident_lower or "audience" in ident_lower:
+            src = "AUD"
+        else:
+            src = doc.get("source", "UNK") or "UNK"
+
+        try:
+            reviews = int(doc.get("num_reviews") or 0)
+            rating  = float(doc.get("avg_rating") or 0)
+        except (ValueError, TypeError):
+            reviews, rating = 0, 0.0
+
+        performances.append({
+            "date":     date_str,
+            "duration": round(matched_dur),
+            "source":   src,
+            "reviews":  reviews,
+            "rating":   round(rating, 1),
+            "id":       identifier,
+        })
+
+    performances.sort(key=lambda x: x["date"])
+    result = {
+        "song":     song_meta["label"],
+        "song_id":  song_id,
+        "songs":    _OBS_SONGS,
+        "performances": performances,
+    }
+    _cache_set(cache_key, result)
+    return jsonify(result)
+
 # ── Search ────────────────────────────────────────────────────────────────────
 @app.route("/api/search")
 def search_shows():
