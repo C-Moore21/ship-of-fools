@@ -125,7 +125,6 @@
     .set-label { padding:8px 16px 4px; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--accent2-light); }
     .track-row { display:flex; align-items:center; padding:5px 10px; border-bottom:1px solid rgba(30,42,69,0.8); cursor:pointer; transition:background 0.1s; gap:5px; min-width:max-content; width:100%; }
     .track-row:hover { background:var(--surface); }
-    .track-row.playing { background:var(--surface2); }
     .track-row.playing .track-name { color:var(--accent); }
     .track-num { width:18px; text-align:right; font-size:11px; color:var(--muted); flex-shrink:0; }
     .track-name { flex:1; font-size:13px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -224,6 +223,20 @@
     .loading { padding:20px 16px; color:var(--muted); font-size:12px; letter-spacing:1px; }
     .loading::after { content:'...'; animation:dots 1s infinite; }
     @keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%{content:'...'} }
+    /* ── Skeleton shimmer ── */
+    @keyframes shimmer { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
+    .skeleton { background:var(--surface); background-image:linear-gradient(105deg, var(--surface) 30%, rgba(255,255,255,0.04) 50%, var(--surface) 70%); background-size:800px 100%; animation:shimmer 1.4s infinite linear; border-radius:2px; }
+    .skel-year { height:38px; margin:1px 0; }
+    .skel-show { height:64px; margin:0; border-bottom:1px solid var(--border); }
+    .skel-track { height:36px; margin:0; border-bottom:1px solid rgba(30,42,69,0.8); }
+    /* ── Active track pulse ── */
+    @keyframes track-pulse { 0%,100%{background:rgba(232,51,42,0.07)} 50%{background:rgba(232,51,42,0.15)} }
+    .track-row.playing { animation:track-pulse 4s ease-in-out infinite; }
+    .track-row.playing:hover { animation:none; background:var(--surface); }
+    /* ── Reputation badge ── */
+    .rep-badge { display:inline-flex; align-items:center; gap:3px; font-size:9px; letter-spacing:1px; text-transform:uppercase; padding:1px 5px; border-radius:2px; font-family:'Space Mono',monospace; margin-left:5px; vertical-align:middle; flex-shrink:0; }
+    .rep-badge.legendary { background:rgba(232,51,42,0.15); color:var(--accent); border:1px solid rgba(232,51,42,0.35); }
+    .rep-badge.beloved { background:rgba(26,75,191,0.15); color:var(--accent2-light); border:1px solid rgba(26,75,191,0.35); }
     ::-webkit-scrollbar { width:4px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--accent2); border-radius:2px; }
     /* ── Search ── */
     .search-wrap { padding:8px 16px; border-bottom:1px solid var(--border); display:flex; gap:6px; position:sticky; top:0; background:var(--bg); z-index:4; }
@@ -558,6 +571,29 @@ const _IC = {
   volLo: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="11,4 6,8 2,8 2,16 6,16 11,20"/><polyline points="14,9 17,12 14,15"/></svg>`,
   volMu: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="11,4 6,8 2,8 2,16 6,16 11,20"/><line x1="15" y1="9" x2="21" y2="15"/><line x1="21" y1="9" x2="15" y2="15"/></svg>`,
 };
+// ── Reputation badges ─────────────────────────────────────────────────────────
+const _LEGENDARY_SHOWS = new Set([
+  '1977-05-08','1977-05-07','1977-05-09','1977-05-19',
+  '1972-08-27','1972-04-26','1972-05-04','1972-05-07',
+  '1973-02-09','1973-11-11','1973-12-19',
+  '1974-02-23','1974-06-16','1974-08-06',
+  '1969-02-27','1969-08-16',
+  '1970-02-13','1970-08-18','1970-09-19',
+  '1971-04-26','1971-07-02',
+  '1976-06-03','1976-07-18',
+  '1978-04-22','1978-05-11',
+  '1979-08-04',
+  '1980-09-03',
+  '1983-04-17',
+  '1989-10-09','1989-07-07',
+  '1991-09-10',
+  '1995-07-09',
+]);
+function repBadge(showId) {
+  if (_LEGENDARY_SHOWS.has(showId)) return `<span class="rep-badge legendary">★ legendary</span>`;
+  return '';
+}
+
 let audioA = document.getElementById('audio-player');
 let audioB = document.getElementById('audio-preload');
 let audio = audioA; // active element
@@ -1145,10 +1181,15 @@ function toggleShowGroup(gid) {
 }
 
 // ── YEARS ─────────────────────────────────────────────────────────────────
+function skelYears(n=20) { return Array.from({length:n},()=>`<div class="skeleton skel-year"></div>`).join(''); }
+function skelShows(n=12) { return Array.from({length:n},()=>`<div class="skeleton skel-show"></div>`).join(''); }
+function skelTracks(n=18) { return Array.from({length:n},()=>`<div class="skeleton skel-track"></div>`).join(''); }
+
 async function loadYears() {
+  const el = document.getElementById('years-list');
+  el.innerHTML = skelYears();
   const res = await fetch('/api/years');
   const years = await res.json();
-  const el = document.getElementById('years-list');
   el.innerHTML = '';
   years.sort((a,b)=>b.year.localeCompare(a.year));
   years.forEach(y => {
@@ -1174,7 +1215,7 @@ function mobBack(to) { mobNav(to); }
 async function loadShows(year) {
   mobNav('shows');
   document.getElementById('shows-label').textContent = `Shows · ${year}`;
-  document.getElementById('shows-list').innerHTML = '<div class="loading">Loading</div>';
+  document.getElementById('shows-list').innerHTML = skelShows();
   let showsRes;
   try {
     showsRes = await fetch(`/api/years/${year}/shows`);
@@ -1203,7 +1244,7 @@ async function loadShows(year) {
     div.dataset.venue = JSON.stringify(show.venue || {});
     const myStars = myShowRatings[show.id];
     const badge = myStars ? `<span class="show-my-rating">${starsLabel(myStars)}</span>` : '';
-    div.innerHTML = `${badge}<div class="show-date">${escapeHTML(show.display_date)}</div><div class="show-venue">${escapeHTML(show.venue?.name||'Unknown Venue')}</div><div class="show-location">${escapeHTML(show.venue?.location||'')}</div>`;
+    div.innerHTML = `${badge}<div class="show-date">${escapeHTML(show.display_date)}${repBadge(show.id)}</div><div class="show-venue">${escapeHTML(show.venue?.name||'Unknown Venue')}</div><div class="show-location">${escapeHTML(show.venue?.location||'')}</div>`;
     div.onclick = () => { document.querySelectorAll('.show-item').forEach(x=>x.classList.remove('active')); div.classList.add('active'); loadSources(show.id,show.display_date,show.venue); };
     el.appendChild(div);
   });
@@ -1215,7 +1256,7 @@ async function loadSources(showId, date, venue) {
   _venueLoaded = false;
   mobNav('tracks');
   history.pushState({}, '', '?show=' + showId);
-  document.getElementById('track-panel').innerHTML = '<div class="loading">Loading</div>';
+  document.getElementById('track-panel').innerHTML = skelTracks();
   let res;
   try {
     res = await fetch(`/api/shows/${showId}/sources`);
@@ -1363,7 +1404,7 @@ async function loadSourceTracks(idx) {
 
   const container = document.getElementById('tracks-container');
   if (!container) return;
-  container.innerHTML = '<div class="loading">Loading tracks</div>';
+  container.innerHTML = skelTracks();
 
   if (!src.sets) {
     const res = await fetch(`/api/sources/${src.id}/tracks`);
