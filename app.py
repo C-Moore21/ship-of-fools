@@ -1090,8 +1090,9 @@ _OBS_SONGS = [
     {"id":"me and my uncle",         "label":"Me and My Uncle"},
 ]
 
-_OBS_REFRESH_DAYS   = 14   # re-scrape scatter data every 2 weeks
-_OBS_HM_REFRESH_DAYS = 7   # re-scrape heatmap data every week (faster query)
+_OBS_REFRESH_DAYS    = 14   # re-scrape scatter data every 2 weeks
+_OBS_HM_REFRESH_DAYS = 7    # re-scrape heatmap data every week (faster query)
+_OBS_QUERY_VERSION   = 2    # bump this to force a full re-scrape on next startup
 
 def _fetch_observatory_song(song_meta):
     """Fetch performances for one song from Archive.org. Returns the result dict or None on failure."""
@@ -1100,10 +1101,10 @@ def _fetch_observatory_song(song_meta):
 
     try:
         data = archive_search({
-            "q": f'collection:{COLLECTION} AND (title:"{song_meta["label"]}" OR description:"{song_meta["label"]}")',
+            "q": f'collection:{COLLECTION} AND (files.title:"{song_meta["label"]}" OR title:"{song_meta["label"]}" OR description:"{song_meta["label"]}")',
             "fl[]": "identifier,date,avg_rating,num_reviews,source",
             "output": "json",
-            "rows": 500,
+            "rows": 2000,
             "sort[]": "date asc",
         })
     except Exception:
@@ -1111,7 +1112,7 @@ def _fetch_observatory_song(song_meta):
 
     docs = data.get("response", {}).get("docs", [])
 
-    # One candidate per date; cap at 40
+    # One candidate per date; cap at 200 (background thread handles the load fine)
     seen_dates = {}
     candidates = []
     for doc in docs:
@@ -1124,7 +1125,7 @@ def _fetch_observatory_song(song_meta):
         if date_str not in seen_dates:
             seen_dates[date_str] = doc
             candidates.append(doc)
-    candidates = candidates[:40]
+    candidates = candidates[:200]
 
     pattern = _re.compile(_re.escape(song_meta["label"]), _re.IGNORECASE)
 
@@ -1246,10 +1247,10 @@ def _fetch_heatmap_song(song_meta):
     label = song_meta["label"]
     try:
         data = archive_search({
-            "q": f'collection:{COLLECTION} AND description:"{label}"',
+            "q": f'collection:{COLLECTION} AND (files.title:"{label}" OR description:"{label}")',
             "fl[]": "date,avg_rating,num_reviews",
             "output": "json",
-            "rows": 1000,
+            "rows": 2000,
         })
     except Exception:
         return None
@@ -1388,13 +1389,19 @@ def _coords_for_coverage(coverage):
     if not coverage:
         return None
     c = coverage.lower().strip().rstrip('.')
-    # exact match
+    # exact match (e.g. "san francisco, ca")
     if c in _CITY_COORDS:
         return _CITY_COORDS[c]
-    # try just the first part before comma
-    city = c.split(',')[0].strip()
-    if city in _CITY_COORDS:
-        return _CITY_COORDS[city]
+    # try each comma-separated segment — handles "Fillmore West, San Francisco, CA"
+    parts = [p.strip() for p in c.split(',')]
+    for part in parts:
+        if part in _CITY_COORDS:
+            return _CITY_COORDS[part]
+    # try adjacent pairs (e.g. "new york" + " ny" → "new york, ny")
+    for i in range(len(parts) - 1):
+        combo = parts[i] + ', ' + parts[i+1]
+        if combo in _CITY_COORDS:
+            return _CITY_COORDS[combo]
     return None
 
 
@@ -1431,6 +1438,10 @@ def shows_map():
         coords = _coords_for_coverage(cov)
         if not coords:
             continue
+        # Extract venue name: first segment of coverage if it's not itself a city
+        cov_parts = [p.strip() for p in cov.split(',')]
+        city_key  = cov_parts[0].lower()
+        venue = cov_parts[0] if city_key not in _CITY_COORDS and len(cov_parts) > 1 else ""
         try:
             rating = float(doc.get("avg_rating") or 0)
             reviews = int(doc.get("num_reviews") or 0)
@@ -1439,6 +1450,7 @@ def shows_map():
         all_shows.append({
             "date":     date,
             "location": cov,
+            "venue":    venue,
             "lat":      coords[0],
             "lng":      coords[1],
             "rating":   round(rating, 2),
@@ -1472,7 +1484,7 @@ def _observatory_background_refresh():
                     {"song_id": song_meta["id"]},
                     {"heatmap_fetched_at": 1, "years": 1}
                 )
-                if row and row.get("years"):
+                if row and row.get("years") and row.get("query_version") == _OBS_QUERY_VERSION:
                     age_days = (time.time() - row.get("heatmap_fetched_at", 0)) / 86400
                     if age_days < _OBS_HM_REFRESH_DAYS:
                         app.logger.info(f"  {song_meta['label']} heatmap — cached, skip")
@@ -1483,10 +1495,11 @@ def _observatory_background_refresh():
                     observatory_table.update_one(
                         {"song_id": song_meta["id"]},
                         {"$set": {
-                            "song_id": song_meta["id"],
-                            "song":    song_meta["label"],
-                            "years":   years,
+                            "song_id":       song_meta["id"],
+                            "song":          song_meta["label"],
+                            "years":         years,
                             "heatmap_fetched_at": time.time(),
+                            "query_version": _OBS_QUERY_VERSION,
                         }},
                         upsert=True,
                     )
@@ -1509,7 +1522,7 @@ def _observatory_background_refresh():
                     {"song_id": song_meta["id"]},
                     {"fetched_at": 1, "performances": 1}
                 )
-                if row and row.get("performances"):
+                if row and row.get("performances") and row.get("query_version") == _OBS_QUERY_VERSION:
                     age_days = (time.time() - row.get("fetched_at", 0)) / 86400
                     if age_days < _OBS_REFRESH_DAYS:
                         app.logger.info(f"  {song_meta['label']} scatter — cached, skip")
@@ -1518,6 +1531,7 @@ def _observatory_background_refresh():
                 out = _fetch_observatory_song(song_meta)
                 if out:
                     out["fetched_at"] = time.time()
+                    out["query_version"] = _OBS_QUERY_VERSION
                     observatory_table.update_one(
                         {"song_id": song_meta["id"]},
                         {"$set": out},
