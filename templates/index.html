@@ -519,7 +519,7 @@
 <div class="tabs">
   <button class="tab active" id="tab-browse" onclick="showBrowse()">Browse</button>
   <button class="tab" id="tab-ratings" style="display:none" onclick="showRatingsView()">★ My Rated Shows & Tracks</button>
-  <button class="tab" id="tab-stats" style="display:none" onclick="showStatsView()">◈ Stats</button>
+  <button class="tab" id="tab-stats" style="display:none" onclick="openObservatory();obsTabSwitch('mystats')">◈ Stats</button>
   <button class="tab" id="tab-history" style="display:none" onclick="showHistory()">⏱ History</button>
   <button class="tab" id="tab-leaderboard" onclick="showLeaderboard()">⬡ Leaderboard</button>
   <button class="tab" id="tab-tours" onclick="openToursModal()">⟳ Tour Runs</button>
@@ -737,7 +737,7 @@ function updateAuthUI() {
   document.getElementById('btn-open-login').style.display = li ? 'none' : '';
   document.getElementById('btn-logout').style.display = li ? '' : 'none';
   document.getElementById('tab-ratings').style.display = li ? '' : 'none';
-  document.getElementById('tab-stats').style.display = li ? '' : 'none';
+  // Stats moved into Observatory — tab intentionally hidden from top nav
   document.getElementById('tab-history').style.display = li ? '' : 'none';
   document.getElementById('header-user').style.display = li ? '' : 'none';
   document.getElementById('header-username-val').textContent = loggedInUser||'';
@@ -2923,11 +2923,20 @@ async function renderObservatory(songId) {
 
 function buildObsChart(d, body) {
   const perfs = d.performances || [];
-  const songs = d.songs || [];
+  const fmtDur = s => { const m=Math.floor(s/60),ss=Math.round(s%60); return `${m}:${String(ss).padStart(2,'0')}`; };
 
-  const tabsHTML = songs.map(s =>
-    `<button class="obs-song-tab${s.id === d.song_id ? ' active' : ''}" data-song="${escapeHTML(s.id)}">${escapeHTML(s.label)}</button>`
-  ).join('');
+  // Build prev/next navigation from the full heatmap song list
+  const allSongs = _obsHeatmapData || [];
+  const curIdx   = allSongs.findIndex(s => s.song_id === d.song_id);
+  const prevSong = curIdx > 0 ? allSongs[curIdx - 1] : null;
+  const nextSong = curIdx >= 0 && curIdx < allSongs.length - 1 ? allSongs[curIdx + 1] : null;
+
+  const navHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+    <button class="obs-back-btn" onclick="renderHeatmap()">← All songs</button>
+    <span style="font-size:14px;font-weight:700;color:var(--white);font-family:'Playfair Display',serif;flex:1">${escapeHTML(d.song || d.song_id)}</span>
+    ${prevSong ? `<button class="obs-inner-tab" style="border:1px solid var(--border);border-radius:2px" onclick="renderObservatory('${escapeHTML(prevSong.song_id)}')">‹ ${escapeHTML(prevSong.label)}</button>` : ''}
+    ${nextSong ? `<button class="obs-inner-tab" style="border:1px solid var(--border);border-radius:2px" onclick="renderObservatory('${escapeHTML(nextSong.song_id)}')"> ${escapeHTML(nextSong.label)} ›</button>` : ''}
+  </div>`;
 
   const legendHTML = `<div class="obs-legend">
     ${[['SBD','#c8a84b'],['AUD','#2d65e0'],['MTX','#7c4dff'],['FOB','#2a9d6f'],['UNK','#5a6e8a']].map(([l,c])=>
@@ -2936,44 +2945,48 @@ function buildObsChart(d, body) {
   </div>`;
 
   if (!perfs.length) {
-    body.innerHTML = `<button class="obs-back-btn" onclick="renderHeatmap()">← All songs heatmap</button>
-      <div class="obs-song-tabs">${tabsHTML}</div>${legendHTML}
-      <div class="obs-empty">No Archive.org performances found for "${escapeHTML(d.song)}" yet.</div>`;
-    body.querySelectorAll('.obs-song-tab').forEach(b => b.addEventListener('click', () => renderObservatory(b.dataset.song)));
+    body.innerHTML = `${navHTML}${legendHTML}
+      <div class="obs-empty">No duration data cached for "${escapeHTML(d.song)}" yet — background indexing may still be running.</div>`;
     return;
   }
 
-  const dates   = perfs.map(p => p.date);
-  const minDate = dates[0], maxDate = dates[dates.length - 1];
-  const minYear = parseInt(minDate), maxYear = parseInt(maxDate);
-  const yearSpan = Math.max(maxYear - minYear, 1);
-  const durs     = perfs.map(p => p.duration);
-  const minDur   = Math.min(...durs), maxDur = Math.max(...durs);
-  const durSpan  = Math.max(maxDur - minDur, 1);
-  const maxRev   = Math.max(...perfs.map(p => p.reviews), 1);
+  // Use fractional year (YYYY-MM-DD → decimal) for x-axis so all 30 years are visible
+  function dateToDecimal(dateStr) {
+    const [y, m, day] = dateStr.split('-').map(Number);
+    return (y || 0) + ((m || 1) - 1) / 12 + ((day || 1) - 1) / 365;
+  }
 
-  const CHART_H = 180;
+  const decimals = perfs.map(p => dateToDecimal(p.date));
+  const minDec   = Math.min(...decimals), maxDec = Math.max(...decimals);
+  // Always span at least 1965–1995 for context
+  const xMin = Math.min(minDec, 1965), xMax = Math.max(maxDec, 1995);
+  const xSpan = Math.max(xMax - xMin, 1);
 
-  // Y-axis labels (duration in min:sec)
+  const durs    = perfs.map(p => p.duration);
+  const minDur  = Math.min(...durs), maxDur = Math.max(...durs);
+  const durSpan = Math.max(maxDur - minDur, 1);
+  const maxRev  = Math.max(...perfs.map(p => p.reviews), 1);
+
+  const CHART_H = 200;
+
   const yLabels = [0, 0.25, 0.5, 0.75, 1].map(f => {
     const sec = minDur + f * durSpan;
     const m = Math.floor(sec/60), s = Math.round(sec%60);
     return `<span class="obs-axis-y" style="bottom:${(f*90+5).toFixed(0)}%">${m}:${String(s).padStart(2,'0')}</span>`;
   }).join('');
 
-  // X-axis year labels
-  const step = yearSpan > 20 ? 5 : yearSpan > 10 ? 3 : 2;
+  // X-axis: every 5 years from 1965–1995
   const xLabels = [];
-  for (let y = minYear; y <= maxYear; y += step) {
-    const xPct = ((y - minYear) / yearSpan) * 94 + 3;
+  for (let y = 1965; y <= 1995; y += 5) {
+    const xPct = ((y - xMin) / xSpan) * 94 + 3;
     xLabels.push(`<span class="obs-axis-x" style="left:${xPct.toFixed(1)}%">${y}</span>`);
   }
 
   const srcColors = {SBD:'#c8a84b', AUD:'#2d65e0', MTX:'#7c4dff', FOB:'#2a9d6f', UNK:'#5a6e8a'};
 
-  const dotsHTML = perfs.map(p => {
-    const xPct = ((parseInt(p.date) - minYear) / yearSpan) * 94 + 3;
-    const yPct = ((p.duration - minDur) / durSpan) * 90 + 5;
+  const dotsHTML = perfs.map((p, i) => {
+    const xPct = ((decimals[i] - xMin) / xSpan) * 94 + 3;
+    const yPct = durSpan > 0 ? ((p.duration - minDur) / durSpan) * 90 + 5 : 50;
     const sz   = Math.max(5, Math.min(16, 5 + (p.reviews / maxRev) * 11));
     const col  = srcColors[p.source] || srcColors.UNK;
     return `<div class="obs-dot" style="left:${xPct.toFixed(1)}%;bottom:${yPct.toFixed(1)}%;width:${sz}px;height:${sz}px;background:${col};margin-left:-${sz/2}px;margin-bottom:-${sz/2}px" data-date="${escapeHTML(p.date)}" data-dur="${p.duration}" data-src="${escapeHTML(p.source)}" data-rev="${p.reviews}" data-id="${escapeHTML(p.id)}"></div>`;
@@ -2981,11 +2994,9 @@ function buildObsChart(d, body) {
 
   const avgDur = Math.round(perfs.reduce((a, p) => a + p.duration, 0) / perfs.length);
   const longest = perfs.reduce((a,b) => b.duration > a.duration ? b : a);
-  const fmtDur = s => { const m=Math.floor(s/60),ss=Math.round(s%60); return `${m}:${String(ss).padStart(2,'0')}`; };
 
   body.innerHTML = `
-    <button class="obs-back-btn" onclick="renderHeatmap()">← All songs heatmap</button>
-    <div class="obs-song-tabs">${tabsHTML}</div>
+    ${navHTML}
     ${legendHTML}
     <div class="obs-chart-wrap">
       <div class="obs-chart" style="height:${CHART_H}px">${dotsHTML}${xLabels.join('')}${yLabels}</div>
@@ -2996,8 +3007,6 @@ function buildObsChart(d, body) {
       <div><div class="obs-stat-val">${fmtDur(longest.duration)}</div><div class="obs-stat-lbl">Longest · ${escapeHTML(longest.date)}</div></div>
       <div><div class="obs-stat-val">${fmtDur(Math.min(...durs))}</div><div class="obs-stat-lbl">Shortest</div></div>
     </div>`;
-
-  body.querySelectorAll('.obs-song-tab').forEach(b => b.addEventListener('click', () => renderObservatory(b.dataset.song)));
 
   const tooltip = document.getElementById('obs-tooltip');
   body.querySelectorAll('.obs-dot').forEach(dot => {
