@@ -1028,47 +1028,6 @@ def parking_lot(show_id):
     _cache_set(f"pl:{show_id}", result)
     return jsonify(result)
 
-# ── Dark Star Observatory ──────────────────────────────────────────────────────
-_OBSERVATORY_SONGS = [
-    "dark star", "the other one", "terrapin station", "playing in the band",
-    "drums", "space", "eyes of the world", "truckin", "casey jones",
-    "st. stephen", "the eleven", "cryptical envelopment",
-]
-
-@app.route("/api/observatory")
-def observatory():
-    song = request.args.get("song", "dark star").lower().strip()
-    # Match track_title loosely
-    import re as _re
-    # Build a pattern that matches the song name within the title
-    pattern = _re.compile(_re.escape(song), _re.IGNORECASE)
-
-    cache_key = f"obs:{song}"
-    cached = _cache_get(cache_key)
-    if cached:
-        return jsonify(cached)
-
-    # Aggregate: for each show_date, find max seconds listened for matching tracks
-    # Uses community data (all users) — no username filter
-    pipeline = [
-        {"$match": {"track_title": {"$regex": _re.escape(song), "$options": "i"}}},
-        {"$group": {
-            "_id": "$show_date",
-            "max_seconds": {"$max": "$seconds"},
-            "play_count": {"$sum": 1},
-        }},
-        {"$sort": {"_id": 1}},
-    ]
-    rows = list(listens_table.aggregate(pipeline))
-    performances = [
-        {"date": r["_id"], "seconds": r["max_seconds"], "plays": r["play_count"]}
-        for r in rows if r["_id"] and r["max_seconds"] and r["max_seconds"] > 60
-    ]
-
-    result = {"song": song, "performances": performances, "songs": _OBSERVATORY_SONGS}
-    _cache_set(cache_key, result)
-    return jsonify(result)
-
 # ── Dark Star Observatory ─────────────────────────────────────────────────────
 _OBS_SONGS = [
     {"id": "dark star",         "label": "Dark Star"},
