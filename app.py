@@ -204,6 +204,8 @@ except Exception:
     app.logger.warning("listens_table: could not create unique (username, session_id) index — pre-existing duplicates detected, falling back to non-unique")
     listens_table.create_index([("username", 1), ("session_id", 1)], sparse=True)
 notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
+observatory_table = _db["observatory_cache"]
+observatory_table.create_index("song_id", unique=True)
 
 # ── Archive.org API ───────────────────────────────────────────────────────────
 ARCHIVE_SEARCH   = "https://archive.org/advancedsearch.php"
@@ -1044,17 +1046,12 @@ _OBS_SONGS = [
     {"id": "scarlet begonias",  "label": "Scarlet Begonias"},
 ]
 
-@app.route("/api/observatory")
-def observatory():
+_OBS_REFRESH_DAYS = 14  # re-scrape each song at most every 2 weeks
+
+def _fetch_observatory_song(song_meta):
+    """Fetch performances for one song from Archive.org. Returns the result dict or None on failure."""
     import re as _re
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    song_id = request.args.get("song", "dark star").lower().strip()
-    song_meta = next((s for s in _OBS_SONGS if s["id"] == song_id), _OBS_SONGS[0])
-
-    cache_key = f"obs2:{song_id}"
-    cached = _cache_get(cache_key)
-    if cached:
-        return jsonify(cached)
 
     try:
         data = archive_search({
@@ -1064,16 +1061,12 @@ def observatory():
             "rows": 500,
             "sort[]": "date asc",
         })
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "Archive.org timed out"}), 502
-    except requests.exceptions.RequestException:
-        return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception:
-        return jsonify({"error": "Unexpected error"}), 500
+        return None
 
     docs = data.get("response", {}).get("docs", [])
 
-    # One candidate per date; cap at 40 to stay well under 25s worker timeout
+    # One candidate per date; cap at 40
     seen_dates = {}
     candidates = []
     for doc in docs:
@@ -1098,7 +1091,6 @@ def observatory():
         date_str = date_str[:10]
         if not date_str or not identifier:
             return None
-
         track_key = f"tracks:{identifier}"
         track_data = _cache_get(track_key)
         if track_data is None:
@@ -1121,7 +1113,6 @@ def observatory():
                 _cache_set(track_key, track_data)
             except Exception:
                 return None
-
         matched_dur = None
         for t in (track_data or []):
             if pattern.search(t.get("title", "")):
@@ -1131,7 +1122,6 @@ def observatory():
                     break
         if matched_dur is None:
             return None
-
         ident_lower = identifier.lower()
         if "sbd" in ident_lower or "soundboard" in ident_lower:
             src = "SBD"
@@ -1143,40 +1133,104 @@ def observatory():
             src = "AUD"
         else:
             src = doc.get("source", "UNK") or "UNK"
-
         try:
             reviews = int(doc.get("num_reviews") or 0)
             rating  = float(doc.get("avg_rating") or 0)
         except (ValueError, TypeError):
             reviews, rating = 0, 0.0
-
         return {
-            "date":     date_str,
-            "duration": round(matched_dur),
-            "source":   src,
-            "reviews":  reviews,
-            "rating":   round(rating, 1),
-            "id":       identifier,
+            "date": date_str, "duration": round(matched_dur),
+            "source": src, "reviews": reviews,
+            "rating": round(rating, 1), "id": identifier,
         }
 
-    # Fetch all candidates in parallel — 8 workers, 6s per request ≈ well under 25s
     performances = []
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(fetch_perf, doc): doc for doc in candidates}
         for future in as_completed(futures):
-            result = future.result()
-            if result:
-                performances.append(result)
+            r = future.result()
+            if r:
+                performances.append(r)
 
     performances.sort(key=lambda x: x["date"])
-    out = {
+    return {
         "song":         song_meta["label"],
-        "song_id":      song_id,
+        "song_id":      song_meta["id"],
         "songs":        _OBS_SONGS,
         "performances": performances,
     }
-    _cache_set(cache_key, out)
+
+
+@app.route("/api/observatory")
+def observatory():
+    song_id = request.args.get("song", "dark star").lower().strip()
+    song_meta = next((s for s in _OBS_SONGS if s["id"] == song_id), _OBS_SONGS[0])
+
+    # 1. In-memory LRU cache (fast path for repeated requests within 5 min)
+    lru_key = f"obs2:{song_id}"
+    cached = _cache_get(lru_key)
+    if cached:
+        return jsonify(cached)
+
+    # 2. MongoDB persistent cache
+    row = observatory_table.find_one({"song_id": song_id}, {"_id": 0})
+    if row and row.get("performances"):
+        age_days = (time.time() - row.get("fetched_at", 0)) / 86400
+        if age_days < _OBS_REFRESH_DAYS:
+            _cache_set(lru_key, row)
+            return jsonify(row)
+
+    # 3. Live fetch from Archive.org
+    out = _fetch_observatory_song(song_meta)
+    if out is None:
+        return jsonify({"error": "Archive.org unavailable"}), 502
+
+    # Persist to MongoDB and LRU
+    out["fetched_at"] = time.time()
+    observatory_table.update_one(
+        {"song_id": song_id},
+        {"$set": out},
+        upsert=True,
+    )
+    _cache_set(lru_key, out)
     return jsonify(out)
+
+
+def _observatory_background_refresh():
+    """At startup, warm the Observatory cache for any songs missing or stale in MongoDB."""
+    import threading as _threading
+    def _run():
+        # Wait for the app to finish starting up before hitting Archive.org
+        time.sleep(90)
+        app.logger.info("Observatory: starting background cache warm-up")
+        for song_meta in _OBS_SONGS:
+            try:
+                row = observatory_table.find_one({"song_id": song_meta["id"]}, {"fetched_at": 1, "performances": 1})
+                if row and row.get("performances"):
+                    age_days = (time.time() - row.get("fetched_at", 0)) / 86400
+                    if age_days < _OBS_REFRESH_DAYS:
+                        app.logger.info(f"Observatory: {song_meta['label']} — cached ({age_days:.1f}d old), skipping")
+                        continue
+                app.logger.info(f"Observatory: fetching {song_meta['label']}…")
+                out = _fetch_observatory_song(song_meta)
+                if out:
+                    out["fetched_at"] = time.time()
+                    observatory_table.update_one(
+                        {"song_id": song_meta["id"]},
+                        {"$set": out},
+                        upsert=True,
+                    )
+                    app.logger.info(f"Observatory: {song_meta['label']} — {len(out['performances'])} performances cached")
+                else:
+                    app.logger.warning(f"Observatory: {song_meta['label']} — fetch returned nothing")
+                # Be polite to Archive.org — space out requests
+                time.sleep(5)
+            except Exception as e:
+                app.logger.warning(f"Observatory background refresh failed for {song_meta['label']}: {e}")
+        app.logger.info("Observatory: background warm-up complete")
+    _threading.Thread(target=_run, daemon=True).start()
+
+_observatory_background_refresh()
 
 # ── Search ────────────────────────────────────────────────────────────────────
 @app.route("/api/search")
