@@ -1147,8 +1147,63 @@ def tour_progress(tour_id):
         for r in cohort_raw
     ]
 
+    # Fetch shows in the date range from Archive.org (via per-year cache)
+    start_year = int(tour["start"][:4])
+    end_year   = int(tour["end"][:4])
+    tour_shows = []
+    for yr in range(start_year, end_year + 1):
+        cache_key = f"shows:{yr}"
+        yr_shows = _cache_get(cache_key)
+        if yr_shows is None:
+            try:
+                data = archive_search({
+                    "q": f"collection:{COLLECTION} AND year:{yr}",
+                    "fl[]": "identifier,title,date,coverage",
+                    "output": "json",
+                    "rows": 1000,
+                    "sort[]": "date asc",
+                })
+                docs = data.get("response", {}).get("docs", [])
+                seen = {}
+                yr_shows = []
+                for doc in docs:
+                    date = doc.get("date") or ""
+                    if isinstance(date, list):
+                        date = date[0] if date else ""
+                    date = date[:10]
+                    if not date or date in seen:
+                        continue
+                    seen[date] = True
+                    title = doc.get("title", "")
+                    venue_name = ""
+                    if " at " in title and " on " in title:
+                        venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
+                    yr_shows.append({
+                        "id": date,
+                        "venue": venue_name or title[:60],
+                        "location": doc.get("coverage", ""),
+                    })
+                _cache_set(cache_key, yr_shows)
+            except Exception:
+                yr_shows = []
+        # yr_shows may be the full shows-endpoint format (dicts with "venue" key as dict)
+        # or the compact format above; normalise to date + label
+        for s in (yr_shows or []):
+            date = s.get("id") or s.get("display_date") or ""
+            if date < tour["start"] or date > tour["end"]:
+                continue
+            if isinstance(s.get("venue"), dict):
+                venue = s["venue"].get("name", "")
+                location = s["venue"].get("location", "")
+            else:
+                venue = s.get("venue", "")
+                location = s.get("location", "")
+            tour_shows.append({"date": date, "venue": venue, "location": location})
+    tour_shows.sort(key=lambda x: x["date"])
+
     return jsonify({
         "tour": {"id": tour["id"], "name": tour["name"], "start": tour["start"], "end": tour["end"]},
+        "shows": tour_shows,
         "my_progress": list(my_heard_set),
         "cohort": cohort,
     })

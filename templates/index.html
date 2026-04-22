@@ -101,7 +101,12 @@
     .track-panel-empty .big-skull { font-size:57px; opacity:0.3; }
     .source-header { padding:10px 16px 8px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); overflow:hidden; }
     .source-header-content { position:relative; z-index:1; }
-    .dateline-watermark { position:absolute; bottom:-8px; right:10px; font-size:58px; font-family:'Space Mono',monospace; font-weight:700; color:var(--text); opacity:0.08; pointer-events:none; user-select:none; letter-spacing:4px; line-height:1; white-space:nowrap; z-index:0; }
+    .ticket-stub { position:absolute; top:6px; right:10px; z-index:0; pointer-events:none; user-select:none; transform:rotate(1.5deg); }
+    .ticket-stub-inner { background:#f5ead6; border:1px solid #c9a96e; border-left:none; padding:5px 10px 5px 14px; position:relative; display:flex; flex-direction:column; align-items:flex-end; min-width:76px; box-shadow:1px 2px 6px rgba(0,0,0,0.35); }
+    .ticket-stub-inner::before { content:''; position:absolute; left:-1px; top:0; bottom:0; width:10px; background:repeating-radial-gradient(circle at 0 50%, transparent 0 4px, #f5ead6 4px 6px) 0 0 / 10px 10px; }
+    .ticket-stub-inner::after { content:'ADMIT ONE'; position:absolute; bottom:3px; left:14px; font-size:6px; letter-spacing:1.5px; color:#8b6a3a; font-family:'Space Mono',monospace; opacity:0.7; }
+    .ticket-stub-date { font-family:'Space Mono',monospace; font-size:13px; font-weight:700; color:#3a2510; line-height:1.2; letter-spacing:1px; }
+    .ticket-stub-sub { font-family:'Space Mono',monospace; font-size:7px; color:#7a5a2a; letter-spacing:0.5px; margin-top:1px; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:right; }
     .source-meta { font-size:11px; color:var(--muted); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .source-selector { display:flex; gap:6px; padding:8px 16px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
     .src-btn { padding:4px 10px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; display:flex; align-items:center; gap:5px; }
@@ -339,6 +344,7 @@
     .tour-show-check { width:16px; flex-shrink:0; color:var(--border); font-size:13px; }
     .tour-show-check.heard { color:#2a9d6f; }
     .tour-show-date { color:var(--accent); font-weight:700; flex-shrink:0; width:88px; }
+    .tour-show-venue { color:var(--muted); font-size:11px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .tour-cohort-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
     .tour-cohort-table th { text-align:left; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); padding:0 8px 8px 0; border-bottom:1px solid var(--border); }
     .tour-cohort-table td { padding:7px 8px 7px 0; border-bottom:1px solid rgba(30,42,69,0.5); }
@@ -1299,9 +1305,20 @@ function renderSourceButtons() {
   const tourSection = `<div class="tour-section"><div class="tour-header" onclick="toggleTour()"><span>On This Tour</span><span id="tour-arrow">${_IC.chevR}</span></div><div class="tour-list" id="tour-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
   const venueSection = `<div class="venue-section"><div class="venue-header" onclick="toggleVenue()"><span id="venue-header-text">Venue History</span><span id="venue-arrow">${_IC.chevR}</span></div><div class="venue-list" id="venue-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
   const dateParts = currentShowDate ? currentShowDate.split('-') : [];
-  const datelineText = dateParts.length === 3 ? `${dateParts[1]} · ${dateParts[2]} · ${dateParts[0].slice(2)}` : '';
-  const datelineHTML = datelineText ? `<div class="dateline-watermark">${datelineText}</div>` : '';
-  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${datelineHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div></div>${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+  const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  let ticketHTML = '';
+  if (dateParts.length === 3) {
+    const mon = MONTHS[parseInt(dateParts[1], 10) - 1] || dateParts[1];
+    const day = dateParts[2];
+    const yr  = dateParts[0];
+    const venueLine = currentShowInfo ? currentShowInfo.split('\n')[0].replace(/.*?—\s*/,'').trim() : '';
+    ticketHTML = `<div class="ticket-stub"><div class="ticket-stub-inner">
+      <div class="ticket-stub-date">${mon} ${day}</div>
+      <div class="ticket-stub-date" style="font-size:10px;letter-spacing:2px;">${yr}</div>
+      ${venueLine ? `<div class="ticket-stub-sub">${escapeHTML(venueLine)}</div>` : ''}
+    </div></div>`;
+  }
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div></div>${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
 }
 
 function starsLabel(s) {
@@ -2210,17 +2227,24 @@ async function openTourDetail(tourId, tourName) {
 
 function renderTourDetail(data, body) {
   const tour = data.tour;
-  const heardDates = (data.my_progress || []).slice().sort();
-  const heard = heardDates.length;
+  const heardSet = new Set(data.my_progress || []);
+  const shows = data.shows || [];
+  const total = shows.length;
+  const heard = shows.filter(s => heardSet.has(s.date)).length;
+  const pct = total > 0 ? Math.round((heard / total) * 100) : 0;
 
-  // Shows I've heard in this run
-  const showsHTML = heardDates.length
-    ? heardDates.map(date => `
-        <div class="tour-show-row" data-show-date="${escapeHTML(date)}">
-          <span class="tour-show-check heard">✓</span>
-          <span class="tour-show-date">${escapeHTML(date)}</span>
-        </div>`).join('')
-    : '<div class="ratings-empty" style="padding:8px 0">No shows heard in this run yet.</div>';
+  // Full show list with checkmarks
+  const showsHTML = shows.length
+    ? shows.map(s => {
+        const isHeard = heardSet.has(s.date);
+        const sub = [s.venue, s.location].filter(Boolean).join(' · ');
+        return `<div class="tour-show-row" data-show-date="${escapeHTML(s.date)}">
+          <span class="tour-show-check ${isHeard ? 'heard' : ''}">${isHeard ? '✓' : '○'}</span>
+          <span class="tour-show-date">${escapeHTML(s.date)}</span>
+          <span class="tour-show-venue">${escapeHTML(sub)}</span>
+        </div>`;
+      }).join('')
+    : '<div class="ratings-empty" style="padding:8px 0">Loading shows…</div>';
 
   // Cohort table
   const maxCount = data.cohort.length ? data.cohort[0].completed_count : 1;
@@ -2228,7 +2252,7 @@ function renderTourDetail(data, body) {
     const barW = maxCount > 0 ? Math.round((u.completed_count / maxCount) * 120) : 0;
     return `<tr>
       <td>${escapeHTML(u.display_name)}</td>
-      <td style="color:var(--accent);font-weight:700">${u.completed_count} shows</td>
+      <td style="color:var(--accent);font-weight:700">${u.completed_count} / ${total}</td>
       <td><span class="tour-cohort-bar" style="width:${barW}px"></span></td>
       <td style="color:var(--muted);font-size:11px">${escapeHTML(u.last_show || '')}</td>
     </tr>`;
@@ -2239,16 +2263,17 @@ function renderTourDetail(data, body) {
       ${_IC.back} All Tours
     </div>
     <div style="font-family:'Playfair Display',serif;font-size:19px;font-weight:700;color:var(--white);margin-bottom:2px;">${escapeHTML(tour.name)}</div>
-    <div style="color:var(--muted);font-size:12px;margin-bottom:12px;">${escapeHTML(tour.start)} – ${escapeHTML(tour.end)}</div>
-    <div class="tour-progress-label">You've heard <strong style="color:var(--text)">${heard}</strong> show${heard !== 1 ? 's' : ''} in this run</div>
+    <div style="color:var(--muted);font-size:12px;margin-bottom:10px;">${escapeHTML(tour.start)} – ${escapeHTML(tour.end)}</div>
+    <div class="tour-progress-bar-wrap"><div class="tour-progress-bar" style="width:${pct}%"></div></div>
+    <div class="tour-progress-label">You've heard <strong style="color:var(--text)">${heard}</strong> of <strong style="color:var(--text)">${total}</strong> shows (${pct}%)</div>
 
-    <div class="tour-section-title">Your Shows</div>
+    <div class="tour-section-title">Shows in This Run</div>
     <div class="tour-shows-list">${showsHTML}</div>
 
     ${data.cohort.length ? `
     <div class="tour-section-title">Cohort Progress</div>
     <table class="tour-cohort-table">
-      <thead><tr><th>Listener</th><th>Shows</th><th></th><th>Last Show</th></tr></thead>
+      <thead><tr><th>Listener</th><th>Progress</th><th></th><th>Last Show</th></tr></thead>
       <tbody>${cohortRows}</tbody>
     </table>` : '<div class="ratings-empty" style="padding:16px 0">No one else has listened to this run yet. Be the first!</div>'}
   `;
