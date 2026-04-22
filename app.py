@@ -1032,21 +1032,66 @@ def parking_lot(show_id):
 
 # ── Dark Star Observatory ─────────────────────────────────────────────────────
 _OBS_SONGS = [
-    {"id": "dark star",         "label": "Dark Star"},
-    {"id": "the other one",     "label": "The Other One"},
-    {"id": "terrapin station",  "label": "Terrapin Station"},
-    {"id": "playing in the band","label": "Playing in the Band"},
-    {"id": "st. stephen",       "label": "St. Stephen"},
-    {"id": "eyes of the world", "label": "Eyes of the World"},
-    {"id": "estimated prophet", "label": "Estimated Prophet"},
-    {"id": "china cat sunflower","label": "China Cat Sunflower"},
-    {"id": "truckin",           "label": "Truckin'"},
-    {"id": "drums",             "label": "Drums"},
-    {"id": "space",             "label": "Space"},
-    {"id": "scarlet begonias",  "label": "Scarlet Begonias"},
+    # Psychedelic era (1965–1969)
+    {"id":"dark star",               "label":"Dark Star"},
+    {"id":"the other one",           "label":"The Other One"},
+    {"id":"st. stephen",             "label":"St. Stephen"},
+    {"id":"china cat sunflower",     "label":"China Cat Sunflower"},
+    {"id":"morning dew",             "label":"Morning Dew"},
+    {"id":"death dont have no mercy","label":"Death Don't Have No Mercy"},
+    {"id":"cryptical envelopment",   "label":"Cryptical Envelopment"},
+    {"id":"turn on your love light", "label":"Turn On Your Love Light"},
+    # Classic era (1970–1974)
+    {"id":"truckin",                 "label":"Truckin'"},
+    {"id":"casey jones",             "label":"Casey Jones"},
+    {"id":"friend of the devil",     "label":"Friend of the Devil"},
+    {"id":"ripple",                  "label":"Ripple"},
+    {"id":"sugar magnolia",          "label":"Sugar Magnolia"},
+    {"id":"playing in the band",     "label":"Playing in the Band"},
+    {"id":"bertha",                  "label":"Bertha"},
+    {"id":"deal",                    "label":"Deal"},
+    {"id":"jack straw",              "label":"Jack Straw"},
+    {"id":"tennessee jed",           "label":"Tennessee Jed"},
+    {"id":"brown eyed women",        "label":"Brown Eyed Women"},
+    {"id":"ramble on rose",          "label":"Ramble On Rose"},
+    {"id":"mississippi half step",   "label":"Mississippi Half-Step"},
+    {"id":"eyes of the world",       "label":"Eyes of the World"},
+    {"id":"wharf rat",               "label":"Wharf Rat"},
+    {"id":"here comes sunshine",     "label":"Here Comes Sunshine"},
+    {"id":"the wheel",               "label":"The Wheel"},
+    {"id":"franklins tower",         "label":"Franklin's Tower"},
+    {"id":"weather report suite",    "label":"Weather Report Suite"},
+    {"id":"i know you rider",        "label":"I Know You Rider"},
+    # Post-hiatus (1976–1979)
+    {"id":"estimated prophet",       "label":"Estimated Prophet"},
+    {"id":"terrapin station",        "label":"Terrapin Station"},
+    {"id":"scarlet begonias",        "label":"Scarlet Begonias"},
+    {"id":"fire on the mountain",    "label":"Fire on the Mountain"},
+    {"id":"shakedown street",        "label":"Shakedown Street"},
+    {"id":"stagger lee",             "label":"Stagger Lee"},
+    {"id":"samson and delilah",      "label":"Samson and Delilah"},
+    # 1980s
+    {"id":"touch of grey",           "label":"Touch of Grey"},
+    {"id":"hell in a bucket",        "label":"Hell in a Bucket"},
+    {"id":"throwing stones",         "label":"Throwing Stones"},
+    {"id":"althea",                  "label":"Althea"},
+    {"id":"alabama getaway",         "label":"Alabama Getaway"},
+    {"id":"dire wolf",               "label":"Dire Wolf"},
+    {"id":"ship of fools",           "label":"Ship of Fools"},
+    {"id":"lazy lightning",          "label":"Lazy Lightning"},
+    {"id":"lost sailor",             "label":"Lost Sailor"},
+    # Final era (1990–1995)
+    {"id":"so many roads",           "label":"So Many Roads"},
+    {"id":"drums",                   "label":"Drums"},
+    {"id":"space",                   "label":"Space"},
+    # Perennial covers
+    {"id":"not fade away",           "label":"Not Fade Away"},
+    {"id":"going down the road",     "label":"Going Down the Road Feeling Bad"},
+    {"id":"me and my uncle",         "label":"Me and My Uncle"},
 ]
 
-_OBS_REFRESH_DAYS = 14  # re-scrape each song at most every 2 weeks
+_OBS_REFRESH_DAYS   = 14   # re-scrape scatter data every 2 weeks
+_OBS_HM_REFRESH_DAYS = 7   # re-scrape heatmap data every week (faster query)
 
 def _fetch_observatory_song(song_meta):
     """Fetch performances for one song from Archive.org. Returns the result dict or None on failure."""
@@ -1196,22 +1241,280 @@ def observatory():
     return jsonify(out)
 
 
+def _fetch_heatmap_song(song_meta):
+    """Search-only fetch: returns year-bucket rating data for one song. Fast — no metadata calls."""
+    label = song_meta["label"]
+    try:
+        data = archive_search({
+            "q": f'collection:{COLLECTION} AND description:"{label}"',
+            "fl[]": "date,avg_rating,num_reviews",
+            "output": "json",
+            "rows": 1000,
+        })
+    except Exception:
+        return None
+    docs = data.get("response", {}).get("docs", [])
+    year_acc = {}
+    for doc in docs:
+        date_str = doc.get("date") or ""
+        if isinstance(date_str, list):
+            date_str = date_str[0] if date_str else ""
+        year = date_str[:4]
+        if not year or not year.isdigit() or not (1965 <= int(year) <= 1995):
+            continue
+        try:
+            rating  = float(doc.get("avg_rating") or 0)
+            reviews = int(doc.get("num_reviews") or 0)
+        except (ValueError, TypeError):
+            continue
+        if rating <= 0 or reviews <= 0:
+            continue
+        if year not in year_acc:
+            year_acc[year] = {"wsum": 0.0, "reviews": 0, "count": 0}
+        year_acc[year]["wsum"]    += rating * reviews
+        year_acc[year]["reviews"] += reviews
+        year_acc[year]["count"]   += 1
+    years = [
+        {"year": y, "avg_rating": round(d["wsum"] / d["reviews"], 2),
+         "reviews": d["reviews"], "count": d["count"]}
+        for y, d in sorted(year_acc.items()) if d["reviews"] > 0
+    ]
+    return years
+
+
+@app.route("/api/observatory/heatmap")
+def observatory_heatmap():
+    """Return year-bucket rating data for ALL songs — powers the heatmap grid."""
+    cache_key = "obs:heatmap"
+    cached = _cache_get(cache_key)
+    if cached:
+        return jsonify(cached)
+    docs = list(observatory_table.find(
+        {"years": {"$exists": True, "$ne": []}},
+        {"song_id": 1, "song": 1, "years": 1, "heatmap_fetched_at": 1, "_id": 0}
+    ))
+    result = [
+        {"song_id": d["song_id"], "label": d.get("song", d["song_id"]), "years": d["years"]}
+        for d in docs
+    ]
+    # Return in _OBS_SONGS order
+    order = {s["id"]: i for i, s in enumerate(_OBS_SONGS)}
+    result.sort(key=lambda x: order.get(x["song_id"], 999))
+    _cache_set(cache_key, result)
+    return jsonify({"songs": result, "all_songs": _OBS_SONGS})
+
+
+# ── City → lat/lng lookup for Crow's Nest map ────────────────────────────────
+_CITY_COORDS = {
+    # California
+    "san francisco":      (37.77, -122.42), "san francisco, ca":   (37.77, -122.42),
+    "berkeley":           (37.87, -122.27), "berkeley, ca":        (37.87, -122.27),
+    "los angeles":        (34.05, -118.24), "los angeles, ca":     (34.05, -118.24),
+    "santa barbara":      (34.42, -119.70), "san jose":            (37.34, -121.89),
+    "san diego":          (32.72, -117.15), "sacramento":          (38.58, -121.49),
+    "ventura":            (34.28, -119.29), "palo alto":           (37.44, -122.14),
+    "santa clara":        (37.35, -121.95), "oakland":             (37.80, -122.27),
+    "stockton":           (37.96, -121.29), "fresno":              (36.74, -119.77),
+    "anaheim":            (33.84, -117.91), "irvine":              (33.68, -117.79),
+    "long beach":         (33.77, -118.19), "pasadena":            (34.15, -118.14),
+    "san rafael":         (37.97, -122.53), "sebastopol":          (38.40, -122.82),
+    "santa rosa":         (38.44, -122.71), "santa cruz":          (36.97, -122.03),
+    "pacific grove":      (36.62, -121.92), "monterey":            (36.60, -121.89),
+    # Pacific Northwest
+    "portland":           (45.52, -122.68), "portland, or":        (45.52, -122.68),
+    "seattle":            (47.61, -122.33), "seattle, wa":         (47.61, -122.33),
+    "eugene":             (44.05, -123.09), "vancouver, bc":       (49.28, -123.12),
+    # Nevada / Arizona
+    "las vegas":          (36.17, -115.14), "phoenix":             (33.45, -112.07),
+    "tucson":             (32.22, -110.97), "reno":                (39.53, -119.81),
+    # Colorado / Rocky Mountain
+    "denver":             (39.74, -104.98), "boulder":             (40.01, -105.27),
+    "red rocks":          (39.66, -105.20), "morrison, co":        (39.65, -105.19),
+    "fort collins":       (40.59, -105.07),
+    # Texas / Southwest
+    "dallas":             (32.78, -96.80),  "houston":             (29.76, -95.37),
+    "austin":             (30.27, -97.74),  "san antonio":         (29.42, -98.49),
+    "albuquerque":        (35.08, -106.65), "el paso":             (31.76, -106.49),
+    "lubbock":            (33.58, -101.86), "new orleans":         (29.95, -90.07),
+    # Midwest
+    "chicago":            (41.88, -87.63),  "chicago, il":         (41.88, -87.63),
+    "milwaukee":          (43.04, -87.91),  "detroit":             (42.33, -83.05),
+    "minneapolis":        (44.98, -93.27),  "saint paul":          (44.94, -93.09),
+    "st. paul":           (44.94, -93.09),  "columbus":            (39.96, -82.99),
+    "cleveland":          (41.50, -81.69),  "cincinnati":          (39.10, -84.51),
+    "indianapolis":       (39.77, -86.16),  "st. louis":           (38.63, -90.20),
+    "kansas city":        (39.10, -94.58),  "omaha":               (41.26, -95.94),
+    "iowa city":          (41.66, -91.53),  "madison":             (43.07, -89.40),
+    "ann arbor":          (42.28, -83.74),
+    # South / Southeast
+    "atlanta":            (33.75, -84.39),  "charlotte":           (35.23, -80.84),
+    "nashville":          (36.17, -86.78),  "memphis":             (35.15, -90.05),
+    "birmingham":         (33.52, -86.81),  "jacksonville":        (30.33, -81.66),
+    "miami":              (25.77, -80.19),  "orlando":             (28.54, -81.38),
+    "tampa":              (27.95, -82.46),  "tallahassee":         (30.44, -84.28),
+    "columbia":           (34.00, -81.03),  "raleigh":             (35.78, -78.64),
+    "durham":             (35.99, -78.90),  "chapel hill":         (35.91, -79.06),
+    "greensboro":         (36.07, -79.79),
+    # Mid-Atlantic / Northeast
+    "new york":           (40.71, -74.01),  "new york, ny":        (40.71, -74.01),
+    "new york city":      (40.71, -74.01),  "nyc":                 (40.71, -74.01),
+    "brooklyn":           (40.65, -73.95),  "philadelphia":        (39.95, -75.17),
+    "baltimore":          (39.29, -76.61),  "washington":          (38.91, -77.04),
+    "washington, dc":     (38.91, -77.04),  "d.c.":                (38.91, -77.04),
+    "pittsburgh":         (40.44, -79.99),  "buffalo":             (42.89, -78.87),
+    "albany":             (42.65, -73.75),  "rochester":           (43.16, -77.61),
+    "hartford":           (41.76, -72.68),  "new haven":           (41.31, -72.92),
+    "providence":         (41.82, -71.41),  "boston":              (42.36, -71.06),
+    "boston, ma":         (42.36, -71.06),  "cambridge":           (42.37, -71.11),
+    "worcester":          (42.26, -71.80),  "springfield":         (42.10, -72.59),
+    "lowell":             (42.64, -71.31),  "portland, me":        (43.66, -70.25),
+    "burlington":         (44.48, -73.21),  "manchester, nh":      (42.99, -71.46),
+    # Europe
+    "london":             (51.51, -0.13),   "amsterdam":           (52.37,   4.90),
+    "paris":              (48.85,   2.35),  "berlin":              (52.52,  13.40),
+    "hamburg":            (53.55,   9.99),  "frankfurt":           (50.11,   8.68),
+    "munich":             (48.14,  11.58),  "rotterdam":           (51.92,   4.48),
+    "zurich":             (47.38,   8.54),  "copenhagen":          (55.68,  12.57),
+    "stockholm":          (59.33,  18.07),  "oslo":                (59.91,  10.75),
+    "dublin":             (53.33,  -6.25),
+    # Canada
+    "toronto":            (43.65, -79.38),  "montreal":            (45.50, -73.57),
+    "ottawa":             (45.42, -75.70),  "winnipeg":            (49.90, -97.14),
+    "calgary":            (51.05, -114.07), "edmonton":            (53.55, -113.49),
+}
+
+def _coords_for_coverage(coverage):
+    """Best-effort lat/lng from an Archive.org coverage string like 'San Francisco, CA'."""
+    if not coverage:
+        return None
+    c = coverage.lower().strip().rstrip('.')
+    # exact match
+    if c in _CITY_COORDS:
+        return _CITY_COORDS[c]
+    # try just the first part before comma
+    city = c.split(',')[0].strip()
+    if city in _CITY_COORDS:
+        return _CITY_COORDS[city]
+    return None
+
+
+@app.route("/api/shows/map")
+def shows_map():
+    """Return all GD shows with lat/lng for Crow's Nest map view."""
+    cache_key = "shows:map"
+    cached = _cache_get(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    # Query all years from Archive.org (uses shared LRU cache)
+    all_shows = []
+    years_res = archive_search({
+        "q": f"collection:{COLLECTION}",
+        "fl[]": "identifier,date,coverage,avg_rating,num_reviews",
+        "output": "json",
+        "rows": 9999,
+        "sort[]": "date asc",
+    })
+    docs = years_res.get("response", {}).get("docs", [])
+    seen = set()
+    for doc in docs:
+        date_str = doc.get("date") or ""
+        if isinstance(date_str, list):
+            date_str = date_str[0] if date_str else ""
+        date = date_str[:10]
+        if not date or date in seen:
+            continue
+        seen.add(date)
+        cov = doc.get("coverage") or ""
+        if isinstance(cov, list):
+            cov = cov[0] if cov else ""
+        coords = _coords_for_coverage(cov)
+        if not coords:
+            continue
+        try:
+            rating = float(doc.get("avg_rating") or 0)
+            reviews = int(doc.get("num_reviews") or 0)
+        except (ValueError, TypeError):
+            rating, reviews = 0, 0
+        all_shows.append({
+            "date":     date,
+            "location": cov,
+            "lat":      coords[0],
+            "lng":      coords[1],
+            "rating":   round(rating, 2),
+            "reviews":  reviews,
+        })
+    all_shows.sort(key=lambda x: x["date"])
+    _cache_set(cache_key, all_shows)
+    return jsonify(all_shows)
+
+
 def _observatory_background_refresh():
-    """At startup, warm the Observatory cache for any songs missing or stale in MongoDB."""
+    """At startup, warm Observatory caches. Heatmap (fast) runs first for all songs,
+    then scatter (slow) runs for the 12 most improv-heavy songs."""
     import threading as _threading
+    # Songs worth fetching scatter/duration data for (improv-heavy, duration variance interesting)
+    _SCATTER_SONGS = {
+        "dark star","the other one","terrapin station","playing in the band",
+        "st. stephen","eyes of the world","estimated prophet","drums","space",
+        "scarlet begonias","weather report suite","here comes sunshine",
+    }
+
     def _run():
-        # Wait for the app to finish starting up before hitting Archive.org
         time.sleep(90)
-        app.logger.info("Observatory: starting background cache warm-up")
+        app.logger.info("Observatory: starting background warm-up")
+
+        # ── Pass 1: Heatmap data for ALL songs (search-only, fast) ──────────
+        app.logger.info("Observatory: Pass 1 — heatmap ratings for all songs")
         for song_meta in _OBS_SONGS:
             try:
-                row = observatory_table.find_one({"song_id": song_meta["id"]}, {"fetched_at": 1, "performances": 1})
+                row = observatory_table.find_one(
+                    {"song_id": song_meta["id"]},
+                    {"heatmap_fetched_at": 1, "years": 1}
+                )
+                if row and row.get("years"):
+                    age_days = (time.time() - row.get("heatmap_fetched_at", 0)) / 86400
+                    if age_days < _OBS_HM_REFRESH_DAYS:
+                        app.logger.info(f"  {song_meta['label']} heatmap — cached, skip")
+                        continue
+                app.logger.info(f"  {song_meta['label']} — fetching heatmap…")
+                years = _fetch_heatmap_song(song_meta)
+                if years is not None:
+                    observatory_table.update_one(
+                        {"song_id": song_meta["id"]},
+                        {"$set": {
+                            "song_id": song_meta["id"],
+                            "song":    song_meta["label"],
+                            "years":   years,
+                            "heatmap_fetched_at": time.time(),
+                        }},
+                        upsert=True,
+                    )
+                    app.logger.info(f"  {song_meta['label']} — {len(years)} year buckets")
+                time.sleep(2)  # polite gap between search calls
+            except Exception as e:
+                app.logger.warning(f"Observatory heatmap failed for {song_meta['label']}: {e}")
+
+        # Invalidate heatmap LRU so next request gets fresh MongoDB data
+        _cache_set("obs:heatmap", None)
+        app.logger.info("Observatory: Pass 1 complete")
+
+        # ── Pass 2: Scatter/duration data for improv-heavy songs ─────────────
+        app.logger.info("Observatory: Pass 2 — scatter durations for improv songs")
+        for song_meta in _OBS_SONGS:
+            if song_meta["id"] not in _SCATTER_SONGS:
+                continue
+            try:
+                row = observatory_table.find_one(
+                    {"song_id": song_meta["id"]},
+                    {"fetched_at": 1, "performances": 1}
+                )
                 if row and row.get("performances"):
                     age_days = (time.time() - row.get("fetched_at", 0)) / 86400
                     if age_days < _OBS_REFRESH_DAYS:
-                        app.logger.info(f"Observatory: {song_meta['label']} — cached ({age_days:.1f}d old), skipping")
+                        app.logger.info(f"  {song_meta['label']} scatter — cached, skip")
                         continue
-                app.logger.info(f"Observatory: fetching {song_meta['label']}…")
+                app.logger.info(f"  {song_meta['label']} — fetching scatter…")
                 out = _fetch_observatory_song(song_meta)
                 if out:
                     out["fetched_at"] = time.time()
@@ -1220,13 +1523,11 @@ def _observatory_background_refresh():
                         {"$set": out},
                         upsert=True,
                     )
-                    app.logger.info(f"Observatory: {song_meta['label']} — {len(out['performances'])} performances cached")
-                else:
-                    app.logger.warning(f"Observatory: {song_meta['label']} — fetch returned nothing")
-                # Be polite to Archive.org — space out requests
+                    app.logger.info(f"  {song_meta['label']} — {len(out['performances'])} performances")
                 time.sleep(5)
             except Exception as e:
-                app.logger.warning(f"Observatory background refresh failed for {song_meta['label']}: {e}")
+                app.logger.warning(f"Observatory scatter failed for {song_meta['label']}: {e}")
+
         app.logger.info("Observatory: background warm-up complete")
     _threading.Thread(target=_run, daemon=True).start()
 

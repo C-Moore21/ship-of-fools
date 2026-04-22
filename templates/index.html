@@ -352,7 +352,11 @@
 
 
     /* ── Observatory ─────────────────────────────────────────────────────── */
-    .obs-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent); padding:28px; width:720px; max-width:96vw; max-height:88vh; display:flex; flex-direction:column; position:relative; }
+    .obs-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent); padding:28px; width:900px; max-width:96vw; max-height:90vh; display:flex; flex-direction:column; position:relative; }
+    .obs-inner-tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:0; }
+    .obs-inner-tab { padding:6px 18px; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; background:none; border-top:none; border-left:none; border-right:none; font-family:'Space Mono',monospace; }
+    .obs-inner-tab:hover { color:var(--text); }
+    .obs-inner-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
     .obs-modal-body { overflow-y:auto; flex:1; margin-top:14px; }
     .obs-song-tabs { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:16px; }
     .obs-song-tab { padding:3px 11px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; }
@@ -377,6 +381,46 @@
     .obs-stat-lbl { font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-top:1px; }
     .obs-tooltip { position:fixed; background:var(--surface2); border:1px solid var(--border); border-left:2px solid var(--accent); padding:6px 10px; font-size:11px; pointer-events:none; z-index:9999; display:none; white-space:nowrap; }
     .obs-empty { color:var(--muted); font-size:12px; padding:40px 0; text-align:center; }
+    /* Heatmap */
+    .obs-hm-legend { margin-bottom:14px; font-size:10px; color:var(--muted); }
+    .obs-hm-grad-bar { height:10px; border-radius:2px; background:linear-gradient(90deg, rgba(26,75,191,0.8) 0%, rgba(200,168,75,0.9) 50%, rgba(232,51,42,0.95) 100%); margin-bottom:3px; }
+    .obs-hm-grid-wrap { overflow-x:auto; overflow-y:visible; }
+    .obs-hm-grid { display:flex; flex-direction:column; gap:1px; min-width:min-content; }
+    .obs-hm-row { display:flex; align-items:center; }
+    .obs-hm-row:not(.obs-hm-header-row):hover { background:rgba(255,255,255,0.03); }
+    .obs-hm-label { width:130px; min-width:130px; font-size:10px; color:var(--muted); padding-right:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:14px; cursor:pointer; flex-shrink:0; }
+    .obs-hm-row:not(.obs-hm-header-row) .obs-hm-label:hover { color:var(--accent); text-decoration:underline; }
+    .obs-hm-years { display:flex; gap:1px; }
+    .obs-hm-cell { width:16px; min-width:16px; height:13px; background:var(--surface2); border-radius:1px; }
+    .obs-hm-empty-cell { background:rgba(30,42,69,0.15); }
+    .obs-hm-cell[data-year] { cursor:default; }
+    .obs-hm-yr-hdr { background:transparent !important; display:flex; align-items:flex-end; justify-content:center; height:22px; width:16px; min-width:16px; padding:0; }
+    .obs-hm-yr-hdr span { font-size:8px; color:var(--muted); writing-mode:vertical-rl; transform:rotate(180deg); line-height:16px; }
+    .obs-hm-header-row .obs-hm-label { height:22px; }
+    .obs-back-btn { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--accent2-light); cursor:pointer; background:none; border:none; font-family:'Space Mono',monospace; padding:0; margin-bottom:12px; }
+    .obs-back-btn:hover { color:var(--white); }
+
+    /* ── Crow's Nest ──────────────────────────────────────────────────────── */
+    .crows-nest-wrap { position:relative; width:100%; }
+    .crows-nest-map { width:100%; display:block; background:var(--bg); border:1px solid var(--border); border-radius:2px; cursor:crosshair; }
+    .crows-nest-controls { display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap; }
+    .crows-nest-scrubber { flex:1; min-width:120px; accent-color:var(--accent); cursor:pointer; }
+    .crows-nest-year-label { font-size:18px; font-weight:700; color:var(--accent); font-family:'Playfair Display',serif; min-width:52px; text-align:center; }
+    .crows-nest-play-btn { padding:4px 14px; border:1px solid var(--accent2); background:transparent; color:var(--accent2-light); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; white-space:nowrap; }
+    .crows-nest-play-btn:hover { background:var(--accent2); color:var(--white); }
+    .crows-nest-legend { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+    .crows-nest-legend-item { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--muted); }
+    .crows-nest-legend-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    .crows-nest-show-count { font-size:10px; color:var(--muted); margin-top:4px; }
+    .crows-nest-stats-row { display:flex; gap:20px; flex-wrap:wrap; margin-top:10px; }
+    .crows-nest-stat { text-align:center; }
+    .crows-nest-stat-val { font-size:16px; font-weight:700; color:var(--accent); font-family:'Playfair Display',serif; }
+    .crows-nest-stat-lbl { font-size:9px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+    /* obs stats inline */
+    .obs-stats-wrap .stats-hero { margin-bottom:16px; }
+    .obs-stats-wrap .stats-card { background:var(--surface2); border:1px solid var(--border); padding:14px 20px; border-radius:2px; display:inline-block; }
+    .obs-stats-wrap .stats-card-val { font-size:22px; font-weight:700; color:var(--accent); font-family:'Playfair Display',serif; }
+    .obs-stats-wrap .stats-card-label { font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-top:3px; }
 
     /* ── Tour Runs modal ──────────────────────────────────────────────────── */
     .tours-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); padding:28px; width:620px; max-width:96vw; max-height:88vh; display:flex; flex-direction:column; position:relative; }
@@ -603,12 +647,17 @@
 <div class="modal-overlay" id="obs-modal" onclick="if(event.target===this)this.classList.remove('open')">
   <div class="obs-modal">
     <button class="modal-close" onclick="document.getElementById('obs-modal').classList.remove('open')">&times;</button>
-    <div style="display:flex;align-items:center;gap:12px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
       <img src="/static/observatory.svg" width="36" height="36" style="border-radius:50%;flex-shrink:0;">
       <div>
         <div class="modal-title" style="margin-bottom:2px;">Dark Star Observatory</div>
-        <div class="modal-sub">Song duration across every known Archive.org performance · dot size = review count · color = source type</div>
+        <div class="modal-sub">Song ratings · touring geography · your listening profile</div>
       </div>
+    </div>
+    <div class="obs-inner-tabs">
+      <button class="obs-inner-tab active" id="obs-tab-heatmap" onclick="obsTabSwitch('heatmap')">⬡ Song Heatmap</button>
+      <button class="obs-inner-tab" id="obs-tab-crows-nest" onclick="obsTabSwitch('crows-nest')">🗺 Crow's Nest</button>
+      <button class="obs-inner-tab" id="obs-tab-mystats" onclick="obsTabSwitch('mystats')">◈ My Stats</button>
     </div>
     <div class="obs-modal-body" id="obs-modal-body"><div class="loading">Loading</div></div>
   </div>
@@ -2436,14 +2485,430 @@ async function loadParkingLot(showId) {
 
 // ── Dark Star Observatory ─────────────────────────────────────────────────────
 let _obsSong = 'dark star';
+let _obsView = 'heatmap';
+let _obsHeatmapData = null;
+let _obsMapData = null;
+let _obsMapAnim = null;
 
 function openObservatory() {
   document.getElementById('obs-modal').classList.add('open');
-  if (!document.querySelector('#obs-modal-body .obs-chart')) renderObservatory(_obsSong);
+  const body = document.getElementById('obs-modal-body');
+  if (!body.children.length || body.querySelector('.loading')) {
+    obsTabSwitch('heatmap');
+  }
 }
 
+function obsTabSwitch(view) {
+  _obsView = view;
+  document.querySelectorAll('.obs-inner-tab').forEach(t => t.classList.remove('active'));
+  const tab = document.getElementById(`obs-tab-${view}`);
+  if (tab) tab.classList.add('active');
+  if (view === 'heatmap')     renderHeatmap();
+  else if (view === 'crows-nest') renderCrowsNest();
+  else if (view === 'mystats')    renderObsStats();
+}
+
+/* ── Heatmap view ──────────────────────────────────────────────────────── */
+async function renderHeatmap() {
+  _obsView = 'heatmap';
+  const body = document.getElementById('obs-modal-body');
+  if (_obsHeatmapData) { buildHeatmap(_obsHeatmapData, body); return; }
+  body.innerHTML = '<div class="loading">Warming up the observatory…</div>';
+  try {
+    const res = await fetch('/api/observatory/heatmap');
+    if (!res.ok) throw new Error(res.statusText);
+    const d = await res.json();
+    const songs = d.songs || d;
+    if (!songs || !songs.length) {
+      body.innerHTML = '<div class="obs-empty">Heatmap still warming up in the background — check back in a minute.<br><br><button class="btn" onclick="renderHeatmap()">Retry</button></div>';
+      return;
+    }
+    _obsHeatmapData = songs;
+    buildHeatmap(songs, body);
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--red);font-size:11px;padding:20px">${escapeHTML(String(e))}</div>`;
+  }
+}
+
+function obsRatingColor(rating, reviews) {
+  const t = Math.max(0, Math.min(1, (rating - 1) / 4));
+  let r, g, b;
+  if (t < 0.5) {
+    const u = t * 2;
+    r = Math.round(26  + (200 - 26)  * u);
+    g = Math.round(75  + (168 - 75)  * u);
+    b = Math.round(191 + (42  - 191) * u);
+  } else {
+    const u = (t - 0.5) * 2;
+    r = Math.round(200 + (232 - 200) * u);
+    g = Math.round(168 + (51  - 168) * u);
+    b = Math.round(42  + (42  - 42)  * u);
+  }
+  const alpha = Math.min(0.95, 0.25 + Math.log(reviews + 1) / Math.log(80) * 0.7);
+  return `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+}
+
+function buildHeatmap(songs, body) {
+  const YEARS = [];
+  for (let y = 1965; y <= 1995; y++) YEARS.push(y);
+
+  const lookup = {};
+  songs.forEach(s => {
+    lookup[s.song_id] = {};
+    (s.years || []).forEach(yb => { lookup[s.song_id][String(yb.year)] = yb; });
+  });
+
+  const yearHeaderCells = YEARS.map(y =>
+    `<div class="obs-hm-cell obs-hm-yr-hdr">${(y % 5 === 0) ? `<span>${y}</span>` : ''}</div>`
+  ).join('');
+
+  const rowsHTML = songs.map(s => {
+    const cells = YEARS.map(y => {
+      const cell = lookup[s.song_id]?.[String(y)];
+      if (!cell || cell.reviews < 1)
+        return `<div class="obs-hm-cell obs-hm-empty-cell"></div>`;
+      const bg = obsRatingColor(cell.avg_rating, cell.reviews);
+      return `<div class="obs-hm-cell" style="background:${bg}" data-year="${y}" data-rating="${cell.avg_rating}" data-reviews="${cell.reviews}" data-count="${cell.count}"></div>`;
+    }).join('');
+    return `<div class="obs-hm-row" data-song="${escapeHTML(s.song_id)}">
+      <div class="obs-hm-label">${escapeHTML(s.label)}</div>
+      <div class="obs-hm-years">${cells}</div>
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="obs-hm-legend">
+      <div class="obs-hm-grad-bar"></div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;letter-spacing:0.5px;">
+        <span>Low rated ★1</span><span style="text-align:center">Average ★3</span><span style="text-align:right">Legendary ★5</span>
+      </div>
+      <div style="margin-top:4px;font-size:10px;color:var(--muted)">Opacity = archive review volume &nbsp;·&nbsp; Click a song name to view scatter plot</div>
+    </div>
+    <div class="obs-hm-grid-wrap">
+      <div class="obs-hm-grid">
+        <div class="obs-hm-row obs-hm-header-row">
+          <div class="obs-hm-label"></div>
+          <div class="obs-hm-years">${yearHeaderCells}</div>
+        </div>
+        ${rowsHTML}
+      </div>
+    </div>`;
+
+  const tooltip = document.getElementById('obs-tooltip');
+  body.querySelectorAll('.obs-hm-row[data-song]').forEach(row => {
+    row.querySelector('.obs-hm-label').addEventListener('click', () => {
+      _obsSong = row.dataset.song;
+      renderObservatory(_obsSong);
+    });
+    row.querySelectorAll('.obs-hm-cell[data-year]').forEach(cell => {
+      cell.addEventListener('mouseenter', () => {
+        const sl = songs.find(s => s.song_id === row.dataset.song)?.label || row.dataset.song;
+        tooltip.innerHTML = `<strong style="color:var(--accent)">${escapeHTML(sl)}</strong> · ${cell.dataset.year} · ★${cell.dataset.rating} · ${cell.dataset.reviews} reviews · ${cell.dataset.count} shows`;
+        tooltip.style.display = 'block';
+      });
+      cell.addEventListener('mousemove', e => {
+        tooltip.style.left = (e.clientX + 14) + 'px';
+        tooltip.style.top  = (e.clientY - 32) + 'px';
+      });
+      cell.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    });
+  });
+}
+
+/* ── Crow's Nest (map) ─────────────────────────────────────────────────── */
+const ERA_COLORS_MAP = {
+  '1965': '#5a6e8a', '1966': '#5a6e8a', '1967': '#5a6e8a', '1968': '#5a6e8a', '1969': '#5a6e8a',
+  '1970': '#2a9d6f', '1971': '#2a9d6f', '1972': '#2a9d6f', '1973': '#2a9d6f', '1974': '#2a9d6f',
+  '1975': '#7c4dff',
+  '1976': '#1a4bbf', '1977': '#1a4bbf', '1978': '#1a4bbf', '1979': '#1a4bbf',
+  '1980': '#c8a84b', '1981': '#c8a84b', '1982': '#c8a84b', '1983': '#c8a84b', '1984': '#c8a84b', '1985': '#c8a84b',
+  '1986': '#d97b1a', '1987': '#d97b1a', '1988': '#d97b1a', '1989': '#d97b1a', '1990': '#d97b1a',
+  '1991': '#e8332a', '1992': '#e8332a', '1993': '#e8332a', '1994': '#e8332a', '1995': '#e8332a',
+};
+const ERA_LEGEND = [
+  {label:'65–69 Proto',   color:'#5a6e8a'},
+  {label:'70–74 Classic', color:'#2a9d6f'},
+  {label:'75 Hiatus',     color:'#7c4dff'},
+  {label:'76–79 Comeback',color:'#1a4bbf'},
+  {label:'80–85 Regular', color:'#c8a84b'},
+  {label:'86–90 Brent',   color:'#d97b1a'},
+  {label:'91–95 Final',   color:'#e8332a'},
+];
+
+// Mercator projection clipped to North America + tiny Europe window
+function _project(lat, lng, W, H) {
+  // Bounding box: lat 22–55, lng -130–-60 (NA focus, most shows)
+  // Europe shows lat 45–60, lng -10–20 — we'll stretch canvas to fit both
+  const LNG_MIN = -130, LNG_MAX = 25, LAT_MIN = 22, LAT_MAX = 62;
+  const x = ((lng - LNG_MIN) / (LNG_MAX - LNG_MIN)) * W;
+  // Mercator y
+  const latRad = lat * Math.PI / 180;
+  const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+  const latMaxRad = LAT_MAX * Math.PI / 180;
+  const latMinRad = LAT_MIN * Math.PI / 180;
+  const mercMax = Math.log(Math.tan(Math.PI / 4 + latMaxRad / 2));
+  const mercMin = Math.log(Math.tan(Math.PI / 4 + latMinRad / 2));
+  const y = H - ((mercN - mercMin) / (mercMax - mercMin)) * H;
+  return [x, y];
+}
+
+async function renderCrowsNest() {
+  const body = document.getElementById('obs-modal-body');
+  if (_obsMapData) { _buildCrowsNest(_obsMapData, body); return; }
+  body.innerHTML = '<div class="loading">Plotting the tour route…</div>';
+  try {
+    const res = await fetch('/api/shows/map');
+    if (!res.ok) throw new Error(res.statusText);
+    _obsMapData = await res.json();
+    _buildCrowsNest(_obsMapData, body);
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--red);font-size:11px;padding:20px">${escapeHTML(String(e))}</div>`;
+  }
+}
+
+function _buildCrowsNest(shows, body) {
+  if (!shows || !shows.length) {
+    body.innerHTML = '<div class="obs-empty">No map data available yet.</div>';
+    return;
+  }
+  const years = [...new Set(shows.map(s => s.date.slice(0,4)))].sort();
+  const minYearIdx = 0, maxYearIdx = years.length - 1;
+
+  body.innerHTML = `
+    <div class="crows-nest-wrap">
+      <canvas class="crows-nest-map" id="cn-canvas" height="360"></canvas>
+      <div class="crows-nest-controls">
+        <button class="crows-nest-play-btn" id="cn-play-btn" onclick="cnTogglePlay()">▶ Play</button>
+        <input type="range" class="crows-nest-scrubber" id="cn-scrubber" min="0" max="${maxYearIdx}" value="${maxYearIdx}" step="1">
+        <span class="crows-nest-year-label" id="cn-year-label">All</span>
+        <button class="crows-nest-play-btn" onclick="cnReset()">⟳ Reset</button>
+      </div>
+      <div class="crows-nest-show-count" id="cn-show-count"></div>
+      <div class="crows-nest-legend">${ERA_LEGEND.map(e=>`<div class="crows-nest-legend-item"><div class="crows-nest-legend-dot" style="background:${e.color}"></div>${e.label}</div>`).join('')}</div>
+      <div style="font-size:9px;color:var(--muted);margin-top:6px;">dot size = archive rating · hover for details · click to navigate to show</div>
+    </div>`;
+
+  const canvas = document.getElementById('cn-canvas');
+  const scrubber = document.getElementById('cn-scrubber');
+  const yearLabel = document.getElementById('cn-year-label');
+  const showCount = document.getElementById('cn-show-count');
+  const tooltip = document.getElementById('obs-tooltip');
+
+  function draw(upToYearIdx) {
+    const W = canvas.offsetWidth || 800;
+    canvas.width = W;
+    const H = 360;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+
+    // faint land silhouette (simplified rectangles as placeholders)
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    // rough NA landmass
+    ctx.fillRect(0, 0, W * 0.68, H);
+    ctx.fillStyle = 'rgba(255,255,255,0.02)';
+    // rough Atlantic ocean separator visual
+    ctx.fillRect(W * 0.68, 0, W * 0.32, H);
+
+    const filterYear = upToYearIdx < maxYearIdx ? years[upToYearIdx] : null;
+    const visible = filterYear ? shows.filter(s => s.date.slice(0,4) <= filterYear) : shows;
+
+    // Draw route line connecting shows in chronological order (filtered)
+    if (filterYear && visible.length > 1) {
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      let first = true;
+      visible.forEach(s => {
+        const [x, y] = _project(s.lat, s.lng, W, H);
+        if (first) { ctx.moveTo(x, y); first = false; }
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    // Draw dots
+    visible.forEach(s => {
+      const [x, y] = _project(s.lat, s.lng, W, H);
+      const yr = s.date.slice(0,4);
+      const col = ERA_COLORS_MAP[yr] || '#5a6e8a';
+      const r = Math.max(2.5, Math.min(7, 2.5 + (s.rating / 5) * 4.5));
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = col + (filterYear && yr === filterYear ? 'ff' : '99');
+      ctx.fill();
+    });
+
+    const countLabel = filterYear
+      ? `${visible.length} shows through ${filterYear}`
+      : `${visible.length} total shows`;
+    showCount.textContent = countLabel;
+    yearLabel.textContent = filterYear || 'All';
+  }
+
+  // Canvas hover for tooltip
+  canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const W = canvas.width, H = 360;
+    const upTo = parseInt(scrubber.value);
+    const filterYear = upTo < maxYearIdx ? years[upTo] : null;
+    const visible = filterYear ? shows.filter(s => s.date.slice(0,4) <= filterYear) : shows;
+    let hit = null, minDist = 12;
+    visible.forEach(s => {
+      const [x, y] = _project(s.lat, s.lng, W, H);
+      const d = Math.hypot(x - mx, y - my);
+      if (d < minDist) { minDist = d; hit = s; }
+    });
+    if (hit) {
+      tooltip.innerHTML = `<strong style="color:var(--accent)">${hit.date}</strong> · ${escapeHTML(hit.location)}${hit.rating > 0 ? ` · ★${hit.rating}` : ''}`;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top  = (e.clientY - 32) + 'px';
+      canvas.style.cursor = 'pointer';
+    } else {
+      tooltip.style.display = 'none';
+      canvas.style.cursor = 'crosshair';
+    }
+  });
+  canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+  canvas.addEventListener('click', e => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const W = canvas.width, H = 360;
+    const upTo = parseInt(scrubber.value);
+    const filterYear = upTo < maxYearIdx ? years[upTo] : null;
+    const visible = filterYear ? shows.filter(s => s.date.slice(0,4) <= filterYear) : shows;
+    let hit = null, minDist = 12;
+    visible.forEach(s => {
+      const [x, y] = _project(s.lat, s.lng, W, H);
+      const d = Math.hypot(x - mx, y - my);
+      if (d < minDist) { minDist = d; hit = s; }
+    });
+    if (hit) {
+      document.getElementById('obs-modal').classList.remove('open');
+      tourRunGoTo(hit.date);
+    }
+  });
+
+  scrubber.addEventListener('input', () => { draw(parseInt(scrubber.value)); });
+  draw(maxYearIdx);
+
+  window._cnDraw = draw;
+  window._cnYears = years;
+  window._cnMaxIdx = maxYearIdx;
+}
+
+function cnTogglePlay() {
+  const btn = document.getElementById('cn-play-btn');
+  if (_obsMapAnim) {
+    clearInterval(_obsMapAnim);
+    _obsMapAnim = null;
+    btn.textContent = '▶ Play';
+    return;
+  }
+  const scrubber = document.getElementById('cn-scrubber');
+  let idx = parseInt(scrubber.value);
+  if (idx >= window._cnMaxIdx) idx = 0;
+  btn.textContent = '⏸ Pause';
+  _obsMapAnim = setInterval(() => {
+    idx++;
+    scrubber.value = idx;
+    window._cnDraw(idx);
+    if (idx >= window._cnMaxIdx) {
+      clearInterval(_obsMapAnim);
+      _obsMapAnim = null;
+      btn.textContent = '▶ Play';
+    }
+  }, 400);
+}
+
+function cnReset() {
+  if (_obsMapAnim) { clearInterval(_obsMapAnim); _obsMapAnim = null; }
+  const scrubber = document.getElementById('cn-scrubber');
+  const btn = document.getElementById('cn-play-btn');
+  if (scrubber) { scrubber.value = window._cnMaxIdx; window._cnDraw(window._cnMaxIdx); }
+  if (btn) btn.textContent = '▶ Play';
+}
+
+/* ── My Stats (inline) ─────────────────────────────────────────────────── */
+let _obsStatsYear = '';
+async function renderObsStats(year) {
+  if (year !== undefined) _obsStatsYear = year;
+  const body = document.getElementById('obs-modal-body');
+  body.innerHTML = '<div class="loading">Loading your stats…</div>';
+  try {
+    const url = '/api/listens/stats' + (_obsStatsYear ? `?year=${encodeURIComponent(_obsStatsYear)}` : '');
+    const res = await fetch(url);
+    if (!res.ok) { body.innerHTML = '<div class="obs-empty">Log in to see your listening stats.</div>'; return; }
+    const d = await res.json();
+    _buildObsStats(d, body);
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--red);font-size:11px;padding:20px">${escapeHTML(String(e))}</div>`;
+  }
+}
+
+function _buildObsStats(d, body) {
+  const ERA_COLORS = ['#3b6fd4','#2a9d6f','#7c4daf','#c0392b','#d97b1a','#1a8a9a'];
+  const eraData = d.by_era || [];
+  const eraTotal = eraData.reduce((s, e) => s + e.seconds, 0);
+  let eraHTML = '';
+  if (eraData.length && eraTotal > 0) {
+    const segs = eraData.map((e, i) => {
+      const pct = (e.seconds / eraTotal * 100).toFixed(3);
+      const col = ERA_COLORS[i % ERA_COLORS.length];
+      return `<div class="era-segment" style="width:${pct}%;background:${col}"
+        onmouseenter="eraTooltipShow(event,${JSON.stringify(e.era)},${JSON.stringify(fmtDuration(e.seconds))})"
+        onmouseleave="eraTooltipHide()"></div>`;
+    }).join('');
+    const legend = eraData.map((e, i) =>
+      `<div class="era-legend-item"><div class="era-legend-dot" style="background:${ERA_COLORS[i % ERA_COLORS.length]}"></div><span>${escapeHTML(e.era)}</span><span style="color:var(--text);margin-left:3px">${fmtDuration(e.seconds)}</span></div>`
+    ).join('');
+    eraHTML = `<div class="ratings-section-title" style="margin-top:16px">Era Affinity</div>
+      <div class="era-bar-wrap" id="era-bar-obs">${segs}</div>
+      <div class="era-legend">${legend}</div>`;
+  }
+
+  const maxShowSecs  = d.top_shows?.[0]?.seconds || 1;
+  const maxSongShows = d.top_songs?.[0]?.show_count || 1;
+
+  const yearBtns = (d.years || []).length > 1
+    ? `<div class="period-toggle" style="margin-bottom:16px">
+        <button class="period-btn ${!_obsStatsYear?'active':''}" onclick="renderObsStats('')">All Time</button>
+        ${d.years.map(y=>`<button class="period-btn ${_obsStatsYear===y?'active':''}" onclick="renderObsStats('${y}')">${y}</button>`).join('')}
+       </div>` : '';
+
+  const songsRows = (d.top_songs || []).slice(0,15).map(s =>
+    `<tr><td>${escapeHTML(s.title)}</td><td style="color:var(--accent);font-weight:700">${s.show_count}</td><td>${fmtDuration(s.seconds)}</td><td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(s.show_count/maxSongShows*100)}%"></div></td></tr>`
+  ).join('');
+  const showsRows = (d.top_shows || []).map(s =>
+    `<tr><td>${escapeHTML(s.show_date)}</td><td>${fmtDuration(s.seconds)}</td><td class="stats-bar-cell"><div class="stats-bar" style="width:${Math.round(s.seconds/maxShowSecs*100)}%"></div></td></tr>`
+  ).join('');
+
+  body.innerHTML = `
+    <div id="era-tooltip" class="era-tooltip"></div>
+    <div class="obs-stats-wrap">
+      ${yearBtns}
+      <div class="stats-hero">
+        <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened${_obsStatsYear?' · '+_obsStatsYear:''}</div></div>
+      </div>
+      ${eraHTML}
+      ${songsRows ? `<div class="ratings-section-title" style="margin-top:20px">Top Songs</div>
+        <table class="stats-table"><thead><tr><th>Song</th><th>Shows</th><th>Time</th><th></th></tr></thead><tbody>${songsRows}</tbody></table>` : ''}
+      ${showsRows ? `<div class="ratings-section-title" style="margin-top:20px">Top Shows</div>
+        <table class="stats-table"><thead><tr><th>Date</th><th>Time</th><th></th></tr></thead><tbody>${showsRows}</tbody></table>` : ''}
+    </div>`;
+}
+
+/* ── Scatter view ──────────────────────────────────────────────────────── */
 async function renderObservatory(songId) {
   _obsSong = songId;
+  _obsView = 'scatter';
+  // keep heatmap tab highlighted since scatter is a heatmap drill-down
+  document.querySelectorAll('.obs-inner-tab').forEach(t => t.classList.remove('active'));
+  const ht = document.getElementById('obs-tab-heatmap');
+  if (ht) ht.classList.add('active');
   const body = document.getElementById('obs-modal-body');
   body.innerHTML = '<div class="loading">Scanning the archive — this may take a moment…</div>';
   try {
@@ -2471,7 +2936,8 @@ function buildObsChart(d, body) {
   </div>`;
 
   if (!perfs.length) {
-    body.innerHTML = `<div class="obs-song-tabs">${tabsHTML}</div>${legendHTML}
+    body.innerHTML = `<button class="obs-back-btn" onclick="renderHeatmap()">← All songs heatmap</button>
+      <div class="obs-song-tabs">${tabsHTML}</div>${legendHTML}
       <div class="obs-empty">No Archive.org performances found for "${escapeHTML(d.song)}" yet.</div>`;
     body.querySelectorAll('.obs-song-tab').forEach(b => b.addEventListener('click', () => renderObservatory(b.dataset.song)));
     return;
@@ -2518,6 +2984,7 @@ function buildObsChart(d, body) {
   const fmtDur = s => { const m=Math.floor(s/60),ss=Math.round(s%60); return `${m}:${String(ss).padStart(2,'0')}`; };
 
   body.innerHTML = `
+    <button class="obs-back-btn" onclick="renderHeatmap()">← All songs heatmap</button>
     <div class="obs-song-tabs">${tabsHTML}</div>
     ${legendHTML}
     <div class="obs-chart-wrap">
