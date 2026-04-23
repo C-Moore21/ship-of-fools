@@ -1515,82 +1515,75 @@ def _refresh_map_cache():
     app.logger.info(f"Map cache: stored {len(shows)} mapped shows")
 
 
-@app.route("/api/map/us-states")
-def map_us_states():
-    """Proxy US states GeoJSON for canvas rendering. Cached in LRU."""
-    cache_key = "map:us-states"
-    cached = _cache_get(cache_key)
-    if cached:
-        return jsonify(cached)
+import json as _json
+from flask import Response as _Response
+
+def _geojson_mongo_proxy(mongo_id, url, label, filter_fn=None):
+    """Fetch GeoJSON, cache as raw JSON string in MongoDB (not per-worker LRU).
+    Storing in MongoDB means one copy on disk shared across all workers/restarts,
+    instead of a large parsed dict in each Gunicorn worker's heap."""
+    tbl = _get_map_cache_table()
+    row = tbl.find_one({"_id": f"geojson:{mongo_id}"}, {"json_str": 1, "fetched_at": 1})
+    if row and row.get("json_str"):
+        age_days = (time.time() - row.get("fetched_at", 0)) / 86400
+        if age_days < 7:
+            resp = _Response(row["json_str"], mimetype="application/json")
+            resp.headers["Cache-Control"] = "public, max-age=86400"
+            return resp
     try:
-        r = requests.get(
-            "https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
-            timeout=10,
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        if filter_fn:
+            data = filter_fn(data)
+        json_str = _json.dumps(data, separators=(',', ':'))
+        tbl.update_one(
+            {"_id": f"geojson:{mongo_id}"},
+            {"$set": {"json_str": json_str, "fetched_at": time.time()}},
+            upsert=True,
         )
-        r.raise_for_status()
-        data = r.json()
-        _cache_set(cache_key, data)
-        return jsonify(data)
-    except Exception as e:
-        app.logger.warning(f"US states GeoJSON fetch failed: {e}")
-        return jsonify({"type": "FeatureCollection", "features": []}), 200
-
-
-def _geojson_proxy(cache_key, url, label):
-    cached = _cache_get(cache_key)
-    if cached:
-        return jsonify(cached)
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        _cache_set(cache_key, data)
-        return jsonify(data)
+        resp = _Response(json_str, mimetype="application/json")
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
     except Exception as e:
         app.logger.warning(f"{label} GeoJSON fetch failed: {e}")
-        return jsonify({"type": "FeatureCollection", "features": []}), 200
+        resp = _Response('{"type":"FeatureCollection","features":[]}', mimetype="application/json")
+        return resp, 200
+
+
+@app.route("/api/map/us-states")
+def map_us_states():
+    return _geojson_mongo_proxy(
+        "us-states",
+        "https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
+        "US states",
+    )
 
 
 @app.route("/api/map/europe")
 def map_europe():
-    return _geojson_proxy(
-        "map:europe",
+    return _geojson_mongo_proxy(
+        "europe",
         "https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson",
         "Europe",
     )
 
 
-@app.route("/api/map/canada")
-def map_canada():
-    return _geojson_proxy(
-        "map:canada",
-        "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/canada.geojson",
-        "Canada",
-    )
-
-
-@app.route("/api/map/egypt")
-def map_egypt():
-    cache_key = "map:egypt"
-    cached = _cache_get(cache_key)
-    if cached:
-        return jsonify(cached)
-    try:
-        r = requests.get(
-            "https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson",
-            timeout=15,
-        )
-        r.raise_for_status()
-        all_features = r.json().get("features", [])
-        egypt = {"type": "FeatureCollection", "features": [
-            f for f in all_features
-            if f.get("properties", {}).get("ISO_A3") == "EGY"
+@app.route("/api/map/extra-countries")
+def map_extra_countries():
+    """Canada + Egypt outlines from Natural Earth 110m (small, ~300KB total download)."""
+    WANT_ISO = {"CAN", "EGY"}
+    def _filter(data):
+        return {"type": "FeatureCollection", "features": [
+            f for f in data.get("features", [])
+            if f.get("properties", {}).get("ISO_A3") in WANT_ISO
         ]}
-        _cache_set(cache_key, egypt)
-        return jsonify(egypt)
-    except Exception as e:
-        app.logger.warning(f"Egypt GeoJSON fetch failed: {e}")
-        return jsonify({"type": "FeatureCollection", "features": []}), 200
+    return _geojson_mongo_proxy(
+        "extra-countries",
+        "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson",
+        "Extra countries",
+        filter_fn=_filter,
+    )
 
 
 def _observatory_background_refresh():

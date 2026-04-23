@@ -2780,24 +2780,14 @@ async function _loadEuropeGeoJSON() {
   return _mapEuropeGeoJSON;
 }
 
-let _mapCanadaGeoJSON = null;
-async function _loadCanadaGeoJSON() {
-  if (_mapCanadaGeoJSON !== null) return _mapCanadaGeoJSON;
+let _mapExtraGeoJSON = null;
+async function _loadExtraGeoJSON() {
+  if (_mapExtraGeoJSON !== null) return _mapExtraGeoJSON;
   try {
-    const res = await fetch('/api/map/canada');
-    _mapCanadaGeoJSON = res.ok ? await res.json() : {features:[]};
-  } catch { _mapCanadaGeoJSON = {features:[]}; }
-  return _mapCanadaGeoJSON;
-}
-
-let _mapEgyptGeoJSON = null;
-async function _loadEgyptGeoJSON() {
-  if (_mapEgyptGeoJSON !== null) return _mapEgyptGeoJSON;
-  try {
-    const res = await fetch('/api/map/egypt');
-    _mapEgyptGeoJSON = res.ok ? await res.json() : {features:[]};
-  } catch { _mapEgyptGeoJSON = {features:[]}; }
-  return _mapEgyptGeoJSON;
+    const res = await fetch('/api/map/extra-countries');
+    _mapExtraGeoJSON = res.ok ? await res.json() : {features:[]};
+  } catch { _mapExtraGeoJSON = {features:[]}; }
+  return _mapExtraGeoJSON;
 }
 
 async function renderCrowsNest() {
@@ -2808,8 +2798,7 @@ async function renderCrowsNest() {
       _obsMapData ? Promise.resolve({shows: _obsMapData}) : fetch('/api/shows/map').then(r=>r.json()),
       _loadStatesGeoJSON(),
       _loadEuropeGeoJSON(),
-      _loadCanadaGeoJSON(),
-      _loadEgyptGeoJSON(),
+      _loadExtraGeoJSON(),
     ]);
     const raw = mapRes.shows || mapRes;
     if (mapRes.pending || !raw.length) {
@@ -2907,9 +2896,8 @@ function _buildCrowsNest(shows, body) {
 
     // Land fills + borders from GeoJSON (accurate shapes, holes handled via evenodd)
     _drawGeoLayer(ctx, _mapGeoJSON,       W, H, vp, 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.17)');
-    _drawGeoLayer(ctx, _mapCanadaGeoJSON, W, H, vp, 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.17)');
+    _drawGeoLayer(ctx, _mapExtraGeoJSON,  W, H, vp, 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.17)');
     _drawGeoLayer(ctx, _mapEuropeGeoJSON, W, H, vp, 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.17)');
-    _drawGeoLayer(ctx, _mapEgyptGeoJSON,  W, H, vp, 'rgba(255,255,255,0.07)', 'rgba(255,255,255,0.17)');
 
     const visible = getVisible();
     const clusters = _clusterShows(visible);
