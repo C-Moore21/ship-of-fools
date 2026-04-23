@@ -1491,7 +1491,91 @@ _CITY_COORDS = {
     "calgary":            (51.05, -114.07), "edmonton":            (53.55, -113.49),
     "vancouver":          (49.28, -123.12), "victoria, bc":        (48.43, -123.37),
     "hamilton":           (43.26,  -79.87), "london, on":          (42.98,  -81.23),
+    # More California (GD regulars)
+    "van nuys":           (34.19, -118.45), "van nuys, ca":        (34.19, -118.45),
+    "inglewood":          (33.96, -118.35), "inglewood, ca":       (33.96, -118.35),
+    "daly city":          (37.69, -122.47), "daly city, ca":       (37.69, -122.47),
+    "mill valley":        (37.91, -122.54), "mill valley, ca":     (37.91, -122.54),
+    "bakersfield":        (35.37, -119.02), "bakersfield, ca":     (35.37, -119.02),
+    "loma mar":           (37.27, -122.28), "san mateo":           (37.56, -122.32),
+    "san leandro":        (37.72, -122.16), "walnut creek":        (37.91, -122.06),
+    "fairfax":            (37.99, -122.59), "san anselmo":         (37.98, -122.56),
+    "pleasanton":         (37.66, -121.87), "antioch":             (38.00, -121.81),
+    "redding":            (40.59, -122.39), "eureka":              (40.80, -124.16),
+    # New Jersey (Capitol Theatre Passaic, Raceway Park Englishtown, etc.)
+    "passaic":            (40.86,  -74.13), "passaic, nj":         (40.86,  -74.13),
+    "englishtown":        (40.30,  -74.36), "englishtown, nj":     (40.30,  -74.36),
+    "jersey city":        (40.73,  -74.08), "jersey city, nj":     (40.73,  -74.08),
+    "asbury park":        (40.22,  -74.01), "asbury park, nj":     (40.22,  -74.01),
+    "princeton":          (40.36,  -74.66), "princeton, nj":       (40.36,  -74.66),
+    "atlantic city":      (39.36,  -74.42), "atlantic city, nj":   (39.36,  -74.42),
+    # Pennsylvania
+    "upper darby":        (39.96,  -75.27), "upper darby, pa":     (39.96,  -75.27),
+    "allentown":          (40.60,  -75.49), "allentown, pa":       (40.60,  -75.49),
+    "wilkes-barre":       (41.25,  -75.88), "harrisburg":          (40.27,  -76.88),
+    # New York state
+    "ithaca":             (42.44,  -76.50), "ithaca, ny":          (42.44,  -76.50),
+    "binghamton":         (42.10,  -75.91), "binghamton, ny":      (42.10,  -75.91),
+    "syracuse":           (43.05,  -76.15), "syracuse, ny":        (43.05,  -76.15),
+    "utica":              (43.10,  -75.23), "poughkeepsie":        (41.70,  -73.93),
+    "stony brook":        (40.93,  -73.13), "stony brook, ny":     (40.93,  -73.13),
+    # Mid-Atlantic misc
+    "landover":           (38.93,  -76.89), "landover, md":        (38.93,  -76.89),
+    "columbia, md":       (39.20,  -76.86), "glen echo":           (38.97,  -77.14),
+    "williamsburg":       (37.27,  -76.71), "williamsburg, va":    (37.27,  -76.71),
+    "blacksburg":         (37.23,  -80.41), "blacksburg, va":      (37.23,  -80.41),
+    "fredericksburg":     (38.30,  -77.46), "sterling":            (39.00,  -77.43),
+    # New England
+    "hanover":            (43.70,  -72.29), "hanover, nh":         (43.70,  -72.29),
+    "orono":              (44.90,  -68.67), "orono, me":           (44.90,  -68.67),
+    "amherst":            (42.37,  -72.52), "amherst, ma":         (42.37,  -72.52),
+    "storrs":             (41.81,  -72.25), "storrs, ct":          (41.81,  -72.25),
+    "northampton":        (42.32,  -72.63), "northampton, ma":     (42.32,  -72.63),
+    # Midwest
+    "dekalb":             (41.93,  -88.75), "dekalb, il":          (41.93,  -88.75),
+    "de kalb":            (41.93,  -88.75), "de kalb, il":         (41.93,  -88.75),
+    "carbondale":         (37.73,  -89.22), "carbondale, il":      (37.73,  -89.22),
+    "athens":             (39.33,  -82.10), "athens, oh":          (39.33,  -82.10),
+    "oxford, oh":         (39.51,  -84.74), "bowling green":       (41.38,  -83.65),
+    "bowling green, oh":  (41.38,  -83.65), "bowling green, ky":   (36.99,  -86.44),
+    "cedar falls":        (42.53,  -92.45), "cedar falls, ia":     (42.53,  -92.45),
+    "ames":               (42.03,  -93.62), "ames, ia":            (42.03,  -93.62),
+    "columbia, mo":       (38.95,  -92.33), "columbia, mo":        (38.95,  -92.33),
+    "muncie":             (40.19,  -85.39), "terre haute":         (39.47,  -87.41),
+    # South / Southeast
+    "tuscaloosa":         (33.21,  -87.57), "tuscaloosa, al":      (33.21,  -87.57),
+    "tuscaloosa, al":     (33.21,  -87.57),
+    "lakeland":           (28.04,  -81.95), "lakeland, fl":        (28.04,  -81.95),
+    "pembroke pines":     (26.00,  -86.20), "pembroke pines, fl":  (26.00,  -86.20),
+    "west palm beach":    (26.71,  -80.05), "fort myers":          (26.64,  -81.87),
+    "gainesville, ga":    (34.30,  -83.82),
+    # West Virginia
+    "huntington":         (38.42,  -82.44), "huntington, wv":      (38.42,  -82.44),
+    "morgantown":         (39.63,  -79.96), "charleston, wv":      (38.35,  -81.64),
 }
+
+# Coverage strings from Archive.org that are meaningless for geocoding
+_JUNK_COVERAGES = {
+    'unknown', 'various', 'multiple', 'n/a', 'tba', 'tbd', 'none',
+    'unknown, unknown', 'various locations', 'various - see info file',
+    'see info file',
+}
+
+def _is_junk_coverage(cov_key):
+    """Return True for coverage strings that cannot be geocoded."""
+    if not cov_key:
+        return True
+    c = cov_key.lower().strip()
+    if c in _JUNK_COVERAGES:
+        return True
+    # "Various...", "Unknown...", "Multiple...", "???..."
+    if c.startswith(('various', 'unknown', 'multiple', '???')):
+        return True
+    # Only punctuation / numbers
+    if all(ch in '?*.,- \t0123456789' for ch in c):
+        return True
+    return False
+
 
 def _coords_for_coverage(coverage):
     """Best-effort lat/lng from an Archive.org coverage string like 'San Francisco, CA'."""
@@ -1603,10 +1687,12 @@ def _build_map_shows():
         coords = _coords_for_coverage(cov)
         if not coords:
             cov_key = cov.lower().strip()
-            if cov_key in geocode_cache:
+            if _is_junk_coverage(cov_key):
+                pass  # skip silently
+            elif cov_key in geocode_cache:
                 cached = geocode_cache[cov_key]
                 coords = tuple(cached) if cached else None
-            elif cov_key:
+            else:
                 needs_geocode.append((date, cov, rating, reviews))
                 continue
         if not coords:
@@ -1620,10 +1706,22 @@ def _build_map_shows():
             "rating": round(rating, 2), "reviews": reviews,
         })
 
+    def _save_geocode_cache():
+        """Persist geocode_cache + geocode_new to MongoDB incrementally."""
+        if not geocode_new:
+            return
+        geocode_cache.update(geocode_new)
+        tbl.update_one(
+            {"_id": "geocode_cache"},
+            {"$set": {"entries": geocode_cache}},
+            upsert=True,
+        )
+
     # Pass 2: Nominatim geocoding for unknowns (1 req/s — runs after Archive.org fetch)
+    # Save incrementally every 10 results so a restart doesn't lose everything.
     if needs_geocode:
         app.logger.info(f"Map: Nominatim geocoding {len(needs_geocode)} unknown coverage strings…")
-    for date, cov, rating, reviews in needs_geocode:
+    for i, (date, cov, rating, reviews) in enumerate(needs_geocode):
         time.sleep(1.1)  # Nominatim rate limit
         coords = _geocode_nominatim(cov)
         cov_key = cov.lower().strip()
@@ -1640,18 +1738,16 @@ def _build_map_shows():
             })
         else:
             app.logger.warning(f"Map: no coords for '{cov}'")
+        # Save every 10 geocodes so progress survives a restart
+        if (i + 1) % 10 == 0:
+            _save_geocode_cache()
 
     all_shows.sort(key=lambda x: x["date"])
 
-    # Persist any newly geocoded coverage strings to MongoDB
+    # Final save of any remaining new geocodes
     if geocode_new:
-        geocode_cache.update(geocode_new)
-        tbl.update_one(
-            {"_id": "geocode_cache"},
-            {"$set": {"entries": geocode_cache}},
-            upsert=True,
-        )
-        app.logger.info(f"Map: saved {len(geocode_new)} new Nominatim geocodes to MongoDB")
+        _save_geocode_cache()
+        app.logger.info(f"Map: saved {len(geocode_new)} Nominatim geocodes to MongoDB")
 
     return all_shows
 
