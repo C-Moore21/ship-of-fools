@@ -1405,25 +1405,32 @@ def _coords_for_coverage(coverage):
     return None
 
 
-@app.route("/api/shows/map")
-def shows_map():
-    """Return all GD shows with lat/lng for Crow's Nest map view."""
-    cache_key = "shows:map"
-    cached = _cache_get(cache_key)
-    if cached:
-        return jsonify(cached)
+_map_cache_table = None  # lazy-init below after _db is set
 
-    # Query all years from Archive.org (uses shared LRU cache)
-    all_shows = []
-    years_res = archive_search({
-        "q": f"collection:{COLLECTION}",
-        "fl[]": "identifier,date,coverage,avg_rating,num_reviews",
-        "output": "json",
-        "rows": 9999,
-        "sort[]": "date asc",
-    })
+def _get_map_cache_table():
+    global _map_cache_table
+    if _map_cache_table is None:
+        _map_cache_table = _db["shows_map_cache"]
+    return _map_cache_table
+
+_MAP_REFRESH_DAYS = 30  # re-fetch map data monthly
+
+def _build_map_shows():
+    """Fetch all GD shows with coords from Archive.org. Returns list or None on failure."""
+    try:
+        years_res = archive_search({
+            "q": f"collection:{COLLECTION}",
+            "fl[]": "date,coverage,avg_rating,num_reviews",
+            "output": "json",
+            "rows": 9999,
+            "sort[]": "date asc",
+        })
+    except Exception as e:
+        app.logger.warning(f"Map fetch failed: {e}")
+        return None
     docs = years_res.get("response", {}).get("docs", [])
     seen = set()
+    all_shows = []
     for doc in docs:
         date_str = doc.get("date") or ""
         if isinstance(date_str, list):
@@ -1438,27 +1445,85 @@ def shows_map():
         coords = _coords_for_coverage(cov)
         if not coords:
             continue
-        # Extract venue name: first segment of coverage if it's not itself a city
         cov_parts = [p.strip() for p in cov.split(',')]
         city_key  = cov_parts[0].lower()
         venue = cov_parts[0] if city_key not in _CITY_COORDS and len(cov_parts) > 1 else ""
         try:
-            rating = float(doc.get("avg_rating") or 0)
+            rating  = float(doc.get("avg_rating") or 0)
             reviews = int(doc.get("num_reviews") or 0)
         except (ValueError, TypeError):
             rating, reviews = 0, 0
         all_shows.append({
-            "date":     date,
-            "location": cov,
-            "venue":    venue,
-            "lat":      coords[0],
-            "lng":      coords[1],
-            "rating":   round(rating, 2),
-            "reviews":  reviews,
+            "date": date, "location": cov, "venue": venue,
+            "lat": coords[0], "lng": coords[1],
+            "rating": round(rating, 2), "reviews": reviews,
         })
     all_shows.sort(key=lambda x: x["date"])
-    _cache_set(cache_key, all_shows)
-    return jsonify(all_shows)
+    return all_shows
+
+
+@app.route("/api/shows/map")
+def shows_map():
+    """Return all GD shows with lat/lng. Served from MongoDB cache; never blocks on Archive.org."""
+    cache_key = "shows:map"
+    cached = _cache_get(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    # Try MongoDB persistent cache
+    tbl = _get_map_cache_table()
+    row = tbl.find_one({"_id": "shows_map"})
+    if row and row.get("shows"):
+        age_days = (time.time() - row.get("fetched_at", 0)) / 86400
+        result = row["shows"]
+        _cache_set(cache_key, result)
+        if age_days >= _MAP_REFRESH_DAYS:
+            # Stale — refresh in background but return stale data immediately
+            import threading as _t
+            _t.Thread(target=_refresh_map_cache, daemon=True).start()
+        return jsonify(result)
+
+    # Not cached yet — return empty and kick off background fetch
+    import threading as _t
+    _t.Thread(target=_refresh_map_cache, daemon=True).start()
+    return jsonify({"pending": True, "shows": []})
+
+
+def _refresh_map_cache():
+    """Background: fetch map data and store in MongoDB."""
+    app.logger.info("Map cache: fetching show locations from Archive.org…")
+    shows = _build_map_shows()
+    if shows is None:
+        return
+    tbl = _get_map_cache_table()
+    tbl.update_one(
+        {"_id": "shows_map"},
+        {"$set": {"shows": shows, "fetched_at": time.time()}},
+        upsert=True,
+    )
+    _cache_set("shows:map", shows)
+    app.logger.info(f"Map cache: stored {len(shows)} mapped shows")
+
+
+@app.route("/api/map/us-states")
+def map_us_states():
+    """Proxy US states GeoJSON for canvas rendering. Cached in LRU."""
+    cache_key = "map:us-states"
+    cached = _cache_get(cache_key)
+    if cached:
+        return jsonify(cached)
+    try:
+        r = requests.get(
+            "https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+        _cache_set(cache_key, data)
+        return jsonify(data)
+    except Exception as e:
+        app.logger.warning(f"US states GeoJSON fetch failed: {e}")
+        return jsonify({"type": "FeatureCollection", "features": []}), 200
 
 
 def _observatory_background_refresh():
@@ -1546,6 +1611,17 @@ def _observatory_background_refresh():
     _threading.Thread(target=_run, daemon=True).start()
 
 _observatory_background_refresh()
+
+# Warm map cache at startup if not already populated
+import threading as _startup_t
+def _startup_map_warm():
+    time.sleep(15)  # let server stabilise first
+    tbl = _get_map_cache_table()
+    row = tbl.find_one({"_id": "shows_map"})
+    if not row or not row.get("shows"):
+        app.logger.info("Map cache: not found, fetching at startup…")
+        _refresh_map_cache()
+_startup_t.Thread(target=_startup_map_warm, daemon=True).start()
 
 # ── Search ────────────────────────────────────────────────────────────────────
 @app.route("/api/search")

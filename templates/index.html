@@ -417,6 +417,8 @@
     .cn-pop-row { padding:5px 12px; font-size:12px; cursor:pointer; color:var(--accent); font-family:'Space Mono',monospace; transition:background 0.1s; }
     .cn-pop-row:hover { background:var(--surface); color:var(--white); }
     /* Drill-down panel */
+    .cn-mode-btn { opacity:0.5; }
+    .cn-mode-btn.active { opacity:1; border-color:var(--accent); color:var(--accent); }
     .cn-drill-panel { background:var(--surface2); border:1px solid var(--border); border-top:2px solid var(--accent); margin-top:10px; max-height:180px; overflow-y:auto; }
     .cn-drill-header { display:flex; align-items:center; padding:8px 14px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--surface2); }
     .cn-drill-close { margin-left:auto; background:none; border:none; color:var(--muted); font-size:16px; cursor:pointer; padding:0 4px; line-height:1; }
@@ -492,6 +494,11 @@
       /* Mobile back button */
       .mobile-back { display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid var(--border); background:var(--surface); font-size:12px; color:var(--accent); cursor:pointer; position:sticky; top:0; z-index:5; }
       .mobile-back:hover { color:var(--accent-hover); }
+
+      /* Track rating stars — larger tap targets on mobile */
+      .star-rating { font-size:22px; gap:3px; }
+      .half-star-wrap { padding:0 2px; }
+      .track-row { padding:10px 12px; }
 
       /* Player bar — two rows on mobile */
       .player-bar { height:130px; flex-wrap:wrap; padding:8px 14px; gap:0; align-content:center; row-gap:6px; }
@@ -2539,7 +2546,8 @@ async function renderHeatmap() {
     _obsHeatmapData = songs;
     buildHeatmap(songs, body);
   } catch(e) {
-    body.innerHTML = `<div style="color:var(--red);font-size:11px;padding:20px">${escapeHTML(String(e))}</div>`;
+    const msg = (e.message && e.message !== 'Error') ? e.message : 'Could not load heatmap data — the server may be warming up';
+    body.innerHTML = `<div class="obs-empty">${escapeHTML(msg)}<br><br><button class="btn" onclick="renderHeatmap()">Retry</button></div>`;
   }
 }
 
@@ -2791,17 +2799,33 @@ function _cnShowPopover(cluster, clientX, clientY) {
   setTimeout(() => document.addEventListener('click', _cnClosePopover, {once:true}), 10);
 }
 
+let _mapGeoJSON = null;
+async function _loadStatesGeoJSON() {
+  if (_mapGeoJSON !== null) return _mapGeoJSON;
+  try {
+    const res = await fetch('/api/map/us-states');
+    _mapGeoJSON = res.ok ? await res.json() : {features:[]};
+  } catch { _mapGeoJSON = {features:[]}; }
+  return _mapGeoJSON;
+}
+
 async function renderCrowsNest() {
   const body = document.getElementById('obs-modal-body');
-  if (_obsMapData) { _buildCrowsNest(_obsMapData, body); return; }
-  body.innerHTML = '<div class="loading">Plotting the tour route…</div>';
+  body.innerHTML = '<div class="loading">Loading map</div>';
   try {
-    const res = await fetch('/api/shows/map');
-    if (!res.ok) throw new Error(res.statusText);
-    _obsMapData = await res.json();
-    _buildCrowsNest(_obsMapData, body);
+    const [mapRes, geoRes] = await Promise.all([
+      _obsMapData ? Promise.resolve({shows: _obsMapData}) : fetch('/api/shows/map').then(r=>r.json()),
+      _loadStatesGeoJSON(),
+    ]);
+    const raw = mapRes.shows || mapRes;
+    if (mapRes.pending || !raw.length) {
+      body.innerHTML = '<div class="obs-empty">Map data is being indexed in the background — should be ready in about a minute.<br><br><button class="btn" onclick="renderCrowsNest()">Retry</button></div>';
+      return;
+    }
+    _obsMapData = raw;
+    _buildCrowsNest(raw, body);
   } catch(e) {
-    body.innerHTML = `<div style="color:var(--red);font-size:11px;padding:20px">${escapeHTML(String(e))}</div>`;
+    body.innerHTML = `<div class="obs-empty">Could not load map: ${escapeHTML(e.message||String(e))}<br><br><button class="btn" onclick="renderCrowsNest()">Retry</button></div>`;
   }
 }
 
@@ -2810,24 +2834,31 @@ function _buildCrowsNest(shows, body) {
     body.innerHTML = '<div class="obs-empty">No map data available yet.</div>';
     return;
   }
-  const years = [...new Set(shows.map(s => s.date.slice(0,4)))].sort();
-  const maxYearIdx = years.length - 1;
+  // Build sorted date list for scrubber
+  const allDates = shows.map(s => s.date).sort();
+  const maxDateIdx = allDates.length - 1;
 
   body.innerHTML = `
     <div class="crows-nest-wrap">
       <canvas class="crows-nest-map" id="cn-canvas" height="360"></canvas>
       <div class="crows-nest-controls">
         <button class="crows-nest-play-btn" id="cn-play-btn" onclick="cnTogglePlay()">▶ Play</button>
-        <input type="range" class="crows-nest-scrubber" id="cn-scrubber" min="0" max="${maxYearIdx}" value="${maxYearIdx}" step="1">
+        <input type="range" class="crows-nest-scrubber" id="cn-scrubber" min="0" max="${maxDateIdx}" value="${maxDateIdx}" step="1">
         <span class="crows-nest-year-label" id="cn-year-label">All</span>
         <button class="crows-nest-play-btn" onclick="cnReset()">⟳ Reset</button>
         <button class="crows-nest-play-btn" onclick="cnZoomReset()">⊞ Fit</button>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;flex-wrap:wrap;gap:6px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;flex-wrap:wrap;gap:6px;">
         <div class="crows-nest-show-count" id="cn-show-count"></div>
-        <div style="font-size:9px;color:var(--muted)">scroll=zoom · drag=pan · click=drill in</div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <span style="font-size:9px;color:var(--muted)">Scrub by:</span>
+          <button class="crows-nest-play-btn cn-mode-btn active" id="cn-mode-year" onclick="cnSetMode('year')">Year</button>
+          <button class="crows-nest-play-btn cn-mode-btn" id="cn-mode-month" onclick="cnSetMode('month')">Month</button>
+          <button class="crows-nest-play-btn cn-mode-btn" id="cn-mode-day" onclick="cnSetMode('day')">Day</button>
+        </div>
       </div>
-      <div class="crows-nest-legend" style="margin-top:6px;">${ERA_LEGEND.map(e=>`<div class="crows-nest-legend-item"><div class="crows-nest-legend-dot" style="background:${e.color}"></div>${e.label}</div>`).join('')}</div>
+      <div style="font-size:9px;color:var(--muted);margin-top:3px;">scroll=zoom · drag=pan · click city=drill in</div>
+      <div class="crows-nest-legend" style="margin-top:5px;">${ERA_LEGEND.map(e=>`<div class="crows-nest-legend-item"><div class="crows-nest-legend-dot" style="background:${e.color}"></div>${e.label}</div>`).join('')}</div>
       <div class="cn-drill-panel" id="cn-drill-panel" style="display:none"></div>
     </div>`;
 
@@ -2841,13 +2872,37 @@ function _buildCrowsNest(shows, body) {
   let vp = {x:0, y:0, scale:1};
   let _cnDragging=false, _cnDragStart={}, _cnDragVP={}, _cnDragMoved=false;
   let _highlightCluster = null;
+  let _cnMode = 'year';  // 'year' | 'month' | 'day'
   const H = 360;
 
-  function getVisible() {
-    const upTo = parseInt(scrubber.value);
-    const fy = upTo < maxYearIdx ? years[upTo] : null;
-    return fy ? shows.filter(s => s.date.slice(0,4) <= fy) : shows;
+  // Map scrubber index to a cutoff date string based on mode
+  function scrubberLabel(idx) {
+    const cutoff = allDates[idx];
+    if (_cnMode === 'year')  return cutoff.slice(0,4);
+    if (_cnMode === 'month') return cutoff.slice(0,7);
+    return cutoff;
   }
+
+  function getVisible() {
+    const idx = parseInt(scrubber.value);
+    if (idx >= maxDateIdx) return shows;
+    const cutoff = allDates[idx];
+    const prefix = _cnMode === 'year' ? cutoff.slice(0,4) : _cnMode === 'month' ? cutoff.slice(0,7) : cutoff;
+    return shows.filter(s => {
+      const k = _cnMode === 'year' ? s.date.slice(0,4) : _cnMode === 'month' ? s.date.slice(0,7) : s.date;
+      return k <= prefix;
+    });
+  }
+
+  window.cnSetMode = mode => {
+    _cnMode = mode;
+    ['year','month','day'].forEach(m => {
+      const btn = document.getElementById(`cn-mode-${m}`);
+      if (btn) btn.classList.toggle('active', m === mode);
+    });
+    // Adjust play speed based on mode
+    draw();
+  };
 
   function draw() {
     const W = canvas.offsetWidth || 840;
@@ -2856,13 +2911,36 @@ function _buildCrowsNest(shows, body) {
 
     _drawMap(ctx, W, H, vp);
 
+    // US state outlines from GeoJSON
+    if (_mapGeoJSON && _mapGeoJSON.features) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.13)';
+      ctx.lineWidth = 0.6;
+      ctx.lineJoin = 'round';
+      _mapGeoJSON.features.forEach(f => {
+        const geom = f.geometry;
+        const polys = geom.type === 'Polygon' ? [geom.coordinates]
+                    : geom.type === 'MultiPolygon' ? geom.coordinates : [];
+        polys.forEach(poly => {
+          poly.forEach(ring => {
+            ctx.beginPath();
+            ring.forEach(([lng,lat], i) => {
+              const [x,y] = _project(lat, lng, W, H, vp);
+              i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+            });
+            ctx.closePath();
+            ctx.stroke();
+          });
+        });
+      });
+    }
+
     const visible = getVisible();
     const clusters = _clusterShows(visible);
-    const upTo = parseInt(scrubber.value);
-    const filterYear = upTo < maxYearIdx ? years[upTo] : null;
+    const idx = parseInt(scrubber.value);
+    const isScrubbing = idx < maxDateIdx;
 
     // Tour routing line when scrubbing
-    if (filterYear && visible.length > 1) {
+    if (isScrubbing && visible.length > 1) {
       ctx.beginPath();
       ctx.strokeStyle = 'rgba(232,51,42,0.15)';
       ctx.lineWidth = 1;
@@ -2886,13 +2964,15 @@ function _buildCrowsNest(shows, body) {
       const col = ERA_COLORS_MAP[latestYr] || '#5a6e8a';
       const isHilite = _highlightCluster && cl === _highlightCluster;
       const r = Math.max(4, Math.min(isHilite?14:10, 4 + (avgRating/5)*4 + Math.log(n+1)*1.8));
+      const scrubCutoff = isScrubbing ? allDates[idx] : null;
+      const isNew = scrubCutoff && cl.shows.some(s => s.date === scrubCutoff);
 
       // Glow
-      ctx.shadowBlur  = isHilite ? 18 : 10;
+      ctx.shadowBlur  = isHilite ? 18 : (isNew ? 14 : 8);
       ctx.shadowColor = col;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI*2);
-      ctx.fillStyle = col + (filterYear && latestYr===filterYear ? 'ff' : 'cc');
+      ctx.fillStyle = col + (isNew ? 'ff' : 'cc');
       ctx.fill();
       ctx.shadowBlur = 0;
 
@@ -2926,9 +3006,9 @@ function _buildCrowsNest(shows, body) {
       }
     });
 
-    const fy = filterYear;
-    showCount.textContent = fy ? `${visible.length} shows through ${fy}` : `${visible.length} shows mapped`;
-    yearLabel.textContent = fy || 'All';
+    const lbl = isScrubbing ? scrubberLabel(idx) : 'All';
+    showCount.textContent = isScrubbing ? `${visible.length} shows through ${lbl}` : `${visible.length} shows mapped`;
+    yearLabel.textContent = lbl;
   }
 
   function hitCluster(mx, my) {
@@ -3074,8 +3154,8 @@ function _buildCrowsNest(shows, body) {
   }, {passive:false});
 
   scrubber.addEventListener('input', draw);
-  window._cnDraw = draw; window._cnYears = years;
-  window._cnMaxIdx = maxYearIdx; window._cnVP = vp;
+  window._cnDraw = draw; window._cnAllDates = allDates;
+  window._cnMaxIdx = maxDateIdx; window._cnVP = vp;
   draw();
 }
 
@@ -3096,6 +3176,10 @@ function cnTogglePlay() {
   let idx = parseInt(scrubber.value);
   if (idx >= window._cnMaxIdx) idx = 0;
   btn.textContent = '⏸ Pause';
+  // Speed: year mode = 400ms/step, month = 120ms, day = 40ms
+  const mode = document.getElementById('cn-mode-year')?.classList.contains('active') ? 'year'
+             : document.getElementById('cn-mode-month')?.classList.contains('active') ? 'month' : 'day';
+  const ms = mode === 'year' ? 400 : mode === 'month' ? 100 : 30;
   _obsMapAnim = setInterval(() => {
     idx++;
     scrubber.value = idx;
@@ -3105,14 +3189,14 @@ function cnTogglePlay() {
       _obsMapAnim = null;
       btn.textContent = '▶ Play';
     }
-  }, 400);
+  }, ms);
 }
 
 function cnReset() {
   if (_obsMapAnim) { clearInterval(_obsMapAnim); _obsMapAnim = null; }
   const scrubber = document.getElementById('cn-scrubber');
   const btn = document.getElementById('cn-play-btn');
-  if (scrubber && window._cnMaxIdx !== undefined) { scrubber.value = window._cnMaxIdx; }
+  if (scrubber && window._cnMaxIdx !== undefined) scrubber.value = 0;
   if (window._cnDraw) window._cnDraw();
   if (btn) btn.textContent = '▶ Play';
 }
@@ -3195,14 +3279,30 @@ async function renderObservatory(songId) {
   const ht = document.getElementById('obs-tab-heatmap');
   if (ht) ht.classList.add('active');
   const body = document.getElementById('obs-modal-body');
-  body.innerHTML = '<div class="loading">Scanning the archive — this may take a moment…</div>';
+  body.innerHTML = '<div class="loading">Scanning the archive — this may take a moment</div>';
   try {
     const res = await fetch(`/api/observatory?song=${encodeURIComponent(songId)}`);
-    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error || res.statusText);
+    if (!res.ok) {
+      const errBody = await res.json().catch(()=>({}));
+      const msg = errBody.error || `Archive.org returned ${res.status}`;
+      throw new Error(msg);
+    }
     const d = await res.json();
     buildObsChart(d, body);
   } catch(e) {
-    body.innerHTML = `<div style="color:var(--red);font-size:11px;padding:20px">${escapeHTML(String(e))}</div>`;
+    const msg = e.message && e.message !== 'Error' ? e.message : 'Archive.org is unreachable right now — try again shortly';
+    // Build back nav even on error
+    const allSongs = _obsHeatmapData || [];
+    const curIdx = allSongs.findIndex(s => s.song_id === songId);
+    const prev = curIdx > 0 ? allSongs[curIdx-1] : null;
+    const next = curIdx >= 0 && curIdx < allSongs.length-1 ? allSongs[curIdx+1] : null;
+    const navHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+      <button class="obs-back-btn" onclick="renderHeatmap()">← All songs</button>
+      <span style="font-size:14px;font-weight:700;color:var(--white);font-family:'Playfair Display',serif;flex:1">${escapeHTML(songId)}</span>
+      ${prev?`<button class="obs-inner-tab" style="border:1px solid var(--border);border-radius:2px" onclick="renderObservatory('${escapeHTML(prev.song_id)}')">‹ ${escapeHTML(prev.label)}</button>`:''}
+      ${next?`<button class="obs-inner-tab" style="border:1px solid var(--border);border-radius:2px" onclick="renderObservatory('${escapeHTML(next.song_id)}')">${escapeHTML(next.label)} ›</button>`:''}
+    </div>`;
+    body.innerHTML = `${navHTML}<div class="obs-empty">${escapeHTML(msg)}</div>`;
   }
 }
 
