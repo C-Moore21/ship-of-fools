@@ -1524,6 +1524,7 @@ def _get_map_cache_table():
 
 _MAP_REFRESH_DAYS = 30   # re-fetch map data monthly
 _MAP_CACHE_VERSION = 2   # bump to force cache rebuild (e.g. after geocoding improvements)
+_map_refresh_lock = None  # threading.Lock, lazy-init so it works with Gunicorn forks
 
 def _geocode_nominatim(query):
     """Geocode a string via Nominatim (OpenStreetMap). Returns (lat, lng) or None."""
@@ -1545,18 +1546,30 @@ def _geocode_nominatim(query):
 
 def _build_map_shows():
     """Fetch all GD shows with coords from Archive.org. Returns list or None on failure."""
-    try:
-        years_res = archive_search({
-            "q": f"collection:{COLLECTION}",
-            "fl[]": "date,coverage,avg_rating,num_reviews",
-            "output": "json",
-            "rows": 9999,
-            "sort[]": "date asc",
-        })
-    except Exception as e:
-        app.logger.warning(f"Map fetch failed: {e}")
+    # Archive.org 9999-row requests can be slow — use a longer timeout and retry once
+    docs = None
+    for attempt, tout in enumerate([30, 60]):
+        try:
+            r = requests.get(
+                ARCHIVE_SEARCH,
+                params={
+                    "q": f"collection:{COLLECTION}",
+                    "fl[]": ["date", "coverage", "avg_rating", "num_reviews"],
+                    "output": "json",
+                    "rows": 9999,
+                    "sort[]": "date asc",
+                },
+                timeout=tout,
+            )
+            r.raise_for_status()
+            docs = r.json().get("response", {}).get("docs", [])
+            break
+        except Exception as e:
+            app.logger.warning(f"Map fetch failed (attempt {attempt+1}): {e}")
+            if attempt == 0:
+                time.sleep(5)
+    if docs is None:
         return None
-    docs = years_res.get("response", {}).get("docs", [])
 
     # Load persisted Nominatim geocode cache from MongoDB
     tbl = _get_map_cache_table()
@@ -1564,8 +1577,11 @@ def _build_map_shows():
     geocode_cache = dict(geo_row.get("entries", {})) if geo_row else {}
     geocode_new = {}
 
+    # Pass 1: resolve coords from static table + MongoDB geocode cache (fast)
     seen = set()
     all_shows = []
+    needs_geocode = []  # (date, cov, rating, reviews) for Nominatim pass
+
     for doc in docs:
         date_str = doc.get("date") or ""
         if isinstance(date_str, list):
@@ -1577,6 +1593,12 @@ def _build_map_shows():
         cov = doc.get("coverage") or ""
         if isinstance(cov, list):
             cov = cov[0] if cov else ""
+        try:
+            rating  = float(doc.get("avg_rating") or 0)
+            reviews = int(doc.get("num_reviews") or 0)
+        except (ValueError, TypeError):
+            rating, reviews = 0, 0
+
         coords = _coords_for_coverage(cov)
         if not coords:
             cov_key = cov.lower().strip()
@@ -1584,28 +1606,40 @@ def _build_map_shows():
                 cached = geocode_cache[cov_key]
                 coords = tuple(cached) if cached else None
             elif cov_key:
-                time.sleep(1.1)  # Nominatim rate limit: 1 req/s
-                coords = _geocode_nominatim(cov)
-                geocode_new[cov_key] = list(coords) if coords else None
-                if coords:
-                    app.logger.info(f"Map: Nominatim geocoded '{cov}' → {coords}")
-                else:
-                    app.logger.warning(f"Map: no coords found for '{cov}'")
+                needs_geocode.append((date, cov, rating, reviews))
+                continue
         if not coords:
             continue
         cov_parts = [p.strip() for p in cov.split(',')]
         city_key  = cov_parts[0].lower()
         venue = cov_parts[0] if city_key not in _CITY_COORDS and len(cov_parts) > 1 else ""
-        try:
-            rating  = float(doc.get("avg_rating") or 0)
-            reviews = int(doc.get("num_reviews") or 0)
-        except (ValueError, TypeError):
-            rating, reviews = 0, 0
         all_shows.append({
             "date": date, "location": cov, "venue": venue,
             "lat": coords[0], "lng": coords[1],
             "rating": round(rating, 2), "reviews": reviews,
         })
+
+    # Pass 2: Nominatim geocoding for unknowns (1 req/s — runs after Archive.org fetch)
+    if needs_geocode:
+        app.logger.info(f"Map: Nominatim geocoding {len(needs_geocode)} unknown coverage strings…")
+    for date, cov, rating, reviews in needs_geocode:
+        time.sleep(1.1)  # Nominatim rate limit
+        coords = _geocode_nominatim(cov)
+        cov_key = cov.lower().strip()
+        geocode_new[cov_key] = list(coords) if coords else None
+        if coords:
+            app.logger.info(f"Map: Nominatim '{cov}' → {coords}")
+            cov_parts = [p.strip() for p in cov.split(',')]
+            city_key  = cov_parts[0].lower()
+            venue = cov_parts[0] if city_key not in _CITY_COORDS and len(cov_parts) > 1 else ""
+            all_shows.append({
+                "date": date, "location": cov, "venue": venue,
+                "lat": coords[0], "lng": coords[1],
+                "rating": round(rating, 2), "reviews": reviews,
+            })
+        else:
+            app.logger.warning(f"Map: no coords for '{cov}'")
+
     all_shows.sort(key=lambda x: x["date"])
 
     # Persist any newly geocoded coverage strings to MongoDB
@@ -1639,12 +1673,30 @@ def shows_map():
         if age_days >= _MAP_REFRESH_DAYS:
             # Stale — refresh in background but return stale data immediately
             import threading as _t
-            _t.Thread(target=_refresh_map_cache, daemon=True).start()
+            global _map_refresh_lock
+            if _map_refresh_lock is None:
+                _map_refresh_lock = _t.Lock()
+            if _map_refresh_lock.acquire(blocking=False):
+                def _run_stale():
+                    try:
+                        _refresh_map_cache()
+                    finally:
+                        _map_refresh_lock.release()
+                _t.Thread(target=_run_stale, daemon=True).start()
         return jsonify(result)
 
-    # Not cached yet — return empty and kick off background fetch
+    # Not cached yet — kick off exactly one background fetch (guard with a non-blocking trylock)
     import threading as _t
-    _t.Thread(target=_refresh_map_cache, daemon=True).start()
+    global _map_refresh_lock
+    if _map_refresh_lock is None:
+        _map_refresh_lock = _t.Lock()
+    if _map_refresh_lock.acquire(blocking=False):
+        def _run_and_release():
+            try:
+                _refresh_map_cache()
+            finally:
+                _map_refresh_lock.release()
+        _t.Thread(target=_run_and_release, daemon=True).start()
     return jsonify({"pending": True, "shows": []})
 
 
