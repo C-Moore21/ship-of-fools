@@ -1526,6 +1526,27 @@ def map_us_states():
         return jsonify({"type": "FeatureCollection", "features": []}), 200
 
 
+@app.route("/api/map/europe")
+def map_europe():
+    """Proxy European countries GeoJSON for canvas rendering. Cached in LRU."""
+    cache_key = "map:europe"
+    cached = _cache_get(cache_key)
+    if cached:
+        return jsonify(cached)
+    try:
+        r = requests.get(
+            "https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson",
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+        _cache_set(cache_key, data)
+        return jsonify(data)
+    except Exception as e:
+        app.logger.warning(f"Europe GeoJSON fetch failed: {e}")
+        return jsonify({"type": "FeatureCollection", "features": []}), 200
+
+
 def _observatory_background_refresh():
     """At startup, warm Observatory caches. Heatmap (fast) runs first for all songs,
     then scatter (slow) runs for the 12 most improv-heavy songs."""
