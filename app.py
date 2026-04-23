@@ -1524,7 +1524,8 @@ def _get_map_cache_table():
 
 _MAP_REFRESH_DAYS = 30   # re-fetch map data monthly
 _MAP_CACHE_VERSION = 2   # bump to force cache rebuild (e.g. after geocoding improvements)
-_map_refresh_lock = None  # threading.Lock, lazy-init so it works with Gunicorn forks
+import threading as _threading
+_map_refresh_lock = _threading.Lock()  # ensures only one background map refresh runs at a time
 
 def _geocode_nominatim(query):
     """Geocode a string via Nominatim (OpenStreetMap). Returns (lat, lng) or None."""
@@ -1672,31 +1673,23 @@ def shows_map():
         _cache_set(cache_key, result)
         if age_days >= _MAP_REFRESH_DAYS:
             # Stale — refresh in background but return stale data immediately
-            import threading as _t
-            global _map_refresh_lock
-            if _map_refresh_lock is None:
-                _map_refresh_lock = _t.Lock()
             if _map_refresh_lock.acquire(blocking=False):
                 def _run_stale():
                     try:
                         _refresh_map_cache()
                     finally:
                         _map_refresh_lock.release()
-                _t.Thread(target=_run_stale, daemon=True).start()
+                _threading.Thread(target=_run_stale, daemon=True).start()
         return jsonify(result)
 
     # Not cached yet — kick off exactly one background fetch (guard with a non-blocking trylock)
-    import threading as _t
-    global _map_refresh_lock
-    if _map_refresh_lock is None:
-        _map_refresh_lock = _t.Lock()
     if _map_refresh_lock.acquire(blocking=False):
         def _run_and_release():
             try:
                 _refresh_map_cache()
             finally:
                 _map_refresh_lock.release()
-        _t.Thread(target=_run_and_release, daemon=True).start()
+        _threading.Thread(target=_run_and_release, daemon=True).start()
     return jsonify({"pending": True, "shows": []})
 
 
