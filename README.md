@@ -38,8 +38,18 @@ A Grateful Dead live concert browser built with Python/Flask, sourcing recording
 - **Notes** — save personal notes per show
 - **Listening history** — your most recent plays, collapsed by show
 - **My Rated Shows & Tracks** — collapsible by show with totals
-- **Stats page** — total listening time, top shows, top songs (GD alias-normalized, ranked by number of shows), year filter
 - **Leaderboard** — weekly, monthly, all-time with display name support
+
+### Dark Star Observatory
+Three-tab analytics modal (`⬡ Song Heatmap | 🗺 Crow's Nest | ◈ My Stats`):
+
+- **Song Heatmap** — ~50 songs × 1965–1995 grid. Cells colored by avg Archive.org rating (blue→gold→red), opacity = review volume. Click a song name to drill into the scatter plot (duration × year, colored by source type). Navigation between songs via prev/next buttons. Backed by MongoDB; background warm-up thread populates at startup.
+- **Crow's Nest** — Canvas Mercator map of the US + Europe. Every show plotted with era-colored glowing dot. Filled US land polygon with Great Lakes, state border overlays from US states GeoJSON. Scroll to zoom, drag to pan, Year/Month/Day scrubber modes, animated Play button. Click a city cluster → drill-down panel with venue-grouped show list.
+- **My Stats** — Inline listening stats: total time, era affinity bar, top songs by show count, top shows by time. Year filter.
+
+### Tour Runs
+- Era-grouped accordion of named tour runs (1965–1995)
+- Per-run show roster with ✓/○ checkmarks, progress bar, cohort table
 
 ### Navigation & Deep Linking
 - Shareable URLs per show and recording (`?show=1977-05-08&src=gd1977-05-08.sbd...`)
@@ -56,27 +66,26 @@ A Grateful Dead live concert browser built with Python/Flask, sourcing recording
 
 ### Performance
 - **LRU cache** — bounded 500-entry `OrderedDict` (5-min TTL) for Archive.org metadata responses
-- **Single-pass listen aggregation** — `listen_stats` builds top shows and top songs in one MongoDB query with in-process grouping; `all_years` fetched separately (unfiltered) so the year picker never collapses
-- **DOM caching** — player time/duration elements cached; playback row targeting by ID (no `querySelectorAll` sweep)
-- **Throttled timeupdate** — 250 ms throttle on audio time handler to reduce reflow overhead
+- **Three-tier Observatory cache** — LRU in-memory → MongoDB `observatory_cache` → live fetch
+- **Background warm-up thread** — two-pass daemon: heatmap (search-only, fast) for all ~50 songs, then scatter (per-recording metadata) for 12 improv-heavy songs; 90s startup delay
+- **Query version flag** — `_OBS_QUERY_VERSION` bumped to force re-scrape when search query changes
+- **Map cache** — `shows_map_cache` MongoDB collection, populated in background at startup; `/api/shows/map` never blocks on Archive.org
+- **DOM caching** — player time/duration elements cached; playback row targeting by ID
+- **Throttled timeupdate** — 250 ms throttle on audio time handler
 
 ### Reliability
 - **Optimistic UI** — ratings and notes update instantly; revert on API error
 - **Try/catch on all fetches** — all user-facing API calls wrapped with state revert fallback
 - `_sourceLoading` flag prevents concurrent `switchSource()` calls during slow metadata fetches
-- **Safe index creation** — `session_id` unique index wrapped in try/except; logs a warning and falls back to non-unique if pre-existing duplicates are detected
-- **Specific archive.org error handling** — `Timeout` → 502, `RequestException` → 502, other → 500; no raw exception text exposed to clients
+- **Gunicorn-safe** — no synchronous Archive.org calls on request threads for map/observatory endpoints
 
 ### Gapless Playback & Failover
 - Dual audio elements (`audio`, `preload`) swap at `playTrack()` if preload has buffered (readyState ≥ 3)
 - At 75% playback, `preloadTrack(N+2)` is queued; if N+1 isn't ready, `_preloadFallbackSource` prefetches the next best recording
 - Retry loop (3 attempts, 500 ms × attempt backoff) on preload error; on final failure, injects buffered fallback source without audio interruption
 
-### Grateful Dead Song Aliases
-Stats page normalizes track titles across recordings using a hardcoded alias map (e.g. `gdtrfb` → "Going Down the Road Feeling Bad", `nfa` → "Not Fade Away"). Normalization strips leading track numbers, transition arrows, apostrophes, ampersands, and punctuation before alias lookup.
-
 ### Admin
-- `POST /api/admin/rename-user` — renames a user across all collections (users, listens, ratings, show_ratings, notes) atomically
+- `POST /api/admin/rename-user` — renames a user across all collections atomically
 
 ---
 
@@ -120,11 +129,13 @@ Open http://localhost:5000. Defaults to `mongodb://localhost:27017/ship_of_fools
 
 ```
 ship_of_fools/
-  app.py              Flask app — routes, Archive.org proxy, scoring, stats, leaderboard
+  app.py              Flask app — routes, Archive.org proxy, scoring, Observatory, map
   templates/
-    index.html        Entire frontend (styles + markup + JS)
+    index.html        Entire frontend (styles + markup + JS, ~3500 lines)
   static/
     stealie.png       Steal Your Face logo
+    observatory.svg   Dark Star Observatory tab icon
+  CLAUDE.md           AI assistant context file
   Procfile            gunicorn start command
   requirements.txt
 ```
