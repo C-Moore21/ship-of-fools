@@ -2589,7 +2589,7 @@ function buildHeatmap(songs, body) {
     `<div class="obs-hm-cell obs-hm-yr-hdr">${(y % 5 === 0) ? `<span>${y}</span>` : ''}</div>`
   ).join('');
 
-  const rowsHTML = songs.map(s => {
+  const rowsHTML = [...songs].sort((a, b) => a.label.localeCompare(b.label)).map(s => {
     const cells = YEARS.map(y => {
       const cell = lookup[s.song_id]?.[String(y)];
       if (!cell || cell.reviews < 1)
