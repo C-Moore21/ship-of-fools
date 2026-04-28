@@ -1626,6 +1626,7 @@ let _sourceLoading = false;
 async function switchSource(idx) {
   if (_sourceLoading) return;
   _sourceLoading = true;
+  const _srcLoadTimeout = setTimeout(() => { _sourceLoading = false; }, 15000);
   try {
     await loadSourceTracks(idx);
     const list = document.getElementById('source-selector-list');
@@ -1638,6 +1639,7 @@ async function switchSource(idx) {
       label.textContent = src ? `${src.source_type||'UNK'} — ${src.title||src.id}` : 'Sources';
     }
   } finally {
+    clearTimeout(_srcLoadTimeout);
     _sourceLoading = false;
   }
 }
@@ -2381,8 +2383,12 @@ function renderTourList(eras, body) {
   // Run card click handlers
   body.querySelectorAll('.tour-card').forEach(card => {
     card.addEventListener('click', () => {
-      const era = eras[+card.dataset.era];
-      const run = era.runs[+card.dataset.run];
+      const eraIdx = +card.dataset.era;
+      const runIdx = +card.dataset.run;
+      if (!eras || eraIdx < 0 || eraIdx >= eras.length) return;
+      const era = eras[eraIdx];
+      if (!era.runs || runIdx < 0 || runIdx >= era.runs.length) return;
+      const run = era.runs[runIdx];
       openTourDetail(run.id, run.name);
     });
   });
@@ -3405,7 +3411,7 @@ loadYears().then(async () => {
     // if a specific source was linked, switch to it
     if (srcId) {
       const idx = allSources.findIndex(s => String(s.id) === srcId);
-      if (idx > 0) await switchSource(idx);
+      if (idx >= 0) await switchSource(idx);
     }
   }
 });

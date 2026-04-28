@@ -6,25 +6,32 @@ import os
 import functools
 import time
 import random
+import threading
 from collections import OrderedDict
 
 class _LRUCache:
     def __init__(self, maxsize=500):
         self._d = OrderedDict()
         self._maxsize = maxsize
+        self._lock = threading.Lock()
     def get(self, key, default=None):
-        if key not in self._d: return default
-        self._d.move_to_end(key)
-        return self._d[key]
-    def __contains__(self, key): return key in self._d
+        with self._lock:
+            if key not in self._d: return default
+            self._d.move_to_end(key)
+            return self._d[key]
+    def __contains__(self, key):
+        with self._lock:
+            return key in self._d
     def __getitem__(self, key):
-        self._d.move_to_end(key)
-        return self._d[key]
+        with self._lock:
+            self._d.move_to_end(key)
+            return self._d[key]
     def __setitem__(self, key, val):
-        if key in self._d: self._d.move_to_end(key)
-        self._d[key] = val
-        if len(self._d) > self._maxsize:
-            self._d.popitem(last=False)
+        with self._lock:
+            if key in self._d: self._d.move_to_end(key)
+            self._d[key] = val
+            if len(self._d) > self._maxsize:
+                self._d.popitem(last=False)
 
 # ── Simple in-memory cache ────────────────────────────────────────────────────
 _cache = _LRUCache(maxsize=500)
@@ -185,7 +192,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-prod")
 
 # ── Database ──────────────────────────────────────────────────────────────────
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/ship_of_fools")
-_mongo = MongoClient(MONGO_URI)
+_mongo = MongoClient(MONGO_URI, maxPoolSize=10)
 _db = _mongo.get_default_database() if "?" in MONGO_URI or MONGO_URI.count("/") >= 3 else _mongo["ship_of_fools"]
 users_table      = _db["users"]
 ratings_table    = _db["ratings"]
@@ -295,6 +302,8 @@ def rename_user():
         return jsonify({"error": "Username already taken"}), 409
     if not users_table.find_one({"username": old_name}):
         return jsonify({"error": "User not found"}), 404
+    if old_name != current_user():
+        return jsonify({"error": "Forbidden"}), 403
     users_table.update_one({"username": old_name}, {"$set": {"username": new_name}})
     for col in [listens_table, ratings_table, show_ratings_table, notes_table]:
         col.update_many({"username": old_name}, {"$set": {"username": new_name}})
@@ -690,6 +699,8 @@ def listen_stats():
     from collections import defaultdict
     username = current_user()
     year     = request.args.get("year", "")  # optional e.g. "2024"
+    if year and not _re.match(r'^\d{4}$', year):
+        year = ""
 
     query = {"username": username}
     if year:
@@ -1016,7 +1027,7 @@ def parking_lot(show_id):
     week_start = (d - timedelta(days=7)).isoformat()
     week_end   = (d + timedelta(days=7)).isoformat()
     pipeline = [
-        {"$match": {"show_date": {"$gte": week_start, "$lte": week_end, "$ne": show_id}}},
+        {"$match": {"$and": [{"show_date": {"$gte": week_start, "$lte": week_end}}, {"show_date": {"$ne": show_id}}]}},
         {"$group": {"_id": "$track_title", "plays": {"$sum": 1}}},
         {"$sort": {"plays": -1}},
         {"$limit": 8},
@@ -1220,7 +1231,7 @@ def observatory():
 
     # 2. MongoDB persistent cache
     row = observatory_table.find_one({"song_id": song_id}, {"_id": 0})
-    if row and row.get("performances"):
+    if row and row.get("performances") and row.get("query_version") == _OBS_QUERY_VERSION:
         age_days = (time.time() - row.get("fetched_at", 0)) / 86400
         if age_days < _OBS_REFRESH_DAYS:
             _cache_set(lru_key, row)
@@ -1233,6 +1244,7 @@ def observatory():
 
     # Persist to MongoDB and LRU
     out["fetched_at"] = time.time()
+    out["query_version"] = _OBS_QUERY_VERSION
     observatory_table.update_one(
         {"song_id": song_id},
         {"$set": out},
@@ -1548,7 +1560,7 @@ def _geojson_mongo_proxy(mongo_id, url, label, filter_fn=None):
     except Exception as e:
         app.logger.warning(f"{label} GeoJSON fetch failed: {e}")
         resp = _Response('{"type":"FeatureCollection","features":[]}', mimetype="application/json")
-        return resp, 200
+        return resp
 
 
 @app.route("/api/map/us-states")
