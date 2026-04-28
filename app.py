@@ -1317,7 +1317,7 @@ def _get_map_cache_table():
     return _map_cache_table
 
 _MAP_REFRESH_DAYS = 30   # re-fetch map data monthly
-_MAP_CACHE_VERSION = 2   # bump to force cache rebuild (e.g. after geocoding improvements)
+_MAP_CACHE_VERSION = 3   # bump to force cache rebuild (e.g. after geocoding improvements)
 import threading as _threading
 _map_refresh_lock = _threading.Lock()  # ensures only one background map refresh runs at a time
 
@@ -1572,7 +1572,7 @@ def map_europe():
 @app.route("/api/map/extra-countries")
 def map_extra_countries():
     """Canada + Egypt outlines from Natural Earth 110m (small, ~300KB total download)."""
-    WANT_ISO = {"CAN", "EGY"}
+    WANT_ISO = {"CAN", "EGY", "JAM"}
     def _filter(data):
         return {"type": "FeatureCollection", "features": [
             f for f in data.get("features", [])

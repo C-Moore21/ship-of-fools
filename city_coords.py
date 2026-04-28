@@ -200,6 +200,7 @@ CITY_COORDS = {
     # Pennsylvania
     "upper darby":        (39.96,  -75.27), "upper darby, pa":     (39.96,  -75.27),
     "allentown":          (40.60,  -75.49), "allentown, pa":       (40.60,  -75.49),
+    "bethlehem":          (40.63,  -75.37), "bethlehem, pa":       (40.63,  -75.37),
     "wilkes-barre":       (41.25,  -75.88), "harrisburg":          (40.27,  -76.88),
     # New York state
     "ithaca":             (42.44,  -76.50), "ithaca, ny":          (42.44,  -76.50),
@@ -237,6 +238,9 @@ CITY_COORDS = {
     "cairo":              (30.04,   31.24), "cairo, egypt":        (30.04,   31.24),
     "giza":               (29.98,   31.13), "giza, egypt":         (29.98,   31.13),
     "egypt":              (26.82,   30.80),
+    # Jamaica (GD played two shows there)
+    "kingston":           (17.99,  -76.79), "kingston, jamaica":   (17.99,  -76.79),
+    "jamaica":            (18.10,  -77.30),
     # Canada
     "toronto":            (43.65,  -79.38), "toronto, on":         (43.65,  -79.38),
     "montreal":           (45.50,  -73.57), "montreal, qc":        (45.50,  -73.57),
