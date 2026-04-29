@@ -589,6 +589,9 @@
     .blindtest-reveal-date { font-size:22px; font-weight:700; color:var(--accent); font-family:'Playfair Display',serif; }
     .blindtest-reveal-venue { font-size:12px; color:var(--text); margin-top:2px; }
     .blindtest-reveal-track { font-size:10px; color:var(--muted); margin-top:6px; font-style:italic; }
+    .bt-daily-stats { display:flex; flex-wrap:wrap; gap:4px; margin-top:10px; }
+    .bt-daily-stats span { background:var(--surface2); border:1px solid var(--border); padding:2px 7px; border-radius:2px; font-size:9px; color:var(--muted); font-family:'Space Mono',monospace; }
+    .bt-comeback { text-align:center; padding:18px 0 8px; color:var(--muted); font-size:11px; }
     /* ── Visualizer ─────────────────────────────────────────────────────────── */
     .viz-panel { position:fixed; bottom:90px; left:0; right:0; height:0; overflow:hidden; background:var(--bg); border-top:1px solid transparent; transition:height 0.22s ease,border-color 0.22s; z-index:99; }
     .viz-panel.open { height:160px; border-color:var(--border); }
@@ -631,8 +634,8 @@
 <div class="modal-overlay" id="blindtest-modal">
   <div class="blindtest-modal">
     <button class="modal-close" onclick="closeBlindTest()">✕</button>
-    <div class="blindtest-title">🎧 Blind Taste Test</div>
-    <div class="blindtest-sub">A mystery track plays. Guess the era — then reveal the show.</div>
+    <div class="blindtest-title">🎧 Blind Test</div>
+    <div class="blindtest-sub">A new mystery track every day. Guess the date — see how the community did.</div>
     <div id="blindtest-body">
       <button class="btn" onclick="startBlindTest()" id="blindtest-start-btn">Deal me a mystery track</button>
     </div>
@@ -3703,124 +3706,147 @@ async function loadControversials(container) {
   } catch(e) { /* silent */ }
 }
 
-// ── BLIND TASTE TEST ──────────────────────────────────────────────────────────
-let _btGuess = null;
+// ── BLIND TEST (daily shared track) ───────────────────────────────────────────
 let _btRevealed = false;
 
 function openBlindTest() {
-  _btGuess = null;
   _btRevealed = false;
-  document.getElementById('blindtest-body').innerHTML =
-    `<button class="btn" onclick="startBlindTest()" id="blindtest-start-btn">Deal me a mystery track</button>`;
   document.getElementById('blindtest-modal').classList.add('open');
+  loadDailyBlindTest();
 }
 
 function closeBlindTest() {
-  // Pause any playing audio
-  const audio = document.getElementById('bt-audio');
-  if (audio) audio.pause();
+  const a = document.getElementById('bt-audio');
+  if (a) a.pause();
   document.getElementById('blindtest-modal').classList.remove('open');
 }
 
-async function startBlindTest() {
+function _btDailyStatsHTML(stats) {
+  const plays = stats.plays || 0;
+  if (!plays) return '';
+  const pct = n => Math.round(100 * (n||0) / plays) + '%';
+  return `<div class="bt-daily-stats">
+    <span>${plays} played today</span>
+    <span>${stats.year_correct||0} got the year (${pct(stats.year_correct)})</span>
+    ${(stats.month_correct||0) > 0 ? `<span>${stats.month_correct} got the month</span>` : ''}
+    ${(stats.day_correct||0)   > 0 ? `<span>${stats.day_correct} exact date (${pct(stats.day_correct)})</span>` : ''}
+  </div>`;
+}
+
+async function loadDailyBlindTest() {
   const body = document.getElementById('blindtest-body');
-  body.innerHTML = '<div class="loading">Pulling a mystery track from the archive…</div>';
+  body.innerHTML = '<div class="loading">Loading today\'s track…</div>';
   try {
-    const res = await fetch('/api/blindtest');
+    const res = await fetch('/api/blind/daily');
     if (!res.ok) {
       const e = await res.json().catch(()=>({}));
-      body.innerHTML = `<div class="obs-empty">${escapeHTML(e.error||'Could not load track')} <button class="btn" style="margin-top:10px" onclick="startBlindTest()">Try again</button></div>`;
+      body.innerHTML = `<div class="obs-empty">${escapeHTML(e.error||'Could not load')} <button class="btn" style="margin-top:10px" onclick="loadDailyBlindTest()">Try again</button></div>`;
       return;
     }
     const d = await res.json();
-    _btGuess = null;
+    if (d.already_played) {
+      const ur = d.user_result || {};
+      let badge = '';
+      if (ur.day_correct)   badge = '<div style="color:#2a9d6f;font-weight:700;margin-bottom:8px">🎯 Exact date!</div>';
+      else if (ur.month_correct) badge = '<div style="color:#f5a623;margin-bottom:8px">Got the year &amp; month!</div>';
+      else if (ur.year_correct)  badge = '<div style="color:#f5a623;margin-bottom:8px">Got the year!</div>';
+      else                       badge = '<div style="color:var(--muted);margin-bottom:8px">Missed this one.</div>';
+      const rv = d.reveal || {};
+      body.innerHTML = `
+        <div class="blindtest-player"><audio id="bt-audio" controls style="width:100%"></audio></div>
+        ${badge}
+        <div class="blindtest-reveal-box open">
+          <div class="blindtest-reveal-date">${escapeHTML(rv.show_date||'')}</div>
+          <div class="blindtest-reveal-venue">${escapeHTML(rv.venue||'')}</div>
+          <div class="blindtest-reveal-track">Track: "${escapeHTML(rv.track_title||'')}"</div>
+          <button class="btn" style="margin-top:10px" onclick="closeBlindTest();tourRunGoTo('${escapeHTML(rv.show_date||'')}')">Open this show</button>
+        </div>
+        ${_btDailyStatsHTML(d.stats)}
+        <div class="bt-comeback">Come back tomorrow for a new track.</div>`;
+      const a = document.getElementById('bt-audio');
+      if (a) a.src = d.track_url;
+      return;
+    }
+    // Not yet played — show the guessing UI
     _btRevealed = false;
     const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const monthOpts = MONTHS.map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('');
     const dayOpts   = Array.from({length:31},(_,i)=>`<option value="${String(i+1).padStart(2,'0')}">${i+1}</option>`).join('');
     const yearOpts  = Array.from({length:31},(_,i)=>`<option value="${1965+i}">${1965+i}</option>`).join('');
     body.innerHTML = `
+      <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Today · ${escapeHTML(d.date||'')}</div>
       <div class="blindtest-player"><audio id="bt-audio" controls style="width:100%"></audio></div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Guess the date of this show:</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Guess the date of this show:</div>
       <div class="bt-date-picker">
         <select id="bt-month" class="bt-select"><option value="">Month?</option>${monthOpts}</select>
-        <select id="bt-day" class="bt-select"><option value="">Day?</option>${dayOpts}</select>
-        <select id="bt-year" class="bt-select"><option value="">Year?</option>${yearOpts}</select>
+        <select id="bt-day"   class="bt-select"><option value="">Day?</option>${dayOpts}</select>
+        <select id="bt-year"  class="bt-select"><option value="">Year?</option>${yearOpts}</select>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" onclick="checkBlindGuess()">Check my guess</button>
-        <button class="btn" id="bt-reveal-btn" onclick="revealBlindTest()" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border)">Skip &amp; reveal</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+        <button class="btn" onclick="submitDailyGuess(false)">Submit guess</button>
+        <button class="btn" id="bt-skip-btn" onclick="submitDailyGuess(true)" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border)">Skip &amp; reveal</button>
       </div>
       <div id="bt-result" style="margin-top:10px"></div>
-      <div class="blindtest-reveal-box" id="bt-reveal-box"></div>
-      <button class="btn" style="margin-top:12px;display:none" id="bt-next-btn" onclick="startBlindTest()">Deal another</button>`;
-    // Set src as DOM property — avoids any URL encoding issues in HTML attributes
-    const btAudio = document.getElementById('bt-audio');
-    if (btAudio) btAudio.src = d.track_url;
+      <div class="blindtest-reveal-box" id="bt-reveal-box"></div>`;
+    const a = document.getElementById('bt-audio');
+    if (a) a.src = d.track_url;
   } catch(e) {
-    body.innerHTML = `<div class="obs-empty">Error: ${escapeHTML(String(e))} <button class="btn" style="margin-top:10px" onclick="startBlindTest()">Try again</button></div>`;
+    body.innerHTML = `<div class="obs-empty">Error: ${escapeHTML(String(e))} <button class="btn" style="margin-top:10px" onclick="loadDailyBlindTest()">Try again</button></div>`;
   }
 }
 
-async function checkBlindGuess() {
+async function submitDailyGuess(skip) {
   if (_btRevealed) return;
-  const gYear  = (document.getElementById('bt-year') ||{}).value  || '';
-  const gMonth = (document.getElementById('bt-month')||{}).value || '';
-  const gDay   = (document.getElementById('bt-day')  ||{}).value   || '';
-  const result = document.getElementById('bt-result');
-  if (!gYear) { if(result) result.innerHTML = '<div style="color:var(--accent);font-size:10px">Pick a year first.</div>'; return; }
-  let d;
-  try {
-    const res = await fetch('/api/blindtest/reveal');
-    if (!res.ok) return;
-    d = await res.json();
-  } catch(e) { return; }
-  const [aYear, aMonth, aDay] = (d.show_date||'').split('-');
-  const MONTHS = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const yearOk  = gYear  === aYear;
-  const monthOk = yearOk  && !!gMonth && gMonth === aMonth;
-  const dayOk   = monthOk && !!gDay   && gDay   === aDay;
-  let html = '';
-  if (yearOk) {
-    html += `<div class="bt-guess-row correct">Year: ${gYear} ✓</div>`;
-    if (gMonth) {
-      if (monthOk) {
-        html += `<div class="bt-guess-row correct">Month: ${MONTHS[+gMonth]} ✓</div>`;
-        if (gDay) html += `<div class="bt-guess-row ${dayOk?'correct':'wrong'}">Day: ${+gDay} ${dayOk?'✓ — Exact match!':'✗'}</div>`;
-      } else {
-        html += `<div class="bt-guess-row wrong">Month: ${MONTHS[+gMonth]} ✗</div>`;
-      }
-    }
-  } else {
-    html += `<div class="bt-guess-row wrong">Year: ${gYear} ✗</div>`;
+  const gYear  = skip ? '' : ((document.getElementById('bt-year') ||{}).value||'');
+  const gMonth = skip ? '' : ((document.getElementById('bt-month')||{}).value||'');
+  const gDay   = skip ? '' : ((document.getElementById('bt-day')  ||{}).value||'');
+  const resultEl = document.getElementById('bt-result');
+  if (!skip && !gYear) {
+    if (resultEl) resultEl.innerHTML = '<div style="color:var(--accent);font-size:10px">Pick a year first.</div>';
+    return;
   }
-  if (result) result.innerHTML = html;
-  if (yearOk) _showBlindReveal(d);
-}
-
-async function revealBlindTest() {
-  if (_btRevealed) return;
-  try {
-    const res = await fetch('/api/blindtest/reveal');
-    if (!res.ok) return;
-    _showBlindReveal(await res.json());
-  } catch(e) {}
-}
-
-function _showBlindReveal(d) {
   _btRevealed = true;
+  const skipBtn = document.getElementById('bt-skip-btn');
+  if (skipBtn) skipBtn.disabled = true;
+  let resp;
+  try {
+    const res = await fetch('/api/blind/daily/guess', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({year: gYear, month: gMonth, day: gDay}),
+    });
+    if (!res.ok) return;
+    resp = await res.json();
+  } catch(e) { return; }
+  const MONTHS = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let html = '';
+  if (!skip) {
+    if (resp.year_correct) {
+      html += `<div class="bt-guess-row correct">Year: ${escapeHTML(gYear)} ✓</div>`;
+      if (gMonth) {
+        if (resp.month_correct) {
+          html += `<div class="bt-guess-row correct">Month: ${MONTHS[+gMonth]||gMonth} ✓</div>`;
+          if (gDay) html += `<div class="bt-guess-row ${resp.day_correct?'correct':'wrong'}">Day: ${+gDay} ${resp.day_correct?'✓ — Exact match!':'✗'}</div>`;
+        } else {
+          html += `<div class="bt-guess-row wrong">Month: ${MONTHS[+gMonth]||gMonth} ✗</div>`;
+        }
+      }
+    } else {
+      html += `<div class="bt-guess-row wrong">Year: ${escapeHTML(gYear)} ✗</div>`;
+    }
+  }
+  if (resultEl) resultEl.innerHTML = html;
+  // Show reveal
   const box = document.getElementById('bt-reveal-box');
-  const revealBtn = document.getElementById('bt-reveal-btn');
-  const nextBtn = document.getElementById('bt-next-btn');
-  if (revealBtn) revealBtn.style.display = 'none';
-  if (!box) return;
-  box.innerHTML = `
-    <div class="blindtest-reveal-date">${escapeHTML(d.show_date||'')}</div>
-    <div class="blindtest-reveal-venue">${escapeHTML(d.venue||'')}</div>
-    <div class="blindtest-reveal-track">Track: "${escapeHTML(d.track_title||'')}"</div>
-    <button class="btn" style="margin-top:10px" onclick="closeBlindTest();tourRunGoTo('${escapeHTML(d.show_date||'')}')">Open this show</button>`;
-  box.classList.add('open');
-  if (nextBtn) nextBtn.style.display = '';
+  if (box && resp.reveal) {
+    const rv = resp.reveal;
+    box.innerHTML = `
+      <div class="blindtest-reveal-date">${escapeHTML(rv.show_date||'')}</div>
+      <div class="blindtest-reveal-venue">${escapeHTML(rv.venue||'')}</div>
+      <div class="blindtest-reveal-track">Track: "${escapeHTML(rv.track_title||'')}"</div>
+      <button class="btn" style="margin-top:10px" onclick="closeBlindTest();tourRunGoTo('${escapeHTML(rv.show_date||'')}')">Open this show</button>
+      ${_btDailyStatsHTML(resp.stats||{})}`;
+    box.classList.add('open');
+  }
 }
 
 // Close blind test on overlay click

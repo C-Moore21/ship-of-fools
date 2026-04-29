@@ -2364,6 +2364,179 @@ def blindtest_reveal():
         return jsonify({"error": "No active blind test — start one first"}), 404
     return jsonify(bt)
 
+# ── Daily Blind Test ──────────────────────────────────────────────────────────
+_daily_blind_col     = _db["daily_blind"]
+_daily_results_col   = _db["daily_blind_results"]
+try:
+    _daily_results_col.create_index([("username", 1), ("date", 1)], unique=True)
+    _daily_results_col.create_index([("date", 1)])
+except Exception:
+    pass
+
+def _mt_today():
+    """Current date string in Mountain Standard Time (UTC-7)."""
+    from datetime import datetime, timezone, timedelta
+    return (datetime.now(timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d")
+
+def _pick_daily_track():
+    """Select a random track and upsert today's daily_blind doc (idempotent)."""
+    import random as _rand
+    from datetime import datetime, timezone
+    today = _mt_today()
+    pool = _cache_get("blindtest:pool")
+    if not pool:
+        data = archive_search({
+            "q": f"collection:{COLLECTION} AND year:[1965 TO 1995]",
+            "fl[]": "identifier,title,date,coverage",
+            "output": "json", "rows": 1000, "sort[]": "date asc",
+        })
+        docs = data.get("response", {}).get("docs", [])
+        seen, pool = {}, []
+        for doc in docs:
+            d = doc.get("date") or ""
+            if isinstance(d, list): d = d[0] if d else ""
+            d = d[:10]
+            if not d or d in seen: continue
+            seen[d] = True
+            title = doc.get("title", "")
+            venue = (title.split(" at ", 1)[1].split(" on ")[0].strip()
+                     if " at " in title and " on " in title
+                     else doc.get("coverage", ""))
+            pool.append({"identifier": doc["identifier"], "show_date": d, "venue": venue})
+        if pool: _cache_set("blindtest:pool", pool)
+    if not pool:
+        raise ValueError("Empty show pool")
+    for _ in range(10):
+        show = _rand.choice(pool)
+        try:
+            meta = requests.get(f"{ARCHIVE_METADATA}/{show['identifier']}", timeout=15)
+            meta.raise_for_status()
+            files = meta.json().get("files", [])
+        except Exception:
+            continue
+        mp3s = [f for f in files
+                if f.get("name", "").lower().endswith(".mp3")
+                and float(f.get("length", 0) or 0) > 60
+                and not f.get("name", "").lower().endswith("_vbr.mp3")]
+        if not mp3s: continue
+        track = _rand.choice(mp3s)
+        url = f"{ARCHIVE_DOWNLOAD}/{show['identifier']}/{requests.utils.quote(track['name'])}"
+        _daily_blind_col.update_one(
+            {"_id": today},
+            {"$setOnInsert": {
+                "_id": today,
+                "show_date":   show["show_date"],
+                "show_id":     show["identifier"],
+                "track_url":   url,
+                "track_title": track.get("title", track["name"]),
+                "venue":       show["venue"],
+                "stats": {"plays": 0, "year_correct": 0, "month_correct": 0, "day_correct": 0},
+                "created_at":  datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+        return
+    raise ValueError("No usable tracks found in 10 attempts")
+
+def _ensure_daily_blind():
+    today = _mt_today()
+    if not _daily_blind_col.find_one({"_id": today}, {"_id": 1}):
+        _pick_daily_track()
+
+def _daily_blind_worker():
+    import time as _t
+    _t.sleep(45)
+    while True:
+        try: _ensure_daily_blind()
+        except Exception as e: app.logger.warning(f"daily blind pick: {e}")
+        _t.sleep(3600)
+
+threading.Thread(target=_daily_blind_worker, daemon=True).start()
+
+@app.route("/api/blind/daily")
+def blind_daily():
+    today = _mt_today()
+    doc = _daily_blind_col.find_one({"_id": today})
+    if not doc:
+        try: _pick_daily_track()
+        except Exception: pass
+        doc = _daily_blind_col.find_one({"_id": today})
+    if not doc:
+        return jsonify({"error": "Today's track isn't ready yet — try again shortly"}), 503
+    username = current_user()
+    user_result = None
+    if username:
+        user_result = _daily_results_col.find_one(
+            {"username": username, "date": today}, {"_id": 0}
+        )
+    resp = {
+        "date":          today,
+        "track_url":     doc["track_url"],
+        "stats":         doc.get("stats", {}),
+        "already_played": user_result is not None,
+    }
+    if user_result:
+        resp["user_result"] = {
+            k: user_result.get(k)
+            for k in ("year_correct", "month_correct", "day_correct")
+        }
+        resp["reveal"] = {
+            "show_date":   doc["show_date"],
+            "venue":       doc["venue"],
+            "track_title": doc["track_title"],
+            "show_id":     doc["show_id"],
+        }
+    return jsonify(resp)
+
+@app.route("/api/blind/daily/guess", methods=["POST"])
+def blind_daily_guess():
+    from datetime import datetime, timezone
+    today = _mt_today()
+    doc = _daily_blind_col.find_one({"_id": today})
+    if not doc:
+        return jsonify({"error": "No daily track available"}), 503
+    data = request.get_json(silent=True) or {}
+    g_year  = str(data.get("year",  "") or "")
+    g_month = str(data.get("month", "") or "")
+    g_day   = str(data.get("day",   "") or "")
+    parts   = (doc["show_date"] or "--").split("-")
+    a_year  = parts[0] if len(parts) > 0 else ""
+    a_month = parts[1] if len(parts) > 1 else ""
+    a_day   = parts[2] if len(parts) > 2 else ""
+    year_ok  = bool(g_year)  and g_year  == a_year
+    month_ok = year_ok       and bool(g_month) and g_month == a_month
+    day_ok   = month_ok      and bool(g_day)   and g_day   == a_day
+    username = current_user()
+    if username:
+        _daily_results_col.update_one(
+            {"username": username, "date": today},
+            {"$setOnInsert": {
+                "username": username, "date": today,
+                "year_guess": g_year, "month_guess": g_month, "day_guess": g_day,
+                "year_correct": year_ok, "month_correct": month_ok, "day_correct": day_ok,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+    inc = {"stats.plays": 1}
+    if year_ok:  inc["stats.year_correct"]  = 1
+    if month_ok: inc["stats.month_correct"] = 1
+    if day_ok:   inc["stats.day_correct"]   = 1
+    _daily_blind_col.update_one({"_id": today}, {"$inc": inc})
+    updated = _daily_blind_col.find_one({"_id": today}, {"stats": 1})
+    return jsonify({
+        "year_correct":  year_ok,
+        "month_correct": month_ok,
+        "day_correct":   day_ok,
+        "stats":  (updated or {}).get("stats", {}),
+        "reveal": {
+            "show_date":   doc["show_date"],
+            "venue":       doc["venue"],
+            "track_title": doc["track_title"],
+            "show_id":     doc["show_id"],
+        },
+    })
+
 # ── Keep-alive (Render free tier) ────────────────────────────────────────────
 _RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
 if _RENDER_URL:
