@@ -534,11 +534,6 @@
     .mood-btn.active { background:var(--accent); border-color:var(--accent); color:var(--white); }
     .mood-dist { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
     .mood-chip { background:var(--surface2); border:1px solid var(--border); padding:2px 8px; font-size:9px; color:var(--text); border-radius:2px; font-family:'Space Mono',monospace; }
-    /* ── Fingerprint card ───────────────────────────────────────────────── */
-    .fingerprint-card { background:var(--surface2); border:1px solid var(--border); border-left:3px solid var(--accent2); padding:11px 14px; margin-bottom:14px; }
-    .fingerprint-lbl { font-size:9px; color:var(--accent2); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:2px; }
-    .fingerprint-title { font-size:15px; font-weight:700; color:var(--white); font-family:'Playfair Display',serif; }
-    .fingerprint-desc { font-size:10px; color:var(--muted); margin-top:3px; font-style:italic; }
     /* ── Streak badge ────────────────────────────────────────────────────── */
     .streak-badge { display:inline-flex; align-items:center; gap:2px; color:#f5a623; font-weight:700; }
     /* ── Controversials ─────────────────────────────────────────────────── */
@@ -2405,7 +2400,6 @@ async function loadStats(year) {
   el.innerHTML = `
     <div id="era-tooltip" class="era-tooltip"></div>
     ${yearBtns}
-    ${_fingerprintHTML(d.fingerprint)}
     <div class="stats-hero">
       <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened${_statsYear?' · '+_statsYear:''}</div></div>
       ${_streakHTML(d.streak)}
@@ -3351,7 +3345,6 @@ function _buildObsStats(d, body) {
     <div id="era-tooltip" class="era-tooltip"></div>
     <div class="obs-stats-wrap">
       ${yearBtns}
-      ${_fingerprintHTML(d.fingerprint)}
       <div class="stats-hero">
         <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened${_obsStatsYear?' · '+_obsStatsYear:''}</div></div>
         ${_streakHTML(d.streak)}
@@ -3662,15 +3655,6 @@ function _renderListenCal(calData) {
   return `<div class="listen-cal-wrap"><div class="listen-cal-lbl">Listening Calendar</div><div class="listen-cal-grid">${cells}</div></div>`;
 }
 
-// ── LISTENING FINGERPRINT helpers ─────────────────────────────────────────────
-function _fingerprintHTML(fp) {
-  if (!fp) return '';
-  return `<div class="fingerprint-card">
-    <div class="fingerprint-lbl">Listening Fingerprint</div>
-    <div class="fingerprint-title">${escapeHTML(fp.title)}</div>
-    <div class="fingerprint-desc">"${escapeHTML(fp.desc)}"</div>
-  </div>`;
-}
 function _streakHTML(streak) {
   if (!streak || streak < 1) return '';
   const icon = streak >= 7 ? '🔥🔥' : streak >= 3 ? '🔥' : '📅';
