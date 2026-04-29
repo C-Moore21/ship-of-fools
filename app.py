@@ -1110,16 +1110,21 @@ def _fetch_observatory_song(song_meta):
     import re as _re
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    try:
-        data = archive_search({
-            "q": f'collection:{COLLECTION} AND (files.title:"{song_meta["label"]}" OR title:"{song_meta["label"]}" OR description:"{song_meta["label"]}")',
-            "fl[]": "identifier,date,avg_rating,num_reviews,source",
-            "output": "json",
-            "rows": 2000,
-            "sort[]": "date asc",
-        })
-    except Exception:
-        return None
+    for _attempt in range(2):
+        try:
+            data = archive_search({
+                "q": f'collection:{COLLECTION} AND (files.title:"{song_meta["label"]}" OR title:"{song_meta["label"]}" OR description:"{song_meta["label"]}")',
+                "fl[]": "identifier,date,avg_rating,num_reviews,source",
+                "output": "json",
+                "rows": 2000,
+                "sort[]": "date asc",
+            })
+            break
+        except Exception:
+            if _attempt == 0:
+                time.sleep(2)
+            else:
+                return None
 
     docs = data.get("response", {}).get("docs", [])
 
@@ -1240,6 +1245,10 @@ def observatory():
     # 3. Live fetch from Archive.org
     out = _fetch_observatory_song(song_meta)
     if out is None:
+        # Fall back to stale cache rather than returning an error
+        if row and row.get("performances"):
+            _cache_set(lru_key, row)
+            return jsonify(row)
         return jsonify({"error": "Archive.org unavailable"}), 502
 
     # Persist to MongoDB and LRU
