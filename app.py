@@ -2445,13 +2445,29 @@ def _ensure_daily_blind():
 
 def _daily_blind_worker():
     import time as _t
-    _t.sleep(45)
+    _t.sleep(10)  # short startup delay then seed immediately
     while True:
         try: _ensure_daily_blind()
         except Exception as e: app.logger.warning(f"daily blind pick: {e}")
         _t.sleep(3600)
 
 threading.Thread(target=_daily_blind_worker, daemon=True).start()
+
+_ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+
+@app.route("/api/blind/daily/refresh", methods=["POST"])
+def blind_daily_refresh():
+    tok = request.headers.get("X-Admin-Token", "")
+    if not _ADMIN_TOKEN or tok != _ADMIN_TOKEN:
+        return jsonify({"error": "unauthorized"}), 403
+    today = _mt_today()
+    _daily_blind_col.delete_one({"_id": today})
+    try:
+        _pick_daily_track()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    doc = _daily_blind_col.find_one({"_id": today}, {"show_date": 1, "venue": 1, "track_title": 1})
+    return jsonify({"ok": True, "date": today, "show_date": doc.get("show_date"), "venue": doc.get("venue"), "track": doc.get("track_title")})
 
 @app.route("/api/blind/daily")
 def blind_daily():
