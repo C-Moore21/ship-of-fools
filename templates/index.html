@@ -563,6 +563,21 @@
     .gap-debut { background:rgba(42,157,111,0.15); color:#2a9d6f; border:1px solid rgba(42,157,111,0.4); }
     .gap-bust  { background:rgba(232,51,42,0.1); color:var(--accent); border:1px solid rgba(232,51,42,0.4); }
     .gap-gap   { background:rgba(26,75,191,0.1); color:var(--accent2); border:1px solid rgba(26,75,191,0.35); }
+    /* ── Listening Calendar ─────────────────────────────────────────────── */
+    .listen-cal-wrap { margin-top:14px; overflow-x:auto; }
+    .listen-cal-lbl { font-size:9px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; }
+    .listen-cal-grid { display:grid; grid-template-rows:repeat(7,10px); grid-auto-flow:column; grid-auto-columns:10px; gap:2px; width:max-content; }
+    .listen-cal-cell { width:10px; height:10px; border-radius:1px; background:var(--surface2); cursor:default; }
+    .lc-1 { background:rgba(232,51,42,0.22); }
+    .lc-2 { background:rgba(232,51,42,0.45); }
+    .lc-3 { background:rgba(232,51,42,0.70); }
+    .lc-4 { background:var(--accent); }
+    /* ── Blind Test date picker ──────────────────────────────────────────── */
+    .bt-date-picker { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0; }
+    .bt-select { background:var(--surface2); border:1px solid var(--border); color:var(--text); font-size:10px; padding:5px 8px; font-family:'Space Mono',monospace; cursor:pointer; }
+    .bt-guess-row { font-size:11px; font-family:'Space Mono',monospace; padding:2px 0; }
+    .bt-guess-row.correct { color:#2a9d6f; }
+    .bt-guess-row.wrong { color:var(--accent); }
     .blindtest-title { font-size:20px; font-weight:700; font-family:'Playfair Display',serif; color:var(--white); }
     .blindtest-sub { font-size:10px; color:var(--muted); margin-bottom:16px; letter-spacing:0.5px; }
     .blindtest-player audio { width:100%; margin:12px 0; }
@@ -2395,6 +2410,7 @@ async function loadStats(year) {
       <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened${_statsYear?' · '+_statsYear:''}</div></div>
       ${_streakHTML(d.streak)}
     </div>
+    ${_renderListenCal(d.cal_data)}
     ${eraBarHTML}
     ${moodHTML}
     ${songsRows ? `<div class="ratings-section-title" style="margin-top:20px">Top Songs${_statsYear?' · '+_statsYear:''}</div>
@@ -3340,6 +3356,7 @@ function _buildObsStats(d, body) {
         <div class="stats-card"><div class="stats-card-val">${fmtDuration(d.total_seconds)}</div><div class="stats-card-label">Total Listened${_obsStatsYear?' · '+_obsStatsYear:''}</div></div>
         ${_streakHTML(d.streak)}
       </div>
+      ${_renderListenCal(d.cal_data)}
       ${eraHTML}
       ${(d.mood_dist||[]).length ? `<div class="ratings-section-title" style="margin-top:20px">Listening Mood</div><div class="mood-dist">${(d.mood_dist||[]).map(m=>`<div class="mood-chip">${escapeHTML(m.mood)} <strong>${m.count}</strong></div>`).join('')}</div>` : ''}
       ${songsRows ? `<div class="ratings-section-title" style="margin-top:20px">Top Songs</div>
@@ -3622,6 +3639,29 @@ async function loadSetlistStats() {
   } catch(e) {}
 }
 
+// ── LISTENING CALENDAR ────────────────────────────────────────────────────────
+function _renderListenCal(calData) {
+  if (!calData || !calData.length) return '';
+  const counts = {};
+  calData.forEach(d => counts[d.date] = d.count);
+  const maxCount = Math.max(1, ...calData.map(d => d.count));
+  // Start from 364 days ago, aligned to Sunday
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - 364);
+  start.setDate(start.getDate() - start.getDay()); // back to Sunday
+  let cells = '';
+  const cur = new Date(start);
+  while (cur <= today) {
+    const key = cur.toISOString().slice(0,10);
+    const count = counts[key] || 0;
+    const level = count === 0 ? 0 : count < 3 ? 1 : count < 6 ? 2 : count < 10 ? 3 : 4;
+    cells += `<div class="listen-cal-cell lc-${level}" title="${key}${count?' · '+count+' listen'+(count!==1?'s':''):''}"></div>`;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return `<div class="listen-cal-wrap"><div class="listen-cal-lbl">Listening Calendar</div><div class="listen-cal-grid">${cells}</div></div>`;
+}
+
 // ── LISTENING FINGERPRINT helpers ─────────────────────────────────────────────
 function _fingerprintHTML(fp) {
   if (!fp) return '';
@@ -3689,85 +3729,92 @@ async function startBlindTest() {
     const d = await res.json();
     _btGuess = null;
     _btRevealed = false;
-    const ERAS = [
-      {id:'primal',  label:'Primal Dead',   years:'1965–1969'},
-      {id:'anthem',  label:'Anthem Era',    years:'1970–1972'},
-      {id:'wall',    label:'Wall of Sound', years:'1973–1974'},
-      {id:'comeback',label:'Comeback',      years:'1976–1979'},
-      {id:'brent',   label:'Brent Years',   years:'1980–1990'},
-      {id:'final',   label:'Final Years',   years:'1991–1995'},
-    ];
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthOpts = MONTHS.map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('');
+    const dayOpts   = Array.from({length:31},(_,i)=>`<option value="${String(i+1).padStart(2,'0')}">${i+1}</option>`).join('');
+    const yearOpts  = Array.from({length:31},(_,i)=>`<option value="${1965+i}">${1965+i}</option>`).join('');
     body.innerHTML = `
-      <div class="blindtest-player">
-        <audio id="bt-audio" controls src="${escapeHTML(d.track_url)}" style="width:100%"></audio>
+      <div class="blindtest-player"><audio id="bt-audio" controls style="width:100%"></audio></div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Guess the date of this show:</div>
+      <div class="bt-date-picker">
+        <select id="bt-month" class="bt-select"><option value="">Month?</option>${monthOpts}</select>
+        <select id="bt-day" class="bt-select"><option value="">Day?</option>${dayOpts}</select>
+        <select id="bt-year" class="bt-select"><option value="">Year?</option>${yearOpts}</select>
       </div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Which era is this from?</div>
-      <div class="blindtest-era-grid">
-        ${ERAS.map(e=>`<button class="blindtest-era-btn" id="bt-era-${e.id}" onclick="guessBlindEra('${e.id}','${escapeHTML(e.label)}')">
-          <div style="font-weight:700;font-size:11px">${escapeHTML(e.label)}</div>
-          <div style="font-size:9px;color:inherit;margin-top:2px">${e.years}</div>
-        </button>`).join('')}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="checkBlindGuess()">Check my guess</button>
+        <button class="btn" id="bt-reveal-btn" onclick="revealBlindTest()" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border)">Skip &amp; reveal</button>
       </div>
-      <button class="btn" id="bt-reveal-btn" onclick="revealBlindTest()" style="margin-top:4px">Reveal the show</button>
+      <div id="bt-result" style="margin-top:10px"></div>
       <div class="blindtest-reveal-box" id="bt-reveal-box"></div>
       <button class="btn" style="margin-top:12px;display:none" id="bt-next-btn" onclick="startBlindTest()">Deal another</button>`;
+    // Set src as DOM property — avoids any URL encoding issues in HTML attributes
+    const btAudio = document.getElementById('bt-audio');
+    if (btAudio) btAudio.src = d.track_url;
   } catch(e) {
     body.innerHTML = `<div class="obs-empty">Error: ${escapeHTML(String(e))} <button class="btn" style="margin-top:10px" onclick="startBlindTest()">Try again</button></div>`;
   }
 }
 
-function guessBlindEra(eraId, eraLabel) {
+async function checkBlindGuess() {
   if (_btRevealed) return;
-  _btGuess = {id: eraId, label: eraLabel};
-  document.querySelectorAll('.blindtest-era-btn').forEach(b => b.classList.remove('selected'));
-  const btn = document.getElementById(`bt-era-${eraId}`);
-  if (btn) btn.classList.add('selected');
+  const gYear  = (document.getElementById('bt-year') ||{}).value  || '';
+  const gMonth = (document.getElementById('bt-month')||{}).value || '';
+  const gDay   = (document.getElementById('bt-day')  ||{}).value   || '';
+  const result = document.getElementById('bt-result');
+  if (!gYear) { if(result) result.innerHTML = '<div style="color:var(--accent);font-size:10px">Pick a year first.</div>'; return; }
+  let d;
+  try {
+    const res = await fetch('/api/blindtest/reveal');
+    if (!res.ok) return;
+    d = await res.json();
+  } catch(e) { return; }
+  const [aYear, aMonth, aDay] = (d.show_date||'').split('-');
+  const MONTHS = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const yearOk  = gYear  === aYear;
+  const monthOk = yearOk  && !!gMonth && gMonth === aMonth;
+  const dayOk   = monthOk && !!gDay   && gDay   === aDay;
+  let html = '';
+  if (yearOk) {
+    html += `<div class="bt-guess-row correct">Year: ${gYear} ✓</div>`;
+    if (gMonth) {
+      if (monthOk) {
+        html += `<div class="bt-guess-row correct">Month: ${MONTHS[+gMonth]} ✓</div>`;
+        if (gDay) html += `<div class="bt-guess-row ${dayOk?'correct':'wrong'}">Day: ${+gDay} ${dayOk?'✓ — Exact match!':'✗'}</div>`;
+      } else {
+        html += `<div class="bt-guess-row wrong">Month: ${MONTHS[+gMonth]} ✗</div>`;
+      }
+    }
+  } else {
+    html += `<div class="bt-guess-row wrong">Year: ${gYear} ✗</div>`;
+  }
+  if (result) result.innerHTML = html;
+  if (yearOk) _showBlindReveal(d);
 }
 
 async function revealBlindTest() {
+  if (_btRevealed) return;
+  try {
+    const res = await fetch('/api/blindtest/reveal');
+    if (!res.ok) return;
+    _showBlindReveal(await res.json());
+  } catch(e) {}
+}
+
+function _showBlindReveal(d) {
+  _btRevealed = true;
   const box = document.getElementById('bt-reveal-box');
   const revealBtn = document.getElementById('bt-reveal-btn');
   const nextBtn = document.getElementById('bt-next-btn');
-  if (!box) return;
-  _btRevealed = true;
   if (revealBtn) revealBtn.style.display = 'none';
-  try {
-    const res = await fetch('/api/blindtest/reveal');
-    if (!res.ok) { box.innerHTML = '<div class="obs-empty">No active blind test.</div>'; box.classList.add('open'); return; }
-    const d = await res.json();
-    // Determine correct era
-    const yr = parseInt(d.year || '0', 10);
-    const ERA_RANGES = [
-      {id:'primal',  start:1965, end:1969},
-      {id:'anthem',  start:1970, end:1972},
-      {id:'wall',    start:1973, end:1974},
-      {id:'comeback',start:1976, end:1979},
-      {id:'brent',   start:1980, end:1990},
-      {id:'final',   start:1991, end:1995},
-    ];
-    const correctEra = ERA_RANGES.find(e => yr >= e.start && yr <= e.end);
-    // Highlight correct/wrong
-    if (correctEra) {
-      const correctBtn = document.getElementById(`bt-era-${correctEra.id}`);
-      if (correctBtn) correctBtn.classList.add('correct');
-    }
-    if (_btGuess && correctEra && _btGuess.id !== correctEra.id) {
-      const wrongBtn = document.getElementById(`bt-era-${_btGuess.id}`);
-      if (wrongBtn) { wrongBtn.classList.remove('selected'); wrongBtn.classList.add('wrong'); }
-    }
-    const gotIt = _btGuess && correctEra && _btGuess.id === correctEra.id;
-    box.innerHTML = `
-      <div style="font-size:10px;color:${gotIt?'#2a9d6f':'var(--accent)'};font-weight:700;margin-bottom:8px">${gotIt ? '✓ Correct!' : (_btGuess ? '✗ Not quite' : '—')}</div>
-      <div class="blindtest-reveal-date">${escapeHTML(d.show_date || '')}</div>
-      <div class="blindtest-reveal-venue">${escapeHTML(d.venue || '')}</div>
-      <div class="blindtest-reveal-track">Track: "${escapeHTML(d.track_title || '')}"</div>
-      <button class="btn" style="margin-top:10px" onclick="closeBlindTest();goToShow('${escapeHTML(d.show_date||'')}')">Open this show</button>`;
-    box.classList.add('open');
-    if (nextBtn) nextBtn.style.display = '';
-  } catch(e) {
-    box.innerHTML = `<div class="obs-empty">${escapeHTML(String(e))}</div>`;
-    box.classList.add('open');
-  }
+  if (!box) return;
+  box.innerHTML = `
+    <div class="blindtest-reveal-date">${escapeHTML(d.show_date||'')}</div>
+    <div class="blindtest-reveal-venue">${escapeHTML(d.venue||'')}</div>
+    <div class="blindtest-reveal-track">Track: "${escapeHTML(d.track_title||'')}"</div>
+    <button class="btn" style="margin-top:10px" onclick="closeBlindTest();tourRunGoTo('${escapeHTML(d.show_date||'')}')">Open this show</button>`;
+  box.classList.add('open');
+  if (nextBtn) nextBtn.style.display = '';
 }
 
 // Close blind test on overlay click

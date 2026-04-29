@@ -1040,6 +1040,19 @@ def listen_stats():
     mood_counts = _Counter(r["mood"] for r in rows if r.get("mood"))
     mood_dist = [{"mood": m, "count": c} for m, c in mood_counts.most_common()]
 
+    # Listening heatmap: daily listen counts for the last 365 days
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    _since = (_dt.now(_tz.utc) - _td(days=364)).isoformat()
+    _day_counts = {}
+    for doc in listens_table.find(
+        {"username": username, "ts": {"$gte": _since}},
+        {"ts": 1, "_id": 0}
+    ):
+        day = (doc.get("ts") or "")[:10]
+        if day:
+            _day_counts[day] = _day_counts.get(day, 0) + 1
+    cal_data = [{"date": k, "count": v} for k, v in sorted(_day_counts.items())]
+
     return jsonify({
         "total_seconds": total_seconds,
         "total_listens": len(rows),
@@ -1052,6 +1065,7 @@ def listen_stats():
         "fingerprint":   fingerprint,
         "streak":        streak,
         "mood_dist":     mood_dist,
+        "cal_data":      cal_data,
     })
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
