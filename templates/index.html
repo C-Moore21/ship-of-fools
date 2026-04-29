@@ -734,8 +734,8 @@
     <input type="range" class="volume-slider" id="vol-slider" min="0" max="1" step="0.02" value="1">
   </div>
   <button class="viz-toggle" id="viz-toggle" onclick="toggleViz()" title="Visualizer">VIZ</button>
-  <audio id="audio-player" crossorigin="anonymous"></audio>
-  <audio id="audio-preload" crossorigin="anonymous" preload="auto" muted style="display:none"></audio>
+  <audio id="audio-player"></audio>
+  <audio id="audio-preload" preload="auto" muted style="display:none"></audio>
 </div>
 
 <div class="modal-overlay" id="auth-modal">
@@ -2074,8 +2074,8 @@ function onEnded() {
   playTrack(nextIdx);
 }
 
-function onPause() { if (this === audio) document.getElementById('btn-play').innerHTML = _IC.play; }
-function onPlay()  { if (this === audio) { document.getElementById('btn-play').innerHTML = _IC.pause; _retryCount = 0; } }
+function onPause() { if (this === audio) { document.getElementById('btn-play').innerHTML = _IC.play; if (_vizAudio) _vizAudio.pause(); } }
+function onPlay()  { if (this === audio) { document.getElementById('btn-play').innerHTML = _IC.pause; _retryCount = 0; _syncVizAudio(); } }
 function onCanPlayThrough() { if (this === preload) _ps.ok = true; }
 
 let _failoverInProgress = false;
@@ -3860,16 +3860,19 @@ loadYears().then(async () => {
 });
 
 // ── VISUALIZER ────────────────────────────────────────────────────────────────
+// Uses a dedicated silent <audio> element for analysis so the main player
+// elements stay untouched — preserving AirPlay and iOS background playback.
 let _vizCtx = null, _vizAnalyser = null, _vizRaf = null;
 let _vizFreqBuf = null, _vizTimeBuf = null;
 let _vizMode = 'bars', _vizOpen = false;
+let _vizAudio = null; // dedicated analysis-only element, volume=0
 
 function toggleViz() {
   _vizOpen = !_vizOpen;
   document.getElementById('viz-panel').classList.toggle('open', _vizOpen);
   document.getElementById('viz-toggle').classList.toggle('active', _vizOpen);
   if (_vizOpen) { _initViz(); _startVizLoop(); }
-  else { _stopVizLoop(); }
+  else { _stopVizLoop(); if (_vizAudio) _vizAudio.pause(); }
 }
 
 function setVizMode(m) {
@@ -3886,11 +3889,25 @@ function _initViz() {
     _vizAnalyser.smoothingTimeConstant = 0.82;
     _vizFreqBuf = new Uint8Array(_vizAnalyser.frequencyBinCount);
     _vizTimeBuf = new Uint8Array(_vizAnalyser.fftSize);
-    [audioA, audioB].forEach(a => {
-      try { _vizCtx.createMediaElementSource(a).connect(_vizAnalyser); } catch(e) {}
-    });
+    // Dedicated silent element — never touches the main player elements
+    _vizAudio = document.createElement('audio');
+    _vizAudio.crossOrigin = 'anonymous';
+    _vizAudio.volume = 0;
+    _vizAudio.preload = 'auto';
+    document.body.appendChild(_vizAudio);
+    _vizCtx.createMediaElementSource(_vizAudio).connect(_vizAnalyser);
     _vizAnalyser.connect(_vizCtx.destination);
+    _syncVizAudio();
   } catch(e) { _vizCtx = null; }
+}
+
+function _syncVizAudio() {
+  if (!_vizOpen || !_vizAudio || !audio.src) return;
+  if (_vizAudio.src !== audio.src) {
+    _vizAudio.src = audio.src;
+    _vizAudio.currentTime = audio.currentTime;
+  }
+  if (!audio.paused) _vizAudio.play().catch(() => {});
 }
 
 function _startVizLoop() {
