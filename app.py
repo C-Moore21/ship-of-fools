@@ -46,6 +46,58 @@ def _cache_get(key):
 def _cache_set(key, val):
     _cache[key] = {"val": val, "ts": time.time()}
 
+def _norm_song(title):
+    import re as _re
+    _ALIASES = {
+        "gdtrfb": "going down the road feeling bad",
+        "going down the road feelin bad": "going down the road feeling bad",
+        "goin down the road feeling bad": "going down the road feeling bad",
+        "goin down the road feelin bad":  "going down the road feeling bad",
+        "nfa": "not fade away", "pitb": "playing in the band",
+        "tleo": "the other one", "st stephen": "saint stephen",
+        "lovelight": "turn on your lovelight",
+        "turn on your love light": "turn on your lovelight",
+        "sugar mag": "sugar magnolia", "truckin": "truckin",
+        "me  my uncle": "me and my uncle", "iko": "iko iko",
+        "china cat": "china cat sunflower", "cc rider": "cc rider",
+    }
+    t = (title or "").lower().strip()
+    t = _re.sub(r'^[\d\s\.\-]+', '', t)
+    t = _re.sub(r'\s*[-=>]+\s*.*$', '', t)
+    t = _re.sub(r"[''`&]", '', t)
+    t = _re.sub(r'[^\w\s]', '', t)
+    t = _re.sub(r'\s+', ' ', t).strip()
+    return _ALIASES.get(t, t)
+
+_TOTAL_SHOWS = 2318  # approximate GD lifetime show count (1965–1995)
+_SONG_PLAYS = {
+    "me and my uncle": 614, "not fade away": 530, "jack straw": 475,
+    "playing in the band": 465, "deal": 444, "china cat sunflower": 441,
+    "truckin": 430, "looks like rain": 408, "tennessee jed": 396,
+    "row jimmy": 388, "brown eyed women": 371, "sugar magnolia": 373,
+    "friend of the devil": 363, "bertha": 335, "eyes of the world": 339,
+    "casey jones": 318, "uncle johns band": 312, "good lovin": 311,
+    "sugaree": 300, "the other one": 302, "althea": 304,
+    "let it grow": 289, "ramble on rose": 289, "franklin tower": 288,
+    "loser": 277, "going down the road feeling bad": 268,
+    "estimated prophet": 259, "mississippi half step": 253,
+    "wharf rat": 247, "samson and delilah": 230, "black peter": 226,
+    "fire on the mountain": 220, "feel like a stranger": 220,
+    "candyman": 217, "stella blue": 218, "hell in a bucket": 222,
+    "throwing stones": 214, "shakedown street": 212, "dark star": 196,
+    "ripple": 196, "scarlet begonias": 198, "touch of grey": 198,
+    "dire wolf": 200, "china doll": 195, "ship of fools": 188,
+    "saint stephen": 183, "lazy lightning": 155, "supplication": 155,
+    "crazy fingers": 147, "new speedway boogie": 131, "terrapin station": 110,
+    "high time": 99, "standing on the moon": 97, "we can run": 88,
+    "comes a time": 86, "picasso moon": 84, "victim or the crime": 83,
+    "built to last": 73, "attics of my life": 73, "the eleven": 67,
+    "just a little light": 50, "weather report suite": 55,
+    "blues for allah": 47, "if i had the world to give": 39,
+    "cosmic charlie": 37, "pride of cucamonga": 15, "unbroken chain": 10,
+    "drums": 2300, "space": 2000, "he's gone": 276,
+}
+
 # Each tour run uses date ranges; progress queries use $gte/$lte — no hardcoded show lists needed.
 TOUR_ERAS = [
     {"id": "proto",    "name": "1965–1969 · Proto-Touring Era"},
@@ -214,6 +266,8 @@ except Exception:
 notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 observatory_table = _db["observatory_cache"]
 observatory_table.create_index("song_id", unique=True)
+setlist_cache = _db["setlist_cache"]
+setlist_cache.create_index([("song", 1), ("date", 1)], unique=True)
 
 # ── Archive.org API ───────────────────────────────────────────────────────────
 ARCHIVE_SEARCH   = "https://archive.org/advancedsearch.php"
@@ -662,6 +716,24 @@ def source_tracks(identifier):
         "transferer": item_meta.get("transferer") or "",
     }
     _cache_set(cache_key, result)
+    # Populate setlist_cache in background for gap/rarity features
+    import re as _re
+    date_str = (item_meta.get("date") or "")[:10]
+    if date_str and _re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        _titles = [t["title"] for s in sets for t in s.get("tracks", [])]
+        def _bg_index(d=date_str, ts=_titles):
+            for title in ts:
+                n = _norm_song(title)
+                if n and len(n) > 2:
+                    try:
+                        setlist_cache.update_one(
+                            {"song": n, "date": d},
+                            {"$setOnInsert": {"song": n, "date": d}},
+                            upsert=True
+                        )
+                    except Exception:
+                        pass
+        threading.Thread(target=_bg_index, daemon=True).start()
     return jsonify(result)
 
 # ── Listen tracking ───────────────────────────────────────────────────────────
@@ -737,6 +809,72 @@ def community_now_spinning():
     ]))
     _cache_set("community:now-spinning", rows)
     return jsonify(rows)
+
+@app.route("/api/shows/<path:show_date>/setlist-stats", methods=["POST"])
+def show_setlist_stats(show_date):
+    import re as _re
+    from datetime import date as _dc
+    if not _re.match(r'^\d{4}-\d{2}-\d{2}$', show_date):
+        return jsonify({"error": "invalid date"}), 400
+    data = request.get_json(force=True) or {}
+    raw_songs = data.get("songs", [])
+
+    _SKIP = {"drums", "space", "tuning", "drum solo", "space jam", "encore", ""}
+    norm_to_raw = {}
+    for title in raw_songs:
+        n = _norm_song(title)
+        if n and n not in _SKIP and len(n) > 2 and n not in norm_to_raw:
+            norm_to_raw[n] = title
+    norm_titles = list(norm_to_raw.keys())
+
+    # Save this show's setlist in background
+    def _save():
+        for n in norm_titles:
+            try:
+                setlist_cache.update_one(
+                    {"song": n, "date": show_date},
+                    {"$setOnInsert": {"song": n, "date": show_date}},
+                    upsert=True
+                )
+            except Exception:
+                pass
+    threading.Thread(target=_save, daemon=True).start()
+
+    # Gap data per song
+    song_data = {}
+    for n in norm_titles:
+        all_dates = sorted(
+            d["date"] for d in setlist_cache.find({"song": n}, {"date": 1, "_id": 0})
+        )
+        prev_date  = next((d for d in reversed(all_dates) if d < show_date), None)
+        next_date  = next((d for d in all_dates if d > show_date), None)
+        perf_num   = sum(1 for d in all_dates if d <= show_date)
+        total      = len(all_dates)
+        gap_before = None
+        if prev_date:
+            try:
+                gap_before = (_dc.fromisoformat(show_date) - _dc.fromisoformat(prev_date)).days
+            except Exception:
+                pass
+        song_data[n] = {
+            "raw": norm_to_raw[n], "prev_date": prev_date, "next_date": next_date,
+            "gap_before": gap_before, "perf_num": perf_num, "total": total,
+            "is_debut": perf_num == 1 and total >= 1,
+        }
+
+    # Rarity score
+    def _rarity(n):
+        plays = _SONG_PLAYS.get(n)
+        if plays is None:
+            plays = max(setlist_cache.count_documents({"song": n}), 5)
+        return max(0, min(100, round((1 - plays / _TOTAL_SHOWS) * 100)))
+
+    rarities = [_rarity(n) for n in norm_titles]
+    score = round(sum(rarities) / len(rarities)) if rarities else 50
+    label = ("Legendary" if score >= 90 else "Special Night" if score >= 75
+             else "Rare Night" if score >= 60 else "Solid Night" if score >= 40
+             else "Common Night")
+    return jsonify({"rarity_score": score, "rarity_label": label, "songs": song_data})
 
 @app.route("/api/listens/stats")
 @login_required
@@ -1838,6 +1976,37 @@ def _startup_map_warm():
         app.logger.info("Map cache: not found, fetching at startup…")
         _refresh_map_cache()
 _startup_t.Thread(target=_startup_map_warm, daemon=True).start()
+
+def _seed_setlist_cache():
+    """Seed setlist_cache from listen history so gap data works from day one."""
+    time.sleep(120)
+    try:
+        seen = set()
+        import re as _re
+        for doc in listens_table.find(
+            {"track_title": {"$ne": ""}, "show_date": {"$ne": ""}},
+            {"track_title": 1, "show_date": 1, "_id": 0}
+        ):
+            title = doc.get("track_title") or ""
+            date  = (doc.get("show_date") or "")[:10]
+            if not title or not date or not _re.match(r'^\d{4}-\d{2}-\d{2}$', date):
+                continue
+            n = _norm_song(title)
+            key = (n, date)
+            if not n or len(n) <= 2 or key in seen:
+                continue
+            seen.add(key)
+            try:
+                setlist_cache.update_one(
+                    {"song": n, "date": date},
+                    {"$setOnInsert": {"song": n, "date": date}},
+                    upsert=True
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+threading.Thread(target=_seed_setlist_cache, daemon=True).start()
 
 # ── Search ────────────────────────────────────────────────────────────────────
 @app.route("/api/search")

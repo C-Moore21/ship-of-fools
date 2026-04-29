@@ -550,6 +550,19 @@
     .controversial-spread { color:var(--muted); font-size:9px; min-width:38px; text-align:right; }
     /* ── Blind Test modal ───────────────────────────────────────────────── */
     .blindtest-modal { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent); padding:24px 28px; width:480px; max-width:94vw; position:relative; max-height:90vh; overflow-y:auto; }
+    /* ── Rarity + Gap ───────────────────────────────────────────────────── */
+    .rarity-badge { display:inline-flex; align-items:center; gap:6px; padding:3px 8px; border-radius:2px; font-family:'Space Mono',monospace; margin-top:4px; }
+    .rarity-score { font-size:13px; font-weight:700; line-height:1; }
+    .rarity-label { font-size:8px; letter-spacing:1.2px; text-transform:uppercase; }
+    .rarity-common  { background:rgba(100,100,100,0.08); color:var(--muted); border:1px solid var(--border); }
+    .rarity-solid   { background:rgba(200,168,75,0.1); color:#c8a84b; border:1px solid rgba(200,168,75,0.5); }
+    .rarity-rare    { background:rgba(26,75,191,0.1); color:var(--accent2); border:1px solid rgba(26,75,191,0.4); }
+    .rarity-special { background:rgba(124,77,255,0.1); color:#9c6fff; border:1px solid rgba(124,77,255,0.5); }
+    .rarity-legendary { background:rgba(232,51,42,0.1); color:var(--accent); border:1px solid rgba(232,51,42,0.5); }
+    .gap-badge { display:inline-block; font-size:8px; padding:1px 5px; border-radius:2px; font-family:'Space Mono',monospace; flex-shrink:0; margin-left:5px; white-space:nowrap; vertical-align:middle; }
+    .gap-debut { background:rgba(42,157,111,0.15); color:#2a9d6f; border:1px solid rgba(42,157,111,0.4); }
+    .gap-bust  { background:rgba(232,51,42,0.1); color:var(--accent); border:1px solid rgba(232,51,42,0.4); }
+    .gap-gap   { background:rgba(26,75,191,0.1); color:var(--accent2); border:1px solid rgba(26,75,191,0.35); }
     .blindtest-title { font-size:20px; font-weight:700; font-family:'Playfair Display',serif; color:var(--white); }
     .blindtest-sub { font-size:10px; color:var(--muted); margin-bottom:16px; letter-spacing:0.5px; }
     .blindtest-player audio { width:100%; margin:12px 0; }
@@ -1559,7 +1572,7 @@ function renderSourceButtons() {
   const parkingLotSection = `<div id="parking-lot-slot"></div>`;
   const _MOODS = ['Relaxed','Road Trip','Late Night','Morning','Party','Deep Dive'];
   const moodPickerHTML = loggedInUser ? `<div class="mood-picker"><div class="mood-picker-lbl">Listening Mood</div>${_MOODS.map(m=>`<button class="mood-btn" id="mood-btn-${m}" onclick="setMood('${m}')">${m}</button>`).join('')}</div>` : '';
-  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div></div>${parkingLotSection}${moodPickerHTML}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}<div id="rarity-slot"></div></div></div>${parkingLotSection}${moodPickerHTML}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
   // Load parking lot asynchronously — don't block track rendering
   loadParkingLot(currentShowDate);
 }
@@ -1644,6 +1657,7 @@ async function loadSourceTracks(idx) {
     });
   });
   container.innerHTML = tracksHTML || '<div style="padding:20px 16px;color:var(--muted);font-size:11px;">No playable tracks found for this source.</div>';
+  loadSetlistStats(); // async — decorates track rows with gap badges + rarity score
 
   // Check for a saved resume position matching this show + source
   try {
@@ -3546,6 +3560,66 @@ async function setMood(mood) {
       });
     } catch(e) {}
   }
+}
+
+// ── SETLIST RARITY + GAP ──────────────────────────────────────────────────────
+function _normSongJS(title) {
+  const ALIASES = {
+    'gdtrfb':'going down the road feeling bad','nfa':'not fade away',
+    'pitb':'playing in the band','tleo':'the other one',
+    'st stephen':'saint stephen','lovelight':'turn on your lovelight',
+    'turn on your love light':'turn on your lovelight',
+    'sugar mag':'sugar magnolia','truckin':'truckin',
+    'me  my uncle':'me and my uncle','iko':'iko iko',
+    'china cat':'china cat sunflower','cc rider':'cc rider',
+  };
+  let t = (title||'').toLowerCase().trim();
+  t = t.replace(/^[\d\s.\-]+/,'').replace(/\s*[-=>]+\s*.*$/,'');
+  t = t.replace(/[''`&]/g,'').replace(/[^\w\s]/g,'').replace(/\s+/g,' ').trim();
+  return ALIASES[t]||t;
+}
+
+async function loadSetlistStats() {
+  const songs = currentTracks.map(t => t.title).filter(Boolean);
+  if (!songs.length || !currentShowDate) return;
+  try {
+    const res = await fetch(`/api/shows/${currentShowDate}/setlist-stats`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({songs}),
+    });
+    if (!res.ok) return;
+    const d = await res.json();
+
+    // Rarity badge
+    const slot = document.getElementById('rarity-slot');
+    if (slot && d.rarity_score != null) {
+      const s = d.rarity_score;
+      const cls = s >= 90 ? 'legendary' : s >= 75 ? 'special' : s >= 60 ? 'rare' : s >= 40 ? 'solid' : 'common';
+      slot.innerHTML = `<div class="rarity-badge rarity-${cls}"><span class="rarity-score">${s}</span><span class="rarity-label">${escapeHTML(d.rarity_label)}</span></div>`;
+    }
+
+    // Gap badges on each track row
+    currentTracks.forEach((track, idx) => {
+      const norm = _normSongJS(track.title||'');
+      const info = (d.songs||{})[norm];
+      if (!info) return;
+      let badge = '';
+      if (info.is_debut && info.total >= 1) {
+        badge = `<span class="gap-badge gap-debut" title="First known performance">DEBUT</span>`;
+      } else if (info.gap_before != null && info.gap_before >= 365) {
+        const yrs = (info.gap_before/365).toFixed(1);
+        badge = `<span class="gap-badge gap-bust" title="Last played ${escapeHTML(info.prev_date||'')} — ${info.gap_before} days gap">↑ ${yrs}yr bust-out</span>`;
+      } else if (info.gap_before != null && info.gap_before >= 90) {
+        badge = `<span class="gap-badge gap-gap" title="Last played ${escapeHTML(info.prev_date||'')}">↑ ${info.gap_before}d</span>`;
+      }
+      if (badge) {
+        const row = document.getElementById(`track-row-${idx}`);
+        const nameEl = row && row.querySelector('.track-name');
+        if (nameEl) nameEl.insertAdjacentHTML('afterend', badge);
+      }
+    });
+  } catch(e) {}
 }
 
 // ── LISTENING FINGERPRINT helpers ─────────────────────────────────────────────
