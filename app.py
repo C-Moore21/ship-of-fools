@@ -46,6 +46,21 @@ def _cache_get(key):
 def _cache_set(key, val):
     _cache[key] = {"val": val, "ts": time.time()}
 
+def _parse_length(val):
+    """Return track length in seconds. Handles both '245.3' and 'MM:SS' formats."""
+    try:
+        return float(val or 0)
+    except (ValueError, TypeError):
+        try:
+            parts = str(val).split(':')
+            if len(parts) == 2:
+                return int(parts[0]) * 60 + float(parts[1])
+            if len(parts) == 3:
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+        except Exception:
+            pass
+    return 0
+
 def _norm_song(title):
     import re as _re
     _ALIASES = {
@@ -1456,10 +1471,7 @@ def _fetch_observatory_song(song_meta):
                     if not fname.lower().endswith((".mp3", ".flac", ".ogg")):
                         continue
                     title = f.get("title", "") or fname
-                    try:
-                        dur = float(f.get("length") or 0)
-                    except (ValueError, TypeError):
-                        dur = 0
+                    dur = _parse_length(f.get("length"))
                     if dur > 0:
                         track_data.append({"title": title, "duration": dur})
                 _cache_set(track_key, track_data)
@@ -2340,7 +2352,7 @@ def blindtest():
     mp3_files = [
         f for f in files
         if f.get("name", "").lower().endswith(".mp3")
-        and float(f.get("length", 0) or 0) > 60
+        and _parse_length(f.get("length")) > 60
         and not f.get("name", "").lower().endswith("_vbr.mp3")
     ]
     if not mp3_files:
@@ -2416,7 +2428,7 @@ def _pick_daily_track():
             continue
         mp3s = [f for f in files
                 if f.get("name", "").lower().endswith(".mp3")
-                and float(f.get("length", 0) or 0) > 60
+                and _parse_length(f.get("length")) > 60
                 and not f.get("name", "").lower().endswith("_vbr.mp3")]
         if not mp3s: continue
         track = _rand.choice(mp3s)
