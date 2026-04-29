@@ -890,7 +890,7 @@ def listen_stats():
     if year:
         query["show_date"] = {"$regex": f"^{year}-"}
 
-    rows = list(listens_table.find(query, {"seconds": 1, "show_date": 1, "show_id": 1, "track_id": 1, "track_title": 1, "mood": 1, "_id": 0}))
+    rows = list(listens_table.find(query, {"seconds": 1, "show_date": 1, "show_id": 1, "track_id": 1, "track_title": 1, "mood": 1, "ts": 1, "_id": 0}))
 
     total_seconds = sum(r["seconds"] for r in rows)
 
@@ -971,12 +971,14 @@ def listen_stats():
     top_shows  = sorted(by_show.values(),  key=lambda x: x["seconds"], reverse=True)[:10]
     top_tracks = sorted(by_track.values(), key=lambda x: x["seconds"], reverse=True)[:10]
 
-    # Available years the user has listens for
-    all_years = sorted({
-        r.get("show_date", "")[:4]
-        for r in listens_table.find({"username": username}, {"show_date": 1, "_id": 0})
-        if r.get("show_date", "")[:4].isdigit()
-    }, reverse=True)
+    # Available years — when filtered by year, use distinct() to get all years;
+    # otherwise all_years_set was already built from rows above.
+    if year:
+        all_years = sorted({
+            d[:4] for d in listens_table.distinct("show_date", {"username": username})
+            if d and len(d) >= 4 and d[:4].isdigit()
+        }, reverse=True)
+    # else: all_years is already set from all_years_set on line 917
 
     # Era bucketing
     ERAS = [
@@ -1000,28 +1002,23 @@ def listen_stats():
                 break
     by_era = [{"era": name, "seconds": era_seconds[name]} for name, _, _ in ERAS if era_seconds[name] > 0]
 
-    # Listening Fingerprint: dominant era personality label
-    _FINGERPRINT_LABELS = {
-        "Primal Dead":   ("Acid Test Survivor",    "You live in the raw, exploratory early years — before the machine got rolling."),
-        "Anthem Era":    ("Skull & Roses Devotee", "The early '70s golden age calls to you — when the machine first roared to life."),
-        "Wall of Sound": ("Wall of Sound Purist",  "You worship the sonic cathedral of '73–'74."),
-        "Comeback":      ("Reckoning Pilgrim",      "Lean, focused post-hiatus Dead is your home."),
-        "Brent Years":   ("Fire on the Mountain",   "The Brent years speak to you — raw energy and towering peaks."),
-        "Final Years":   ("Last Light Chaser",      "You find beauty in the final chapter — Jerry's last embers."),
-    }
-    dominant_era = max(era_seconds, key=lambda k: era_seconds[k]) if any(v > 0 for v in era_seconds.values()) else None
-    fingerprint = None
-    if dominant_era and era_seconds.get(dominant_era, 0) > 0:
-        fp_title, fp_desc = _FINGERPRINT_LABELS.get(dominant_era, ("Deadhead", "You contain multitudes."))
-        fingerprint = {"era": dominant_era, "title": fp_title, "desc": fp_desc}
-
-    # Streak: consecutive calendar days with any listen ending today
+    # Streak: consecutive calendar days with any listen ending today.
+    # Use rows (already fetched) when unfiltered; otherwise cap at 400 days
+    # since no streak can exceed that without breaking.
     from datetime import date as _date_cls, timedelta as _td
     _today = _date_cls.today()
+    if year:
+        from datetime import datetime as _dt2, timezone as _tz2
+        _streak_since = (_dt2.now(_tz2.utc) - _td(days=400)).isoformat()
+        _ts_src = listens_table.find(
+            {"username": username, "ts": {"$gte": _streak_since}},
+            {"ts": 1, "_id": 0}
+        )
+    else:
+        _ts_src = rows
     _all_ts = sorted(set(
-        r["ts"][:10] for r in listens_table.find(
-            {"username": username}, {"ts": 1, "_id": 0}
-        ) if r.get("ts") and len(r.get("ts", "")) >= 10
+        r["ts"][:10] for r in _ts_src
+        if r.get("ts") and len(r.get("ts", "")) >= 10
     ), reverse=True)
     streak = 0
     _check = _today
@@ -1063,7 +1060,6 @@ def listen_stats():
         "years":         all_years,
         "year":          year,
         "by_era":        by_era,
-        "fingerprint":   fingerprint,
         "streak":        streak,
         "mood_dist":     mood_dist,
         "cal_data":      cal_data,
@@ -1083,14 +1079,19 @@ def leaderboard():
     elif period == "month":
         since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         query["ts"] = {"$gte": since}
-    rows = list(listens_table.find(query, {"_id": 0}))
-    by_user = defaultdict(lambda: {"seconds": 0, "shows": set()})
-    for r in rows:
-        u = r.get("username", "")
-        by_user[u]["seconds"] += r.get("seconds", 0)
-        sid = r.get("show_id") or r.get("show_date", "")
-        if sid:
-            by_user[u]["shows"].add(sid)
+    # Aggregate server-side — avoids loading every listen record into Python memory
+    agg_query = dict(query)
+    by_user = {}
+    for r in listens_table.aggregate([
+        {"$match": agg_query},
+        {"$group": {
+            "_id": "$username",
+            "seconds": {"$sum": "$seconds"},
+            "shows": {"$addToSet": {"$ifNull": ["$show_id", "$show_date"]}},
+        }},
+    ]):
+        u = r["_id"] or ""
+        by_user[u] = {"seconds": r["seconds"], "shows": set(r["shows"])}
     usernames = list(by_user.keys())
     user_docs = {d["username"]: d for d in users_table.find(
         {"username": {"$in": usernames}}, {"username": 1, "display_name": 1, "_id": 0}
@@ -1100,8 +1101,9 @@ def leaderboard():
     _today = _date.today()
     streak_map = {}
     try:
+        _streak_cutoff = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
         for row in listens_table.aggregate([
-            {"$match": {"username": {"$in": usernames}, "ts": {"$exists": True, "$ne": ""}}},
+            {"$match": {"username": {"$in": usernames}, "ts": {"$gte": _streak_cutoff}}},
             {"$project": {"username": 1, "day": {"$substr": ["$ts", 0, 10]}}},
             {"$group": {"_id": {"u": "$username", "d": "$day"}}},
             {"$group": {"_id": "$_id.u", "days": {"$push": "$_id.d"}}},
