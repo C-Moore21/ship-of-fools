@@ -3621,13 +3621,13 @@ async function loadSetlistStats() {
       const norm = _normSongJS(track.title||'');
       const info = (d.songs||{})[norm];
       if (!info) return;
+      // Only show gap badges when we have enough indexed performances to trust the data.
+      // Debut badge removed — requires a complete setlist DB we don't have.
       let badge = '';
-      if (info.is_debut && info.total >= 1) {
-        badge = `<span class="gap-badge gap-debut" title="First known performance">DEBUT</span>`;
-      } else if (info.gap_before != null && info.gap_before >= 365) {
+      if (info.gap_before != null && info.gap_before >= 365 && info.total >= 40) {
         const yrs = (info.gap_before/365).toFixed(1);
         badge = `<span class="gap-badge gap-bust" title="Last played ${escapeHTML(info.prev_date||'')} — ${info.gap_before} days gap">↑ ${yrs}yr bust-out</span>`;
-      } else if (info.gap_before != null && info.gap_before >= 90) {
+      } else if (info.gap_before != null && info.gap_before >= 180 && info.total >= 40) {
         badge = `<span class="gap-badge gap-gap" title="Last played ${escapeHTML(info.prev_date||'')}">↑ ${info.gap_before}d</span>`;
       }
       if (badge) {
