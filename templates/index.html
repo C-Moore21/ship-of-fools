@@ -549,9 +549,6 @@
     .blindtest-reveal-date { font-size:22px; font-weight:700; color:var(--accent); font-family:'Playfair Display',serif; }
     .blindtest-reveal-venue { font-size:12px; color:var(--text); margin-top:2px; }
     .blindtest-reveal-track { font-size:10px; color:var(--muted); margin-top:6px; font-style:italic; }
-    /* ── Share button ───────────────────────────────────────────────────── */
-    .share-show-btn { background:none; border:1px solid var(--border); color:var(--muted); font-size:9px; padding:2px 7px; cursor:pointer; letter-spacing:1px; font-family:'Space Mono',monospace; vertical-align:middle; }
-    .share-show-btn:hover { border-color:var(--accent); color:var(--accent); }
   </style>
 </head>
 <body>
@@ -1522,7 +1519,7 @@ function renderSourceButtons() {
   _sourceLoading = false;
   const panel = document.getElementById('track-panel');
   const myStars = myShowRatings[currentShowDate] || 0;
-  const showStarsHTML = `<div class="show-rating-widget" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="show-rating-label">My Show Rating:</span><span id="show-stars-widget">${buildShowStars(currentShowDate, myStars)}</span><button class="share-show-btn" onclick="shareShowCard()" title="Share this show">📤 Share</button></div>`;
+  const showStarsHTML = `<div class="show-rating-widget"><span class="show-rating-label">My Show Rating:</span><span id="show-stars-widget">${buildShowStars(currentShowDate, myStars)}</span></div>`;
   const activeSrc = allSources[activeSourceIdx];
   const activeLbl = activeSrc ? `${activeSrc.source_type||'UNK'} — ${activeSrc.title||activeSrc.id}` : 'Sources';
   const selectorHTML = `<div class="source-collapse-header" onclick="toggleSourceList()" id="source-collapse-hdr"><span id="source-collapse-label">${escapeHTML(activeLbl)}</span><span id="source-collapse-arrow">${_IC.chevD}</span></div><div class="source-selector" id="source-selector-list">${allSources.map((s,i)=>`<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}<span style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(s.title||s.id)}</span></button>`).join('')}</div>`;
@@ -3641,77 +3638,6 @@ document.getElementById('blindtest-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('blindtest-modal')) closeBlindTest();
 });
 
-// ── SHARE SHOW CARD ───────────────────────────────────────────────────────────
-function shareShowCard() {
-  if (!currentShowDate) return;
-  const canvas = document.createElement('canvas');
-  canvas.width = 800; canvas.height = 420;
-  const ctx = canvas.getContext('2d');
-
-  // Background
-  ctx.fillStyle = '#080c14';
-  ctx.fillRect(0, 0, 800, 420);
-
-  // Accent bar top
-  ctx.fillStyle = '#e8332a';
-  ctx.fillRect(0, 0, 800, 5);
-
-  // Brand name
-  ctx.fillStyle = '#e8332a';
-  ctx.font = '700 14px "Space Mono", monospace';
-  ctx.fillText('SHIP OF FOOLS', 40, 40);
-
-  // Tagline
-  ctx.fillStyle = '#5a6e8a';
-  ctx.font = '11px "Space Mono", monospace';
-  ctx.fillText('Grateful Dead · Live Concert Archive', 40, 62);
-
-  // Show date — large
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '700 72px serif';
-  ctx.fillText(currentShowDate || '', 40, 170);
-
-  // Venue
-  const venueLine = (currentShowInfo || '').split('\n')[0].replace(/.*?—\s*/, '').trim();
-  ctx.fillStyle = '#c8d6e8';
-  ctx.font = '400 24px serif';
-  // Truncate if needed
-  let venueText = venueLine;
-  while (ctx.measureText(venueText).width > 720 && venueText.length > 10) {
-    venueText = venueText.slice(0, -1);
-  }
-  if (venueText !== venueLine) venueText += '…';
-  ctx.fillText(venueText, 40, 215);
-
-  // Star rating
-  const stars = myShowRatings[currentShowDate] || 0;
-  if (stars > 0) {
-    ctx.fillStyle = '#f5c518';
-    ctx.font = '700 32px serif';
-    ctx.fillText('★'.repeat(Math.floor(stars)) + (stars % 1 ? '½' : ''), 40, 280);
-    ctx.fillStyle = '#5a6e8a';
-    ctx.font = '11px "Space Mono", monospace';
-    ctx.fillText('MY RATING', 40, 300);
-  }
-
-  // Bottom strip
-  ctx.fillStyle = '#12192b';
-  ctx.fillRect(0, 360, 800, 60);
-  ctx.fillStyle = '#5a6e8a';
-  ctx.font = '11px "Space Mono", monospace';
-  ctx.fillText('shipoffools.app', 40, 397);
-
-  // Stealie skull (simple circle stand-in)
-  ctx.strokeStyle = '#e8332a';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(748, 390, 18, 0, Math.PI * 2); ctx.stroke();
-
-  // Trigger download
-  const link = document.createElement('a');
-  link.download = `gd-${currentShowDate}.png`;
-  link.href = canvas.toDataURL('image/png');
-  link.click();
-}
 
 checkMe();
 loadTodayHero();
