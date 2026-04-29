@@ -1040,18 +1040,19 @@ def listen_stats():
     mood_counts = _Counter(r["mood"] for r in rows if r.get("mood"))
     mood_dist = [{"mood": m, "count": c} for m, c in mood_counts.most_common()]
 
-    # Listening heatmap: daily listen counts for the last 365 days
+    # Listening heatmap: distinct shows per day for the last 365 days
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
     _since = (_dt.now(_tz.utc) - _td(days=364)).isoformat()
-    _day_counts = {}
+    _day_shows = {}
     for doc in listens_table.find(
         {"username": username, "ts": {"$gte": _since}},
-        {"ts": 1, "_id": 0}
+        {"ts": 1, "show_date": 1, "_id": 0}
     ):
-        day = (doc.get("ts") or "")[:10]
-        if day:
-            _day_counts[day] = _day_counts.get(day, 0) + 1
-    cal_data = [{"date": k, "count": v} for k, v in sorted(_day_counts.items())]
+        day  = (doc.get("ts") or "")[:10]
+        show = doc.get("show_date") or ""
+        if day and show:
+            _day_shows.setdefault(day, set()).add(show)
+    cal_data = [{"date": k, "count": len(v)} for k, v in sorted(_day_shows.items())]
 
     return jsonify({
         "total_seconds": total_seconds,

@@ -3656,7 +3656,7 @@ function _renderListenCal(calData) {
     const key = cur.toISOString().slice(0,10);
     const count = counts[key] || 0;
     const level = count === 0 ? 0 : count < 3 ? 1 : count < 6 ? 2 : count < 10 ? 3 : 4;
-    cells += `<div class="listen-cal-cell lc-${level}" title="${key}${count?' · '+count+' listen'+(count!==1?'s':''):''}"></div>`;
+    cells += `<div class="listen-cal-cell lc-${level}" title="${key}${count?' · '+count+' show'+(count!==1?'s':''):''}"></div>`;
     cur.setDate(cur.getDate() + 1);
   }
   return `<div class="listen-cal-wrap"><div class="listen-cal-lbl">Listening Calendar</div><div class="listen-cal-grid">${cells}</div></div>`;
