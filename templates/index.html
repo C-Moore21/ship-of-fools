@@ -501,6 +501,8 @@
       .track-row { padding:10px 12px; }
 
       /* Player bar — two rows on mobile */
+      .viz-panel { bottom:130px; }
+      .viz-panel.open { height:120px; }
       .player-bar { height:130px; flex-wrap:wrap; padding:8px 14px; gap:0; align-content:center; row-gap:6px; }
       .player-info { width:100%; flex:none; order:0; }
       .player-track { font-size:13px; }
@@ -587,6 +589,17 @@
     .blindtest-reveal-date { font-size:22px; font-weight:700; color:var(--accent); font-family:'Playfair Display',serif; }
     .blindtest-reveal-venue { font-size:12px; color:var(--text); margin-top:2px; }
     .blindtest-reveal-track { font-size:10px; color:var(--muted); margin-top:6px; font-style:italic; }
+    /* ── Visualizer ─────────────────────────────────────────────────────────── */
+    .viz-panel { position:fixed; bottom:90px; left:0; right:0; height:0; overflow:hidden; background:var(--bg); border-top:1px solid transparent; transition:height 0.22s ease,border-color 0.22s; z-index:99; }
+    .viz-panel.open { height:160px; border-color:var(--border); }
+    .viz-canvas { display:block; width:100%; height:100%; }
+    .viz-mode-btns { position:absolute; top:7px; right:10px; display:flex; gap:4px; z-index:2; }
+    .viz-mode-btn { background:transparent; border:1px solid var(--border); color:var(--muted); font-family:'Space Mono',monospace; font-size:8px; letter-spacing:1.2px; padding:3px 7px; cursor:pointer; transition:all 0.15s; }
+    .viz-mode-btn:hover { color:var(--text); border-color:var(--text); }
+    .viz-mode-btn.active { background:var(--accent); border-color:var(--accent); color:var(--white); }
+    .viz-toggle { background:transparent; border:1px solid var(--border); color:var(--muted); font-family:'Space Mono',monospace; font-size:9px; letter-spacing:1px; padding:4px 9px; cursor:pointer; transition:all 0.15s; flex-shrink:0; }
+    .viz-toggle:hover { color:var(--text); border-color:var(--text); }
+    .viz-toggle.active { color:var(--accent); border-color:var(--accent); }
   </style>
 </head>
 <body>
@@ -693,6 +706,14 @@
   <div id="leaderboard-content"><div class="loading">Loading</div></div>
 </div>
 
+<div class="viz-panel" id="viz-panel">
+  <canvas class="viz-canvas" id="viz-canvas"></canvas>
+  <div class="viz-mode-btns">
+    <button class="viz-mode-btn active" data-mode="bars" onclick="setVizMode('bars')">BARS</button>
+    <button class="viz-mode-btn" data-mode="radial" onclick="setVizMode('radial')">RADIAL</button>
+    <button class="viz-mode-btn" data-mode="scope" onclick="setVizMode('scope')">SCOPE</button>
+  </div>
+</div>
 <div class="player-bar">
   <div class="player-info">
     <div class="player-track" id="player-track">—</div>
@@ -712,8 +733,9 @@
     <span class="volume-icon" id="vol-icon" onclick="toggleMute()"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polygon points="11,4 6,8 2,8 2,16 6,16 11,20"/><polyline points="14,9 17,12 14,15"/><polyline points="17,7 21,12 17,17"/></svg></span>
     <input type="range" class="volume-slider" id="vol-slider" min="0" max="1" step="0.02" value="1">
   </div>
-  <audio id="audio-player"></audio>
-  <audio id="audio-preload" preload="auto" muted style="display:none"></audio>
+  <button class="viz-toggle" id="viz-toggle" onclick="toggleViz()" title="Visualizer">VIZ</button>
+  <audio id="audio-player" crossorigin="anonymous"></audio>
+  <audio id="audio-preload" crossorigin="anonymous" preload="auto" muted style="display:none"></audio>
 </div>
 
 <div class="modal-overlay" id="auth-modal">
@@ -3836,6 +3858,158 @@ loadYears().then(async () => {
     }
   }
 });
+
+// ── VISUALIZER ────────────────────────────────────────────────────────────────
+let _vizCtx = null, _vizAnalyser = null, _vizRaf = null;
+let _vizFreqBuf = null, _vizTimeBuf = null;
+let _vizMode = 'bars', _vizOpen = false;
+
+function toggleViz() {
+  _vizOpen = !_vizOpen;
+  document.getElementById('viz-panel').classList.toggle('open', _vizOpen);
+  document.getElementById('viz-toggle').classList.toggle('active', _vizOpen);
+  if (_vizOpen) { _initViz(); _startVizLoop(); }
+  else { _stopVizLoop(); }
+}
+
+function setVizMode(m) {
+  _vizMode = m;
+  document.querySelectorAll('.viz-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+}
+
+function _initViz() {
+  if (_vizCtx) { if (_vizCtx.state === 'suspended') _vizCtx.resume(); return; }
+  try {
+    _vizCtx = new (window.AudioContext || window.webkitAudioContext)();
+    _vizAnalyser = _vizCtx.createAnalyser();
+    _vizAnalyser.fftSize = 512;
+    _vizAnalyser.smoothingTimeConstant = 0.82;
+    _vizFreqBuf = new Uint8Array(_vizAnalyser.frequencyBinCount);
+    _vizTimeBuf = new Uint8Array(_vizAnalyser.fftSize);
+    [audioA, audioB].forEach(a => {
+      try { _vizCtx.createMediaElementSource(a).connect(_vizAnalyser); } catch(e) {}
+    });
+    _vizAnalyser.connect(_vizCtx.destination);
+  } catch(e) { _vizCtx = null; }
+}
+
+function _startVizLoop() {
+  _stopVizLoop();
+  const canvas = document.getElementById('viz-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  let cw = 0, ch = 0;
+  function resize() {
+    cw = canvas.clientWidth; ch = canvas.clientHeight;
+    canvas.width = cw * dpr; canvas.height = ch * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window._vizResizeHandler = resize;
+  function frame() {
+    _vizRaf = requestAnimationFrame(frame);
+    if (canvas.clientWidth !== cw || canvas.clientHeight !== ch) resize();
+    ctx.clearRect(0, 0, cw, ch);
+    if (!_vizAnalyser) { _drawIdleViz(ctx, cw, ch); return; }
+    if (_vizMode === 'bars') _drawBars(ctx, cw, ch);
+    else if (_vizMode === 'radial') _drawRadial(ctx, cw, ch);
+    else _drawScope(ctx, cw, ch);
+  }
+  frame();
+}
+
+function _stopVizLoop() {
+  if (_vizRaf) { cancelAnimationFrame(_vizRaf); _vizRaf = null; }
+}
+
+function _drawIdleViz(ctx, w, h) {
+  const t = Date.now() / 1200;
+  ctx.fillStyle = 'rgba(80,80,80,0.18)';
+  for (let i = 0; i < 32; i++) {
+    const v = 0.04 + 0.03 * Math.sin(t + i * 0.6);
+    ctx.fillRect(i * (w/32) + 1, h - v*h, w/32 - 2, v*h);
+  }
+}
+
+function _drawBars(ctx, w, h) {
+  _vizAnalyser.getByteFrequencyData(_vizFreqBuf);
+  const floor = h * 0.72;
+  const bins = 96;
+  const bw = w / bins;
+  for (let i = 0; i < bins; i++) {
+    const v = _vizFreqBuf[i] / 255;
+    const barH = v * floor * 0.96;
+    const x = i * bw;
+    const t = i / bins;
+    const r = Math.round(232 - 206*t), g = Math.round(51 + 24*t), b = Math.round(42 + 149*t);
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(x + 0.5, floor - barH, Math.max(1, bw - 1), barH);
+    if (barH > 2) {
+      const grad = ctx.createLinearGradient(0, floor, 0, floor + barH * 0.4);
+      grad.addColorStop(0, `rgba(${r},${g},${b},0.3)`);
+      grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(x + 0.5, floor, Math.max(1, bw - 1), barH * 0.4);
+    }
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, floor); ctx.lineTo(w, floor); ctx.stroke();
+}
+
+function _drawRadial(ctx, w, h) {
+  _vizAnalyser.getByteFrequencyData(_vizFreqBuf);
+  const cx = w/2, cy = h/2;
+  const inner = Math.min(w, h) * 0.14;
+  const outer = Math.min(w, h) * 0.44;
+  const bins = 120;
+  const lineW = Math.max(1.5, (2 * Math.PI * inner / bins) * 0.65);
+  ctx.lineWidth = lineW;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < bins; i++) {
+    const v = _vizFreqBuf[Math.floor(i * _vizFreqBuf.length / bins)] / 255;
+    const angle = (i / bins) * Math.PI * 2 - Math.PI / 2;
+    const len = v * (outer - inner);
+    const t = i / bins;
+    const r = Math.round(232 - 206*t), g = Math.round(51 + 24*t), b = Math.round(42 + 149*t);
+    ctx.strokeStyle = `rgba(${r},${g},${b},${0.5 + v*0.5})`;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle)*inner, cy + Math.sin(angle)*inner);
+    ctx.lineTo(cx + Math.cos(angle)*(inner+len), cy + Math.sin(angle)*(inner+len));
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy, inner - 1, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(232,51,42,0.25)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+function _drawScope(ctx, w, h) {
+  _vizAnalyser.getByteTimeDomainData(_vizTimeBuf);
+  const len = _vizTimeBuf.length;
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  [0.25,0.5,0.75].forEach(f => {
+    ctx.beginPath(); ctx.moveTo(0,h*f); ctx.lineTo(w,h*f); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(w*f,0); ctx.lineTo(w*f,h); ctx.stroke();
+  });
+  const grad = ctx.createLinearGradient(0, 0, w, 0);
+  grad.addColorStop(0, '#e8332a');
+  grad.addColorStop(0.5, '#c94498');
+  grad.addColorStop(1, '#1a4bbf');
+  ctx.strokeStyle = grad;
+  ctx.lineWidth = 1.8;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < len; i++) {
+    const x = (i / len) * w;
+    const y = ((_vizTimeBuf[i] / 128) - 1) * h * 0.42 + h * 0.5;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
 </script>
 </body>
 </html>
