@@ -2674,7 +2674,7 @@ async function renderHeatmap() {
   _obsView = 'heatmap';
   const body = document.getElementById('obs-modal-body');
   if (_obsHeatmapData) { buildHeatmap(_obsHeatmapData, body); return; }
-  body.innerHTML = '<div class="loading">Warming up the observatory…</div>';
+  body.innerHTML = '<div class="loading">Warming up the observatory</div>';
   try {
     const res = await fetch('/api/observatory/heatmap');
     if (!res.ok) throw new Error(res.statusText);
@@ -3317,7 +3317,7 @@ let _obsStatsYear = '';
 async function renderObsStats(year) {
   if (year !== undefined) _obsStatsYear = year;
   const body = document.getElementById('obs-modal-body');
-  body.innerHTML = '<div class="loading">Loading your stats…</div>';
+  body.innerHTML = '<div class="loading">Loading your stats</div>';
   try {
     const url = '/api/listens/stats' + (_obsStatsYear ? `?year=${encodeURIComponent(_obsStatsYear)}` : '');
     const res = await fetch(url);
@@ -3735,7 +3735,7 @@ function _btDailyStatsHTML(stats) {
 
 async function loadDailyBlindTest() {
   const body = document.getElementById('blindtest-body');
-  body.innerHTML = '<div class="loading">Loading today\'s track…</div>';
+  body.innerHTML = '<div class="loading">Loading today\'s track</div>';
   try {
     const res = await fetch('/api/blind/daily');
     if (!res.ok) {
