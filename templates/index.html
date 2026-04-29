@@ -3753,7 +3753,7 @@ async function loadDailyBlindTest() {
       else                       badge = '<div style="color:var(--muted);margin-bottom:8px">Missed this one.</div>';
       const rv = d.reveal || {};
       body.innerHTML = `
-        <div class="blindtest-player"><audio id="bt-audio" controls style="width:100%"></audio></div>
+        <div class="blindtest-player"><audio id="bt-audio" controls src="${d.track_url||''}" style="width:100%"></audio></div>
         ${badge}
         <div class="blindtest-reveal-box open">
           <div class="blindtest-reveal-date">${escapeHTML(rv.show_date||'')}</div>
@@ -3775,7 +3775,7 @@ async function loadDailyBlindTest() {
     const yearOpts  = Array.from({length:31},(_,i)=>`<option value="${1965+i}">${1965+i}</option>`).join('');
     body.innerHTML = `
       <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Today · ${escapeHTML(d.date||'')}</div>
-      <div class="blindtest-player"><audio id="bt-audio" controls style="width:100%"></audio></div>
+      <div class="blindtest-player"><audio id="bt-audio" controls src="${d.track_url||''}" style="width:100%"></audio></div>
       <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Guess the date of this show:</div>
       <div class="bt-date-picker">
         <select id="bt-month" class="bt-select"><option value="">Month?</option>${monthOpts}</select>
