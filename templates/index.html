@@ -104,7 +104,7 @@
     .ticket-stub { position:absolute; top:6px; right:10px; z-index:0; pointer-events:none; user-select:none; transform:rotate(1.5deg); }
     .ticket-stub-inner { background:#f5ead6; border:1px solid #c9a96e; border-left:none; padding:5px 10px 5px 14px; position:relative; display:flex; flex-direction:column; align-items:flex-end; min-width:76px; box-shadow:1px 2px 6px rgba(0,0,0,0.35); }
     .ticket-stub-inner::before { content:''; position:absolute; left:-1px; top:0; bottom:0; width:10px; background:repeating-radial-gradient(circle at 0 50%, transparent 0 4px, #f5ead6 4px 6px) 0 0 / 10px 10px; }
-    .ticket-stub-inner::after { content:'ADMIT ONE'; position:absolute; bottom:3px; left:14px; font-size:6px; letter-spacing:1.5px; color:#8b6a3a; font-family:'Space Mono',monospace; opacity:0.7; }
+    .ticket-stub-inner::after { content:'ADMIT ONE'; position:absolute; top:3px; left:14px; font-size:6px; letter-spacing:1.5px; color:#8b6a3a; font-family:'Space Mono',monospace; opacity:0.7; }
     .ticket-stub-date { font-family:'Space Mono',monospace; font-size:13px; font-weight:700; color:#3a2510; line-height:1.2; letter-spacing:1px; }
     .ticket-stub-sub { font-family:'Space Mono',monospace; font-size:7px; color:#7a5a2a; letter-spacing:0.5px; margin-top:1px; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:right; }
     .source-meta { font-size:11px; color:var(--muted); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -519,6 +519,21 @@
     .today-hero-foot { display:flex; align-items:center; justify-content:space-between; margin-top:5px; gap:4px; }
     .today-hero-listens { font-size:9px; color:var(--muted); }
     .today-hero-play { padding:2px 8px; background:var(--accent); color:var(--white); border:none; font-size:9px; cursor:pointer; letter-spacing:1px; flex-shrink:0; }
+    /* ── Now Spinning ───────────────────────────────────────────────────── */
+    .now-spinning-wrap { border-bottom:1px solid var(--border); padding-bottom:2px; }
+    .now-spinning-lbl { font-size:9px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; padding:8px 10px 3px; }
+    .now-spinning-row { display:flex; align-items:center; justify-content:space-between; padding:3px 10px; cursor:pointer; font-size:11px; }
+    .now-spinning-row:hover { background:var(--surface2); }
+    .now-spinning-date { color:var(--text); font-family:'Space Mono',monospace; }
+    .now-spinning-ct { color:var(--muted); font-size:9px; }
+    /* ── Mood picker ────────────────────────────────────────────────────── */
+    .mood-picker { padding:5px 10px 4px; border-top:1px solid var(--border); }
+    .mood-picker-lbl { font-size:9px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
+    .mood-btn { background:var(--surface2); border:1px solid var(--border); color:var(--muted); font-size:9px; padding:2px 7px; cursor:pointer; border-radius:2px; font-family:'Space Mono',monospace; margin:0 3px 3px 0; }
+    .mood-btn:hover { border-color:var(--accent); color:var(--text); }
+    .mood-btn.active { background:var(--accent); border-color:var(--accent); color:var(--white); }
+    .mood-dist { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+    .mood-chip { background:var(--surface2); border:1px solid var(--border); padding:2px 8px; font-size:9px; color:var(--text); border-radius:2px; font-family:'Space Mono',monospace; }
     /* ── Fingerprint card ───────────────────────────────────────────────── */
     .fingerprint-card { background:var(--surface2); border:1px solid var(--border); border-left:3px solid var(--accent2); padding:11px 14px; margin-bottom:14px; }
     .fingerprint-lbl { font-size:9px; color:var(--accent2); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:2px; }
@@ -610,6 +625,7 @@
 <div class="layout" id="browse-view">
   <div class="years-panel" id="years-panel">
     <div id="today-hero-teaser"></div>
+    <div id="now-spinning-slot"></div>
     <div class="panel-label">Years</div>
     <div id="years-list"><div class="loading">Loading</div></div>
   </div>
@@ -1541,7 +1557,9 @@ function renderSourceButtons() {
     </div></div>`;
   }
   const parkingLotSection = `<div id="parking-lot-slot"></div>`;
-  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div></div>${parkingLotSection}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+  const _MOODS = ['Relaxed','Road Trip','Late Night','Morning','Party','Deep Dive'];
+  const moodPickerHTML = loggedInUser ? `<div class="mood-picker"><div class="mood-picker-lbl">Listening Mood</div>${_MOODS.map(m=>`<button class="mood-btn" id="mood-btn-${m}" onclick="setMood('${m}')">${m}</button>`).join('')}</div>` : '';
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}</div></div>${parkingLotSection}${moodPickerHTML}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
   // Load parking lot asynchronously — don't block track rendering
   loadParkingLot(currentShowDate);
 }
@@ -2204,11 +2222,14 @@ async function goToShow(showId) {
 let listenSeconds = 0;
 let listenLastTime = null;
 let listenSessionId = null;
+let _currentMood = null;
 
 function _newListenSession() {
   listenSeconds = 0;
   listenLastTime = null;
   listenSessionId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  _currentMood = null;
+  document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('active'));
 }
 
 function listenTick() {
@@ -2347,6 +2368,11 @@ async function loadStats(year) {
     `;
   }
 
+  const moodDist = d.mood_dist || [];
+  const moodHTML = moodDist.length ? `
+    <div class="ratings-section-title" style="margin-top:20px">Listening Mood</div>
+    <div class="mood-dist">${moodDist.map(m => `<div class="mood-chip">${escapeHTML(m.mood)} <strong>${m.count}</strong></div>`).join('')}</div>` : '';
+
   el.innerHTML = `
     <div id="era-tooltip" class="era-tooltip"></div>
     ${yearBtns}
@@ -2356,6 +2382,7 @@ async function loadStats(year) {
       ${_streakHTML(d.streak)}
     </div>
     ${eraBarHTML}
+    ${moodHTML}
     ${songsRows ? `<div class="ratings-section-title" style="margin-top:20px">Top Songs${_statsYear?' · '+_statsYear:''}</div>
     <table class="stats-table"><thead><tr><th>Song</th><th>Shows</th><th>Time</th><th></th></tr></thead><tbody>${songsRows}</tbody></table>` : ''}
     ${d.top_shows.length ? `<div class="ratings-section-title" style="margin-top:20px">Top Shows${_statsYear?' · '+_statsYear:''}</div>
@@ -3300,6 +3327,7 @@ function _buildObsStats(d, body) {
         ${_streakHTML(d.streak)}
       </div>
       ${eraHTML}
+      ${(d.mood_dist||[]).length ? `<div class="ratings-section-title" style="margin-top:20px">Listening Mood</div><div class="mood-dist">${(d.mood_dist||[]).map(m=>`<div class="mood-chip">${escapeHTML(m.mood)} <strong>${m.count}</strong></div>`).join('')}</div>` : ''}
       ${songsRows ? `<div class="ratings-section-title" style="margin-top:20px">Top Songs</div>
         <table class="stats-table"><thead><tr><th>Song</th><th>Shows</th><th>Time</th><th></th></tr></thead><tbody>${songsRows}</tbody></table>` : ''}
       ${showsRows ? `<div class="ratings-section-title" style="margin-top:20px">Top Shows</div>
@@ -3485,6 +3513,41 @@ async function loadTodayHero() {
   } catch(e) { /* silent — hero is decorative */ }
 }
 
+// ── COMMUNITY NOW SPINNING ────────────────────────────────────────────────────
+async function loadNowSpinning() {
+  const slot = document.getElementById('now-spinning-slot');
+  if (!slot) return;
+  try {
+    const res = await fetch('/api/community/now-spinning');
+    if (!res.ok) return;
+    const rows = await res.json();
+    if (!rows.length) return;
+    slot.innerHTML = `<div class="now-spinning-wrap">
+      <div class="now-spinning-lbl">▶ Community Now Spinning</div>
+      ${rows.map(r => `<div class="now-spinning-row" onclick="tourRunGoTo('${escapeHTML(r.show_date)}')">
+        <span class="now-spinning-date">${escapeHTML(r.show_date)}</span>
+        <span class="now-spinning-ct">${r.count} listen${r.count !== 1 ? 's' : ''}</span>
+      </div>`).join('')}
+    </div>`;
+  } catch(e) {}
+}
+
+// ── MOOD ──────────────────────────────────────────────────────────────────────
+async function setMood(mood) {
+  if (!loggedInUser || !listenSessionId) return;
+  _currentMood = (_currentMood === mood) ? null : mood;
+  document.querySelectorAll('.mood-btn').forEach(b => b.classList.toggle('active', b.id === `mood-btn-${_currentMood}`));
+  if (_currentMood) {
+    try {
+      await fetch('/api/listen/mood', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session_id: listenSessionId, mood: _currentMood}),
+      });
+    } catch(e) {}
+  }
+}
+
 // ── LISTENING FINGERPRINT helpers ─────────────────────────────────────────────
 function _fingerprintHTML(fp) {
   if (!fp) return '';
@@ -3641,6 +3704,7 @@ document.getElementById('blindtest-modal').addEventListener('click', e => {
 
 checkMe();
 loadTodayHero();
+loadNowSpinning();
 loadYears().then(async () => {
   const params = new URLSearchParams(window.location.search);
   const showId = params.get('show');

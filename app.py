@@ -706,6 +706,38 @@ def record_listen():
         })
     return jsonify({"ok": True})
 
+@app.route("/api/listen/mood", methods=["POST"])
+@login_required
+def set_listen_mood():
+    data = request.get_json()
+    session_id = data.get("session_id", "")
+    mood = data.get("mood", "")
+    _VALID_MOODS = {"Relaxed", "Road Trip", "Late Night", "Morning", "Party", "Deep Dive"}
+    if not session_id or mood not in _VALID_MOODS:
+        return jsonify({"error": "invalid"}), 400
+    listens_table.update_one(
+        {"username": current_user(), "session_id": session_id},
+        {"$set": {"mood": mood}}
+    )
+    return jsonify({"ok": True})
+
+@app.route("/api/community/now-spinning")
+def community_now_spinning():
+    from datetime import datetime, timezone, timedelta
+    cached = _cache_get("community:now-spinning")
+    if cached is not None:
+        return jsonify(cached)
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    rows = list(listens_table.aggregate([
+        {"$match": {"ts": {"$gte": since}, "show_date": {"$exists": True, "$ne": ""}}},
+        {"$group": {"_id": "$show_date", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 5},
+        {"$project": {"show_date": "$_id", "count": 1, "_id": 0}},
+    ]))
+    _cache_set("community:now-spinning", rows)
+    return jsonify(rows)
+
 @app.route("/api/listens/stats")
 @login_required
 def listen_stats():
@@ -720,7 +752,7 @@ def listen_stats():
     if year:
         query["show_date"] = {"$regex": f"^{year}-"}
 
-    rows = list(listens_table.find(query, {"seconds": 1, "show_date": 1, "show_id": 1, "track_id": 1, "track_title": 1, "_id": 0}))
+    rows = list(listens_table.find(query, {"seconds": 1, "show_date": 1, "show_id": 1, "track_id": 1, "track_title": 1, "mood": 1, "_id": 0}))
 
     total_seconds = sum(r["seconds"] for r in rows)
 
@@ -866,6 +898,10 @@ def listen_stats():
         elif _d < _check:
             break
 
+    from collections import Counter as _Counter
+    mood_counts = _Counter(r["mood"] for r in rows if r.get("mood"))
+    mood_dist = [{"mood": m, "count": c} for m, c in mood_counts.most_common()]
+
     return jsonify({
         "total_seconds": total_seconds,
         "total_listens": len(rows),
@@ -877,6 +913,7 @@ def listen_stats():
         "by_era":        by_era,
         "fingerprint":   fingerprint,
         "streak":        streak,
+        "mood_dist":     mood_dist,
     })
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
@@ -2114,7 +2151,12 @@ def blindtest():
     except Exception:
         return jsonify({"error": "Could not load tracks, try again"}), 502
 
-    mp3_files = [f for f in files if f.get("name", "").lower().endswith(".mp3") and f.get("title")]
+    mp3_files = [
+        f for f in files
+        if f.get("name", "").lower().endswith(".mp3")
+        and float(f.get("length", 0) or 0) > 60
+        and not f.get("name", "").lower().endswith("_vbr.mp3")
+    ]
     if not mp3_files:
         return jsonify({"error": "No playable tracks, try again"}), 404
 
