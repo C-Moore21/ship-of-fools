@@ -189,6 +189,7 @@ TOUR_RUNS = [
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-prod")
+app.config["PERMANENT_SESSION_LIFETIME"] = __import__("datetime").timedelta(days=30)
 
 # ── Database ──────────────────────────────────────────────────────────────────
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/ship_of_fools")
@@ -260,6 +261,7 @@ def register():
     if users_table.find_one({"username": username}):
         return jsonify({"error": "Username already taken"}), 409
     users_table.insert_one({"username": username, "password_hash": generate_password_hash(password)})
+    session.permanent = True
     session["username"] = username
     return jsonify({"ok": True, "username": username})
 
@@ -271,6 +273,7 @@ def login():
     user = users_table.find_one({"username": username})
     if not user or not check_password_hash(user["password_hash"], password):
         return jsonify({"error": "Invalid username or password"}), 401
+    session.permanent = True
     session["username"] = username
     return jsonify({"ok": True, "username": username})
 
