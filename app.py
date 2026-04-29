@@ -467,6 +467,17 @@ def today_in_history():
             "score": score,
         })
     result.sort(key=lambda x: x["score"], reverse=True)
+    # Add community listen counts per show
+    show_dates = [r["id"] for r in result]
+    listen_counts = {}
+    if show_dates:
+        for bucket in listens_table.aggregate([
+            {"$match": {"show_date": {"$in": show_dates}}},
+            {"$group": {"_id": "$show_date", "count": {"$sum": 1}}},
+        ]):
+            listen_counts[bucket["_id"]] = bucket["count"]
+    for r in result:
+        r["community_listens"] = listen_counts.get(r["id"], 0)
     return jsonify(result)
 
 @app.route("/api/years")
@@ -816,6 +827,42 @@ def listen_stats():
                 break
     by_era = [{"era": name, "seconds": era_seconds[name]} for name, _, _ in ERAS if era_seconds[name] > 0]
 
+    # Listening Fingerprint: dominant era personality label
+    _FINGERPRINT_LABELS = {
+        "Primal Dead":   ("Acid Test Survivor",    "You live in the raw, exploratory early years — before the machine got rolling."),
+        "Anthem Era":    ("Skull & Roses Devotee", "The early '70s golden age calls to you — when the machine first roared to life."),
+        "Wall of Sound": ("Wall of Sound Purist",  "You worship the sonic cathedral of '73–'74."),
+        "Comeback":      ("Reckoning Pilgrim",      "Lean, focused post-hiatus Dead is your home."),
+        "Brent Years":   ("Fire on the Mountain",   "The Brent years speak to you — raw energy and towering peaks."),
+        "Final Years":   ("Last Light Chaser",      "You find beauty in the final chapter — Jerry's last embers."),
+    }
+    dominant_era = max(era_seconds, key=lambda k: era_seconds[k]) if any(v > 0 for v in era_seconds.values()) else None
+    fingerprint = None
+    if dominant_era and era_seconds.get(dominant_era, 0) > 0:
+        fp_title, fp_desc = _FINGERPRINT_LABELS.get(dominant_era, ("Deadhead", "You contain multitudes."))
+        fingerprint = {"era": dominant_era, "title": fp_title, "desc": fp_desc}
+
+    # Streak: consecutive calendar days with any listen ending today
+    from datetime import date as _date_cls, timedelta as _td
+    _today = _date_cls.today()
+    _all_ts = sorted(set(
+        r["ts"][:10] for r in listens_table.find(
+            {"username": username}, {"ts": 1, "_id": 0}
+        ) if r.get("ts") and len(r.get("ts", "")) >= 10
+    ), reverse=True)
+    streak = 0
+    _check = _today
+    for _ds in _all_ts:
+        try:
+            _d = _date_cls.fromisoformat(_ds)
+        except Exception:
+            continue
+        if _d == _check:
+            streak += 1
+            _check -= _td(days=1)
+        elif _d < _check:
+            break
+
     return jsonify({
         "total_seconds": total_seconds,
         "total_listens": len(rows),
@@ -825,6 +872,8 @@ def listen_stats():
         "years":         all_years,
         "year":          year,
         "by_era":        by_era,
+        "fingerprint":   fingerprint,
+        "streak":        streak,
     })
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
@@ -853,16 +902,62 @@ def leaderboard():
     user_docs = {d["username"]: d for d in users_table.find(
         {"username": {"$in": usernames}}, {"username": 1, "display_name": 1, "_id": 0}
     )}
+    # Compute streak for all leaderboard users efficiently
+    from datetime import date as _date, timedelta as _td
+    _today = _date.today()
+    streak_map = {}
+    try:
+        for row in listens_table.aggregate([
+            {"$match": {"username": {"$in": usernames}, "ts": {"$exists": True, "$ne": ""}}},
+            {"$project": {"username": 1, "day": {"$substr": ["$ts", 0, 10]}}},
+            {"$group": {"_id": {"u": "$username", "d": "$day"}}},
+            {"$group": {"_id": "$_id.u", "days": {"$push": "$_id.d"}}},
+        ]):
+            days = sorted(row["days"], reverse=True)
+            s, chk = 0, _today
+            for ds in days:
+                try:
+                    d = _date.fromisoformat(ds)
+                except Exception:
+                    continue
+                if d == chk:
+                    s += 1; chk -= _td(days=1)
+                elif d < chk:
+                    break
+            streak_map[row["_id"]] = s
+    except Exception:
+        pass
     result = sorted([
         {
             "username": u,
             "display_name": user_docs.get(u, {}).get("display_name") or u,
             "seconds": v["seconds"],
             "shows": len(v["shows"]),
+            "streak": streak_map.get(u, 0),
         }
         for u, v in by_user.items()
-    ], key=lambda x: x["seconds"], reverse=True)
+    ], key=lambda x: (-x["seconds"], x["username"]))
     return jsonify(result)
+
+# ── The Controversials ───────────────────────────────────────────────────────
+@app.route("/api/leaderboard/controversial")
+def controversial_shows():
+    """Shows with the highest rating variance (most divided community opinion)."""
+    pipeline = [
+        {"$group": {
+            "_id": "$show_id",
+            "avg":    {"$avg": "$stars"},
+            "count":  {"$sum": 1},
+            "stddev": {"$stdDevSamp": "$stars"},
+            "venue":  {"$first": "$venue"},
+        }},
+        {"$match": {"count": {"$gte": 2}, "stddev": {"$gt": 0}}},
+        {"$sort": {"stddev": -1}},
+        {"$limit": 10},
+        {"$project": {"show_id": "$_id", "avg": 1, "count": 1, "stddev": 1, "venue": 1, "_id": 0}},
+    ]
+    results = list(show_ratings_table.aggregate(pipeline))
+    return jsonify(results)
 
 # ── Notes ────────────────────────────────────────────────────────────────────
 @app.route("/api/notes/<path:show_id>", methods=["GET"])
@@ -1967,6 +2062,76 @@ def join_tour(tour_id):
     if not tour:
         return jsonify({"error": "Tour not found"}), 404
     return jsonify({"ok": True})
+
+# ── Blind Taste Test ─────────────────────────────────────────────────────────
+@app.route("/api/blindtest")
+def blindtest():
+    import random as _rand
+    pool = _cache_get("blindtest:pool")
+    if not pool:
+        try:
+            data = archive_search({
+                "q": f"collection:{COLLECTION} AND year:[1965 TO 1995]",
+                "fl[]": "identifier,title,date,coverage",
+                "output": "json",
+                "rows": 1000,
+                "sort[]": "date asc",
+            })
+        except Exception:
+            return jsonify({"error": "Archive.org unavailable"}), 502
+        docs = data.get("response", {}).get("docs", [])
+        seen = {}
+        pool = []
+        for doc in docs:
+            date_str = doc.get("date") or ""
+            if isinstance(date_str, list):
+                date_str = date_str[0] if date_str else ""
+            date_str = date_str[:10]
+            if not date_str or date_str in seen:
+                continue
+            seen[date_str] = True
+            title = doc.get("title", "")
+            venue_name = ""
+            if " at " in title and " on " in title:
+                venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
+            pool.append({
+                "identifier": doc["identifier"],
+                "show_date": date_str,
+                "venue": venue_name or doc.get("coverage", ""),
+            })
+        if not pool:
+            return jsonify({"error": "No shows available"}), 404
+        _cache_set("blindtest:pool", pool)
+
+    show = _rand.choice(pool)
+    try:
+        meta = requests.get(f"{ARCHIVE_METADATA}/{show['identifier']}", timeout=10)
+        meta.raise_for_status()
+        files = meta.json().get("files", [])
+    except Exception:
+        return jsonify({"error": "Could not load tracks, try again"}), 502
+
+    mp3_files = [f for f in files if f.get("name", "").lower().endswith(".mp3") and f.get("title")]
+    if not mp3_files:
+        return jsonify({"error": "No playable tracks, try again"}), 404
+
+    track = _rand.choice(mp3_files)
+    mp3_url = f"{ARCHIVE_DOWNLOAD}/{show['identifier']}/{requests.utils.quote(track['name'])}"
+    session["blindtest"] = {
+        "show_date": show["show_date"],
+        "year":      show["show_date"][:4] if show["show_date"] else "",
+        "venue":     show["venue"],
+        "track_title": track.get("title", track["name"]),
+        "identifier":  show["identifier"],
+    }
+    return jsonify({"track_url": mp3_url})
+
+@app.route("/api/blindtest/reveal")
+def blindtest_reveal():
+    bt = session.get("blindtest")
+    if not bt:
+        return jsonify({"error": "No active blind test — start one first"}), 404
+    return jsonify(bt)
 
 # ── Keep-alive (Render free tier) ────────────────────────────────────────────
 _RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
