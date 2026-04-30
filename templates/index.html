@@ -3761,6 +3761,16 @@ async function loadDailyBlindTest() {
       return;
     }
     const d = await res.json();
+    const trackUrl = d.track_url || '';
+    const playerHTML = trackUrl
+      ? `<div class="blindtest-player">
+           <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Mystery Track</div>
+           <audio id="bt-audio" controls preload="none" style="display:block;width:100%;min-height:54px"><source src="${trackUrl}"></audio>
+           <div style="font-size:9px;color:var(--muted);margin-top:4px">Listen before you guess.</div>
+         </div>`
+      : `<div class="blindtest-player" style="padding:12px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:10px;text-align:center">
+           Track not ready — <button class="btn" style="font-size:9px;padding:3px 8px" onclick="loadDailyBlindTest()">Refresh</button>
+         </div>`;
     if (d.already_played) {
       const ur = d.user_result || {};
       let badge = '';
@@ -3770,7 +3780,7 @@ async function loadDailyBlindTest() {
       else                       badge = '<div style="color:var(--muted);margin-bottom:8px">Missed this one.</div>';
       const rv = d.reveal || {};
       body.innerHTML = `
-        <div class="blindtest-player"><audio id="bt-audio" controls src="${d.track_url||''}" style="width:100%"></audio></div>
+        ${playerHTML}
         ${badge}
         <div class="blindtest-reveal-box open">
           <div class="blindtest-reveal-date">${escapeHTML(rv.show_date||'')}</div>
@@ -3780,8 +3790,6 @@ async function loadDailyBlindTest() {
         </div>
         ${_btDailyStatsHTML(d.stats)}
         <div class="bt-comeback">Come back tomorrow for a new track.</div>`;
-      const a = document.getElementById('bt-audio');
-      if (a) a.src = d.track_url;
       return;
     }
     // Not yet played — show the guessing UI
@@ -3792,7 +3800,7 @@ async function loadDailyBlindTest() {
     const yearOpts  = Array.from({length:31},(_,i)=>`<option value="${1965+i}">${1965+i}</option>`).join('');
     body.innerHTML = `
       <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Today · ${escapeHTML(d.date||'')}</div>
-      <div class="blindtest-player"><audio id="bt-audio" controls src="${d.track_url||''}" style="width:100%"></audio></div>
+      ${playerHTML}
       <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Guess the date of this show:</div>
       <div class="bt-date-picker">
         <select id="bt-month" class="bt-select"><option value="">Month?</option>${monthOpts}</select>
@@ -3805,8 +3813,6 @@ async function loadDailyBlindTest() {
       </div>
       <div id="bt-result" style="margin-top:10px"></div>
       <div class="blindtest-reveal-box" id="bt-reveal-box"></div>`;
-    const a = document.getElementById('bt-audio');
-    if (a) a.src = d.track_url;
   } catch(e) {
     body.innerHTML = `<div class="obs-empty">Error: ${escapeHTML(String(e))} <button class="btn" style="margin-top:10px" onclick="loadDailyBlindTest()">Try again</button></div>`;
   }
