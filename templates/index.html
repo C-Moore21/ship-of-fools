@@ -851,6 +851,7 @@ let loggedInUser = null;
 let showRatings = {};
 let myShowRatings = {};
 let authMode = 'login';
+let _showsAbort = null, _sourcesAbort = null, _tracksAbort = null;
 
 function fmt(s) {
   if (!s) return '?:??';
@@ -1458,13 +1459,16 @@ function mobNav(panel) {
 function mobBack(to) { mobNav(to); }
 
 async function loadShows(year) {
+  if (_showsAbort) _showsAbort.abort();
+  _showsAbort = new AbortController();
   mobNav('shows');
   document.getElementById('shows-label').textContent = `Shows · ${year}`;
   document.getElementById('shows-list').innerHTML = skelShows();
   let showsRes;
   try {
-    showsRes = await fetch(`/api/years/${year}/shows`);
+    showsRes = await fetch(`/api/years/${year}/shows`, { signal: _showsAbort.signal });
   } catch (err) {
+    if (err.name === 'AbortError') return;
     document.getElementById('shows-list').innerHTML = `<div style="padding:20px 16px;color:var(--red);font-size:11px;">Failed to load shows: ${escapeHTML(String(err))}</div>`;
     return;
   }
@@ -1497,6 +1501,8 @@ async function loadShows(year) {
 
 // ── SOURCES / TRACKS ──────────────────────────────────────────────────────
 async function loadSources(showId, date, venue) {
+  if (_sourcesAbort) _sourcesAbort.abort();
+  _sourcesAbort = new AbortController();
   _tourLoaded = false;
   _venueLoaded = false;
   mobNav('tracks');
@@ -1504,8 +1510,9 @@ async function loadSources(showId, date, venue) {
   document.getElementById('track-panel').innerHTML = skelTracks();
   let res;
   try {
-    res = await fetch(`/api/shows/${showId}/sources`);
+    res = await fetch(`/api/shows/${showId}/sources`, { signal: _sourcesAbort.signal });
   } catch (err) {
+    if (err.name === 'AbortError') return;
     document.getElementById('track-panel').innerHTML = `<div style="padding:20px 16px;color:var(--red);font-size:11px;">Failed to load sources: ${escapeHTML(String(err))}</div>`;
     return;
   }
@@ -1657,8 +1664,16 @@ async function loadSourceTracks(idx) {
   container.innerHTML = skelTracks();
 
   if (!src.sets) {
-    const res = await fetch(`/api/sources/${src.id}/tracks`);
-    const data = await res.json();
+    if (_tracksAbort) _tracksAbort.abort();
+    _tracksAbort = new AbortController();
+    let tracksRes;
+    try {
+      tracksRes = await fetch(`/api/sources/${src.id}/tracks`, { signal: _tracksAbort.signal });
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      throw err;
+    }
+    const data = await tracksRes.json();
     src.sets = data.sets || [];
     src.lineage = data.lineage || '';
     src.taper = data.taper || '';
@@ -3244,7 +3259,9 @@ function _buildCrowsNest(shows, body) {
     _cnDragging=true; _cnDragMoved=false;
     _cnDragStart={x:e.clientX,y:e.clientY}; _cnDragVP={x:vp.x,y:vp.y};
   });
-  window.addEventListener('mouseup', () => { _cnDragging=false; });
+  if (window._cnMouseupFn) window.removeEventListener('mouseup', window._cnMouseupFn);
+  window._cnMouseupFn = function() { _cnDragging = false; };
+  window.addEventListener('mouseup', window._cnMouseupFn);
 
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
@@ -3892,6 +3909,7 @@ let _vizCtx = null, _vizAnalyser = null, _vizRaf = null;
 let _vizFreqBuf = null, _vizTimeBuf = null;
 let _vizMode = 'bars', _vizOpen = false;
 let _vizAudio = null; // dedicated analysis-only element, volume=0
+let _scopeGrad = null, _scopeGradW = 0;
 
 function toggleViz() {
   _vizOpen = !_vizOpen;
@@ -3989,11 +4007,8 @@ function _drawBars(ctx, w, h) {
     ctx.fillStyle = `rgb(${r},${g},${b})`;
     ctx.fillRect(x + 0.5, floor - barH, Math.max(1, bw - 1), barH);
     if (barH > 2) {
-      const grad = ctx.createLinearGradient(0, floor, 0, floor + barH * 0.4);
-      grad.addColorStop(0, `rgba(${r},${g},${b},0.3)`);
-      grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
-      ctx.fillStyle = grad;
-      ctx.fillRect(x + 0.5, floor, Math.max(1, bw - 1), barH * 0.4);
+      ctx.fillStyle = `rgba(${r},${g},${b},0.15)`;
+      ctx.fillRect(x + 0.5, floor, Math.max(1, bw - 1), barH * 0.35);
     }
   }
   ctx.strokeStyle = 'rgba(255,255,255,0.07)';
@@ -4038,11 +4053,14 @@ function _drawScope(ctx, w, h) {
     ctx.beginPath(); ctx.moveTo(0,h*f); ctx.lineTo(w,h*f); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(w*f,0); ctx.lineTo(w*f,h); ctx.stroke();
   });
-  const grad = ctx.createLinearGradient(0, 0, w, 0);
-  grad.addColorStop(0, '#e8332a');
-  grad.addColorStop(0.5, '#c94498');
-  grad.addColorStop(1, '#1a4bbf');
-  ctx.strokeStyle = grad;
+  if (w !== _scopeGradW) {
+    _scopeGrad = ctx.createLinearGradient(0, 0, w, 0);
+    _scopeGrad.addColorStop(0, '#e8332a');
+    _scopeGrad.addColorStop(0.5, '#c94498');
+    _scopeGrad.addColorStop(1, '#1a4bbf');
+    _scopeGradW = w;
+  }
+  ctx.strokeStyle = _scopeGrad;
   ctx.lineWidth = 1.8;
   ctx.lineJoin = 'round';
   ctx.beginPath();

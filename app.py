@@ -256,6 +256,8 @@ TOUR_RUNS = [
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-prod")
+if not app.debug and not os.environ.get("SECRET_KEY"):
+    raise RuntimeError("SECRET_KEY environment variable must be set in production")
 app.config["PERMANENT_SESSION_LIFETIME"] = __import__("datetime").timedelta(days=30)
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -273,11 +275,14 @@ users_table.create_index("username", unique=True)
 ratings_table.create_index([("username", 1), ("track_id", 1)], unique=True)
 show_ratings_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 listens_table.create_index([("username", 1), ("show_date", 1)])
-try:
-    listens_table.create_index([("username", 1), ("session_id", 1)], unique=True, sparse=True)
-except Exception:
-    app.logger.warning("listens_table: could not create unique (username, session_id) index — pre-existing duplicates detected, falling back to non-unique")
-    listens_table.create_index([("username", 1), ("session_id", 1)], sparse=True)
+# Index on ts so community_now_spinning()'s $match {"ts": {"$gte": ...}} is a
+# range scan instead of a full collection scan.  The (username, session_id)
+# index it replaces failed to enforce uniqueness (pre-existing duplicates mean
+# the unique constraint was silently dropped), so it provided no data-integrity
+# value.  record_listen's session lookup falls back to the (username, show_date)
+# prefix scan, which is acceptable.  Atlas M0 allows max 3 indexes per
+# collection (including _id), so we cannot keep both.
+listens_table.create_index([("ts", 1)])
 notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 observatory_table = _db["observatory_cache"]
 observatory_table.create_index("song_id", unique=True)
@@ -315,7 +320,7 @@ def current_user():
 # ── Auth routes ───────────────────────────────────────────────────────────────
 @app.route("/api/auth/register", methods=["POST"])
 def register():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     username = (data.get("username") or "").strip().lower()
     password = data.get("password") or ""
     if not username or not password:
@@ -336,7 +341,7 @@ def register():
 
 @app.route("/api/auth/login", methods=["POST"])
 def login():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     username = (data.get("username") or "").strip().lower()
     password = data.get("password") or ""
     user = users_table.find_one({"username": username})
@@ -362,7 +367,7 @@ def me():
 def rename_user():
     """Rename a user across all collections. Only the logged-in user can rename themselves,
     or any user can rename another if they know the old username (admin-style for small deployments)."""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     old_name = (data.get("old_username") or "").strip().lower()
     new_name = (data.get("new_username") or "").strip().lower()
     if not old_name or not new_name:
@@ -387,7 +392,7 @@ def rename_user():
 @app.route("/api/ratings", methods=["POST"])
 @login_required
 def upsert_rating():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     track_id    = data.get("track_id")
     track_title = data.get("track_title", "")
     show_date   = data.get("show_date", "")
@@ -408,7 +413,7 @@ def upsert_rating():
 @app.route("/api/ratings", methods=["DELETE"])
 @login_required
 def delete_rating():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     track_id = data.get("track_id")
     if not track_id:
         return jsonify({"error": "track_id required"}), 400
@@ -435,7 +440,7 @@ def show_ratings():
 @app.route("/api/show-ratings", methods=["POST"])
 @login_required
 def upsert_show_rating():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     show_id   = data.get("show_id", "")
     venue     = data.get("venue", "")
     try:
@@ -453,7 +458,7 @@ def upsert_show_rating():
 @app.route("/api/show-ratings", methods=["DELETE"])
 @login_required
 def delete_show_rating():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     show_id = data.get("show_id", "")
     if not show_id:
         return jsonify({"error": "show_id required"}), 400
@@ -756,8 +761,11 @@ def source_tracks(identifier):
 @login_required
 def record_listen():
     from datetime import datetime, timezone
-    data = request.get_json()
-    seconds = int(data.get("seconds", 0))
+    data = request.get_json(silent=True) or {}
+    try:
+        seconds = int(data.get("seconds", 0))
+    except (ValueError, TypeError):
+        return jsonify({"error": "seconds must be a number"}), 400
     if seconds < 5:
         return jsonify({"ok": True})  # ignore tiny accidental plays
     session_id = data.get("session_id", "")
@@ -796,7 +804,7 @@ def record_listen():
 @app.route("/api/listen/mood", methods=["POST"])
 @login_required
 def set_listen_mood():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     session_id = data.get("session_id", "")
     mood = data.get("mood", "")
     _VALID_MOODS = {"Relaxed", "Road Trip", "Late Night", "Morning", "Party", "Deep Dive"}
@@ -833,6 +841,8 @@ def show_setlist_stats(show_date):
         return jsonify({"error": "invalid date"}), 400
     data = request.get_json(force=True) or {}
     raw_songs = data.get("songs", [])
+    if not isinstance(raw_songs, list):
+        return jsonify({"error": "songs must be a list"}), 400
 
     _SKIP = {"drums", "space", "tuning", "drum solo", "space jam", "encore", ""}
     norm_to_raw = {}
@@ -1179,7 +1189,7 @@ def get_note(show_id):
 @app.route("/api/notes", methods=["POST"])
 @login_required
 def save_note():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     show_id = data.get("show_id", "")
     note = data.get("note", "").strip()
     if not show_id:
@@ -2342,12 +2352,16 @@ def blindtest():
         _cache_set("blindtest:pool", pool)
 
     show = _rand.choice(pool)
-    try:
-        meta = requests.get(f"{ARCHIVE_METADATA}/{show['identifier']}", timeout=10)
-        meta.raise_for_status()
-        files = meta.json().get("files", [])
-    except Exception:
-        return jsonify({"error": "Could not load tracks, try again"}), 502
+    _meta_cache_key = f"blindtest:meta:{show['identifier']}"
+    files = _cache_get(_meta_cache_key)
+    if files is None:
+        try:
+            meta = requests.get(f"{ARCHIVE_METADATA}/{show['identifier']}", timeout=10)
+            meta.raise_for_status()
+            files = meta.json().get("files", [])
+        except Exception:
+            return jsonify({"error": "Could not load tracks, try again"}), 502
+        _cache_set(_meta_cache_key, files)
 
     mp3_files = [
         f for f in files
@@ -2486,11 +2500,7 @@ def blind_daily():
     today = _mt_today()
     doc = _daily_blind_col.find_one({"_id": today})
     if not doc:
-        try: _pick_daily_track()
-        except Exception: pass
-        doc = _daily_blind_col.find_one({"_id": today})
-    if not doc:
-        return jsonify({"error": "Today's track isn't ready yet — try again shortly"}), 503
+        return jsonify({"error": "Today's track isn't ready yet — try again in a moment"}), 503
     username = current_user()
     user_result = None
     if username:
