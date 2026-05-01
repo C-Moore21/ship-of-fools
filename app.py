@@ -288,12 +288,35 @@ observatory_table = _db["observatory_cache"]
 observatory_table.create_index("song_id", unique=True)
 setlist_cache = _db["setlist_cache"]
 setlist_cache.create_index([("song", 1), ("date", 1)], unique=True)
+_shows_year_cache  = _db["shows_year_cache"]   # _id = year str
+_shows_src_cache   = _db["shows_src_cache"]    # _id = show_date str
+_today_cache       = _db["today_cache"]         # _id = "MM-DD"
+_tracks_cache_col  = _db["tracks_cache"]        # _id = archive identifier
 
 # ── Archive.org API ───────────────────────────────────────────────────────────
 ARCHIVE_SEARCH   = "https://archive.org/advancedsearch.php"
 ARCHIVE_METADATA = "https://archive.org/metadata"
 ARCHIVE_DOWNLOAD = "https://archive.org/download"
 COLLECTION       = "GratefulDead"
+
+def _mcache_get(col, key, max_age_s=None):
+    """Read from a MongoDB cache collection. Returns data or None."""
+    doc = col.find_one({"_id": key}, {"data": 1, "ts": 1})
+    if not doc:
+        return None
+    if max_age_s is not None:
+        from datetime import datetime, timezone
+        ts = doc.get("ts")
+        if ts:
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - ts).total_seconds() > max_age_s:
+                return None
+    return doc.get("data")
+
+def _mcache_set(col, key, data):
+    from datetime import datetime, timezone
+    col.update_one({"_id": key}, {"$set": {"data": data, "ts": datetime.now(timezone.utc)}}, upsert=True)
 
 def archive_search(params):
     r = requests.get(ARCHIVE_SEARCH, params=params, timeout=15)
@@ -497,6 +520,10 @@ def today_in_history():
     today = date.today()
     mm = f"{today.month:02d}"
     dd = f"{today.day:02d}"
+    cache_key = f"{mm}-{dd}"
+    cached = _mcache_get(_today_cache, cache_key, max_age_s=86400)
+    if cached is not None:
+        return jsonify(cached)
     date_terms = " OR ".join(f"{y}-{mm}-{dd}" for y in range(1965, 1996))
     try:
         data = archive_search({
@@ -555,6 +582,7 @@ def today_in_history():
             listen_counts[bucket["_id"]] = bucket["count"]
     for r in result:
         r["community_listens"] = listen_counts.get(r["id"], 0)
+    _mcache_set(_today_cache, cache_key, result)
     return jsonify(result)
 
 @app.route("/api/years")
@@ -568,6 +596,10 @@ def shows(year):
     cached = _cache_get(cache_key)
     if cached is not None:
         return jsonify(cached)
+    mongo_cached = _mcache_get(_shows_year_cache, year)
+    if mongo_cached is not None:
+        _cache_set(cache_key, mongo_cached)
+        return jsonify(mongo_cached)
     try:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND year:{year}",
@@ -608,6 +640,7 @@ def shows(year):
             "avg_rating": None,
         })
     _cache_set(cache_key, result)
+    _mcache_set(_shows_year_cache, year, result)
     return jsonify(result)
 
 _SOURCE_TYPE_ORDER = {"SBD": 0, "MTX": 1, "FOB": 2, "AUD": 3, "UNK": 4}
@@ -658,6 +691,10 @@ def show_sources(show_id):
     cached = _cache_get(cache_key)
     if cached is not None:
         return jsonify(cached)
+    mongo_cached = _mcache_get(_shows_src_cache, show_id)
+    if mongo_cached is not None:
+        _cache_set(cache_key, mongo_cached)
+        return jsonify(mongo_cached)
     try:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND date:{show_id}*",
@@ -688,6 +725,7 @@ def show_sources(show_id):
 
     sources.sort(key=lambda s: _SOURCE_TYPE_ORDER.get(s["source_type"], 99))
     _cache_set(cache_key, sources)
+    _mcache_set(_shows_src_cache, show_id, sources)
     return jsonify(sources)
 
 @app.route("/api/sources/<path:identifier>/tracks")
@@ -696,6 +734,10 @@ def source_tracks(identifier):
     cached = _cache_get(cache_key)
     if cached is not None:
         return jsonify(cached)
+    mongo_cached = _mcache_get(_tracks_cache_col, identifier)
+    if mongo_cached is not None:
+        _cache_set(cache_key, mongo_cached)
+        return jsonify(mongo_cached)
     try:
         meta = archive_metadata(identifier)
     except requests.exceptions.Timeout:
@@ -736,6 +778,7 @@ def source_tracks(identifier):
         "transferer": item_meta.get("transferer") or "",
     }
     _cache_set(cache_key, result)
+    _mcache_set(_tracks_cache_col, identifier, result)
     # Populate setlist_cache in background for gap/rarity features
     import re as _re
     date_str = (item_meta.get("date") or "")[:10]
