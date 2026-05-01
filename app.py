@@ -533,9 +533,10 @@ def today_in_history():
             "rows": 500,
             "sort[]": "date asc",
         })
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "Archive.org timed out"}), 502
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException):
+        stale = _mcache_get(_today_cache, cache_key)
+        if stale is not None:
+            return jsonify(stale)
         return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
         return jsonify({"error": "Unexpected error"}), 500
@@ -608,9 +609,11 @@ def shows(year):
             "rows": 1000,
             "sort[]": "date asc",
         })
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "Archive.org timed out"}), 502
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException):
+        stale = _mcache_get(_shows_year_cache, year)
+        if stale is not None:
+            _cache_set(cache_key, stale)
+            return jsonify(stale)
         return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
         return jsonify({"error": "Unexpected error"}), 500
@@ -702,9 +705,11 @@ def show_sources(show_id):
             "output": "json",
             "rows": 100,
         })
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "Archive.org timed out"}), 502
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException):
+        stale = _mcache_get(_shows_src_cache, show_id)
+        if stale is not None:
+            _cache_set(cache_key, stale)
+            return jsonify(stale)
         return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
         return jsonify({"error": "Unexpected error"}), 500
@@ -740,9 +745,11 @@ def source_tracks(identifier):
         return jsonify(mongo_cached)
     try:
         meta = archive_metadata(identifier)
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "Archive.org timed out"}), 502
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException):
+        stale = _mcache_get(_tracks_cache_col, identifier)
+        if stale is not None:
+            _cache_set(cache_key, stale)
+            return jsonify(stale)
         return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
         return jsonify({"error": "Unexpected error"}), 500
@@ -2521,6 +2528,44 @@ def _daily_blind_worker():
         _t.sleep(3600)
 
 threading.Thread(target=_daily_blind_worker, daemon=True).start()
+
+def _cache_warmup_worker():
+    """Pre-populate MongoDB show/source caches for all years so Archive.org
+    outages don't cause 502s on cold cache hits."""
+    import time as _t
+    _t.sleep(20)
+    years = [str(y) for y in range(1995, 1964, -1)]
+    for year in years:
+        if _mcache_get(_shows_year_cache, year) is not None:
+            continue  # already cached
+        try:
+            data = archive_search({
+                "q": f"collection:{COLLECTION} AND year:{year}",
+                "fl[]": "identifier,title,date,coverage",
+                "output": "json", "rows": 1000, "sort[]": "date asc",
+            })
+            docs = data.get("response", {}).get("docs", [])
+            seen, result = {}, []
+            for doc in docs:
+                d = doc.get("date") or ""
+                if isinstance(d, list): d = d[0] if d else ""
+                d = d[:10]
+                if not d or d in seen: continue
+                seen[d] = True
+                title = doc.get("title", "")
+                venue = (title.split(" at ", 1)[1].split(" on ")[0].strip()
+                         if " at " in title and " on " in title else "")
+                result.append({"id": d, "display_date": d,
+                                "venue": {"name": venue or title[:60],
+                                          "location": doc.get("coverage", "")},
+                                "avg_rating": None})
+            if result:
+                _mcache_set(_shows_year_cache, year, result)
+        except Exception as e:
+            app.logger.debug(f"cache warmup {year}: {e}")
+        _t.sleep(3)  # be polite to Archive.org
+
+threading.Thread(target=_cache_warmup_worker, daemon=True).start()
 
 _ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
