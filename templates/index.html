@@ -845,11 +845,46 @@ let audio = audioA; // active element
 let preload = audioB; // buffering next track — always kept muted
 audioA.muted = false;
 audioB.muted = true;
-// Prevent the preload element from participating in AirPlay/Cast routing
-// (a second audio session confuses macOS AirPlay and causes fallback to local)
+// Prevent the preload element from participating in AirPlay/Cast routing.
+// (Each <audio> element spawns its own AVPlayer in WebKit; a second AVPlayer
+// holding an output context causes route-assignment failures on macOS/iOS —
+// see WebKit bug #145959.)
 try { audioB.disableRemotePlayback = true; } catch(e) {}
 audioB.setAttribute('disableRemotePlayback', '');
 audioB.setAttribute('x-webkit-airplay', 'deny');
+
+// Hard teardown of the preload element when AirPlay/Remote Playback is active.
+// disableRemotePlayback is not reliably honored on Safari/<audio>, so we
+// destroy the second AVPlayer outright the moment routing changes.
+function _tearDownPreload() {
+  try {
+    preload.pause();
+    preload.removeAttribute('src');
+    preload.load(); // forces WebKit to release the underlying AVPlayer
+  } catch(e) {}
+  _ps = { idx: -1, url: null, ok: false, failed: false, retries: 0, fbSrcIdx: -1, fbTracks: null, fbUrl: null };
+}
+
+let _airplayActive = false;
+function _bindRemotePlaybackWatcher(el) {
+  if (!el || !el.remote || !el.remote.addEventListener) return;
+  const sync = () => {
+    const wasActive = _airplayActive;
+    _airplayActive = (el.remote.state === 'connected' || el.remote.state === 'connecting');
+    if (_airplayActive && !wasActive) _tearDownPreload();
+  };
+  el.remote.addEventListener('connect', sync);
+  el.remote.addEventListener('connecting', sync);
+  el.remote.addEventListener('disconnect', sync);
+  // Webkit also fires 'webkitcurrentplaybacktargetiswirelesschanged' for AirPlay
+  el.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', () => {
+    const wasActive = _airplayActive;
+    _airplayActive = !!el.webkitCurrentPlaybackTargetIsWireless;
+    if (_airplayActive && !wasActive) _tearDownPreload();
+  });
+}
+_bindRemotePlaybackWatcher(audioA);
+_bindRemotePlaybackWatcher(audioB);
 let currentTracks = [], currentTrackIdx = -1, currentShowInfo = '';
 let currentSourceId = '', currentShowDate = '', currentShowLocation = '';
 let allSources = [], activeSourceIdx = 0;
@@ -1913,9 +1948,12 @@ function preloadTrack(idx) {
   const url = currentTracks[idx].mp3_url;
   if (!url || _ps.idx === idx) return; // already loading/loaded this index
   // While AirPlay/Remote Playback is active, a second <audio> element holding
-  // its own audio session breaks routing. Warm the HTTP cache instead — the
-  // bytes are ready when the active element loads the URL, no second session.
-  if (audio.remote && audio.remote.state === 'connected') {
+  // its own AVPlayer breaks routing. Warm the HTTP cache instead — the bytes
+  // are ready when the active element loads the URL, no second AVPlayer.
+  const remoteOn = _airplayActive
+    || (audio.remote && audio.remote.state === 'connected')
+    || audio.webkitCurrentPlaybackTargetIsWireless;
+  if (remoteOn) {
     _warmHttpCache(url);
     return;
   }
@@ -1937,8 +1975,11 @@ function playTrack(idx) {
   // Detect iOS/iPadOS — gapless swap breaks AirPlay on these platforms
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  // Also skip swap when casting via Remote Playback API (Chromecast on Android)
-  const isCasting = audio.remote && audio.remote.state === 'connected';
+  // Also skip swap when casting via Remote Playback API or AirPlay — the
+  // preload element has been torn down or shouldn't be activated.
+  const isCasting = _airplayActive
+    || (audio.remote && audio.remote.state === 'connected')
+    || audio.webkitCurrentPlaybackTargetIsWireless;
   if (!isIOS && !isCasting && preload.src === t.mp3_url && preload.readyState >= 3) {
     audio.pause();
     [audio, preload] = [preload, audio];
