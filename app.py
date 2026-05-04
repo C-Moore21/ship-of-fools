@@ -295,6 +295,7 @@ _tracks_cache_col  = _db["tracks_cache"]        # _id = archive identifier
 _venue_cache_col   = _db["venue_cache"]         # _id = normalised venue str
 _pool_cache_col    = _db["show_pool_cache"]     # _id = "all" | year str
 _weather_cache_col = _db["weather_cache"]       # _id = show_date, permanent (weather never changes)
+_segue_col         = _db["segue_cache"]         # _id = "from||to", count of occurrences
 # TTL: auto-expire track metadata after 30 days (tracks rarely change)
 _tracks_cache_col.create_index("ts", expireAfterSeconds=30 * 86400)
 
@@ -844,8 +845,10 @@ def source_tracks(identifier):
     if date_str and _re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
         _titles = [t["title"] for s in sets for t in s.get("tracks", [])]
         def _bg_index(d=date_str, ts=_titles):
+            norms = []
             for title in ts:
-                n = _norm_song(title)
+                clean = title.rstrip('>').strip()
+                n = _norm_song(clean)
                 if n and len(n) > 2:
                     try:
                         setlist_cache.update_one(
@@ -855,6 +858,22 @@ def source_tracks(identifier):
                         )
                     except Exception:
                         pass
+                norms.append((title.strip(), n))
+            # Detect segues: track title ending with ">" segues into the next
+            for i, (raw, norm_a) in enumerate(norms):
+                if raw.endswith('>') and i + 1 < len(norms):
+                    norm_b = norms[i + 1][1]
+                    if norm_a and norm_b and len(norm_a) > 2 and len(norm_b) > 2:
+                        pair_id = f"{norm_a}||{norm_b}"
+                        try:
+                            _segue_col.update_one(
+                                {"_id": pair_id},
+                                {"$inc": {"count": 1},
+                                 "$setOnInsert": {"from": norm_a, "to": norm_b}},
+                                upsert=True
+                            )
+                        except Exception:
+                            pass
         threading.Thread(target=_bg_index, daemon=True).start()
     return jsonify(result)
 
@@ -1657,7 +1676,7 @@ def observatory():
     # 1. In-memory LRU cache (fast path for repeated requests within 5 min)
     lru_key = f"obs2:{song_id}"
     cached = _cache_get(lru_key)
-    if cached:
+    if cached and cached.get("performances"):
         return jsonify(cached)
 
     # 2. MongoDB persistent cache
@@ -1750,6 +1769,19 @@ def observatory_heatmap():
     result.sort(key=lambda x: order.get(x["song_id"], 999))
     _cache_set(cache_key, result)
     return jsonify({"songs": result, "all_songs": _OBS_SONGS})
+
+
+@app.route("/api/segues")
+def segues():
+    song = request.args.get("song", "").strip().lower()
+    cache_key = f"segues:{song or 'top'}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+    query = {"from": song} if song else {}
+    docs = list(_segue_col.find(query, {"_id": 0}).sort("count", -1).limit(50))
+    _cache_set(cache_key, docs)
+    return jsonify(docs)
 
 
 # ── City → lat/lng lookup for Crow's Nest map ────────────────────────────────

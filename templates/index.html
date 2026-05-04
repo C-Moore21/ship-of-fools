@@ -795,6 +795,7 @@
     <div class="obs-inner-tabs">
       <button class="obs-inner-tab active" id="obs-tab-heatmap" onclick="obsTabSwitch('heatmap')">⬡ Song Heatmap</button>
       <button class="obs-inner-tab" id="obs-tab-crows-nest" onclick="obsTabSwitch('crows-nest')">🗺 Crow's Nest</button>
+      <button class="obs-inner-tab" id="obs-tab-segues" onclick="obsTabSwitch('segues')">⥤ Segue Map</button>
       <button class="obs-inner-tab" id="obs-tab-mystats" onclick="obsTabSwitch('mystats')">◈ My Stats</button>
     </div>
     <div class="obs-modal-body" id="obs-modal-body"><div class="loading">Loading</div></div>
@@ -1630,8 +1631,9 @@ async function loadShowWeather(date) {
     if (w.error) return;
     const parts = [];
     if (w.condition) parts.push(w.condition);
-    if (w.temp_max_f != null && w.temp_min_f != null) parts.push(`${w.temp_min_f}–${w.temp_max_f}°F`);
-    else if (w.temp_max_f != null) parts.push(`${w.temp_max_f}°F`);
+    const toC = f => Math.round((f - 32) * 5 / 9);
+    if (w.temp_max_f != null && w.temp_min_f != null) parts.push(`L: ${w.temp_min_f}°F (${toC(w.temp_min_f)}°C) H: ${w.temp_max_f}°F (${toC(w.temp_max_f)}°C)`);
+    else if (w.temp_max_f != null) parts.push(`H: ${w.temp_max_f}°F (${toC(w.temp_max_f)}°C)`);
     if (w.precip_in) parts.push(`${w.precip_in}" precip`);
     if (parts.length) el.innerHTML = `<div style="font-size:10px;color:var(--muted);padding:1px 0 3px">☁ ${escapeHTML(parts.join(' · '))}</div>`;
   } catch(e) {}
@@ -1668,6 +1670,40 @@ async function rateShow(showId, stars) {
   }
 }
 
+const _LEGENDARY_TAPERS = {
+  "betty cantor": "🎖", "betty cantor-jackson": "🎖",
+  "dan healy": "🎖", "bob matthews": "🎖", "owsley": "🎖", "bear": "🎖",
+  "charlie miller": "🎖", "dick latvala": "🎖", "rob eaton": "🎖",
+  "david lemieux": "🎖", "jeffrey norman": "🎖",
+};
+
+function buildTapersCorner(taper, transferer, lineage) {
+  if (!taper && !transferer && !lineage) return '';
+  const parts = [];
+
+  if (taper) {
+    const taperLower = taper.toLowerCase();
+    const badge = Object.keys(_LEGENDARY_TAPERS).find(k => taperLower.includes(k));
+    parts.push(`<span style="color:var(--text);">${badge ? `<span title="Legendary Taper">🎖 </span>` : ''}${escapeHTML(taper)}</span>`);
+  }
+  if (transferer) parts.push(`<span style="color:var(--muted);font-size:10px;">xfer: ${escapeHTML(transferer)}</span>`);
+
+  // Parse lineage chain: split on " > " or " → " and render as nodes
+  if (lineage) {
+    const nodes = lineage.split(/\s*[>→]\s*/).map(s => s.trim()).filter(Boolean);
+    if (nodes.length > 1) {
+      const chain = nodes.map((n,i) =>
+        `<span style="color:${i===0?'#c8a84b':'var(--muted)'};">${escapeHTML(n)}</span>`
+      ).join('<span style="color:var(--border);margin:0 3px;">›</span>');
+      parts.push(`<div style="font-size:9px;margin-top:2px;">${chain}</div>`);
+    } else if (nodes.length === 1) {
+      parts.push(`<span style="color:var(--muted);font-size:10px;">${escapeHTML(lineage.substring(0, 120))}</span>`);
+    }
+  }
+
+  return `<div style="font-size:10px;line-height:1.6;display:flex;flex-direction:column;gap:1px;">${parts.join('')}</div>`;
+}
+
 async function loadSourceTracks(idx) {
   activeSourceIdx = idx;
   const src = allSources[idx];
@@ -1699,14 +1735,7 @@ async function loadSourceTracks(idx) {
   }
 
   const metaLine = document.getElementById('source-meta-line');
-  if (metaLine) {
-    const info = [
-      src.taper && `Taper: ${src.taper}`,
-      src.transferer && `Transfer: ${src.transferer}`,
-      src.lineage
-    ].filter(Boolean).join(' · ');
-    metaLine.textContent = info.substring(0, 160);
-  }
+  if (metaLine) metaLine.innerHTML = buildTapersCorner(src.taper, src.transferer, src.lineage);
 
   let tracksHTML = ''; let globalIdx = 0; currentTracks = [];
   (src.sets||[]).forEach(set => {
@@ -2699,6 +2728,7 @@ function obsTabSwitch(view) {
   if (tab) tab.classList.add('active');
   if (view === 'heatmap')     renderHeatmap();
   else if (view === 'crows-nest') renderCrowsNest();
+  else if (view === 'segues')     renderSegueMap();
   else if (view === 'mystats')    renderObsStats();
 }
 
@@ -2723,6 +2753,60 @@ async function renderHeatmap() {
     const msg = (e.message && e.message !== 'Error') ? e.message : 'Could not load heatmap data — the server may be warming up';
     body.innerHTML = `<div class="obs-empty">${escapeHTML(msg)}<br><br><button class="btn" onclick="renderHeatmap()">Retry</button></div>`;
   }
+}
+
+/* ── Segue Map ─────────────────────────────────────────────────────────── */
+let _segueData = null;
+let _segueFilter = '';
+
+async function renderSegueMap(song) {
+  _obsView = 'segues';
+  _segueFilter = song || '';
+  const body = document.getElementById('obs-modal-body');
+  body.innerHTML = '<div class="loading">Reading the segue chains…</div>';
+  const url = song ? `/api/segues?song=${encodeURIComponent(song)}` : '/api/segues';
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.statusText);
+    const pairs = await res.json();
+    if (!song) _segueData = pairs;
+    buildSegueMap(pairs, song, body);
+  } catch(e) {
+    body.innerHTML = `<div class="obs-empty">Segue data still building — play some shows to populate it, or run seed_observatory.py.<br><br><button class="btn" onclick="renderSegueMap()">Retry</button></div>`;
+  }
+}
+
+function buildSegueMap(pairs, filterSong, body) {
+  const topCount = pairs.length ? pairs[0].count : 1;
+  const title = filterSong
+    ? `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;"><button class="obs-back-btn" onclick="renderSegueMap()">← All segues</button><span style="font-size:13px;font-weight:700;color:var(--white);font-family:'Playfair Display',serif;">Songs that follow <em>${escapeHTML(filterSong)}</em></span></div>`
+    : `<div style="font-size:11px;color:var(--muted);margin-bottom:10px;letter-spacing:1px;">TOP SEGUE PAIRS · click any song to explore what followed it</div>`;
+
+  if (!pairs.length) {
+    body.innerHTML = title + `<div class="obs-empty">No segue data yet — play some shows and the pairs will accumulate automatically.</div>`;
+    return;
+  }
+
+  const rows = pairs.map(p => {
+    const barW = Math.round((p.count / topCount) * 100);
+    const fromClick = filterSong ? '' : `onclick="renderSegueMap('${escapeHTML(p.from)}')" style="cursor:pointer;color:var(--accent);text-decoration:underline;"`;
+    const toClick   = `onclick="renderSegueMap('${escapeHTML(p.to)}')" style="cursor:pointer;color:var(--accent2);text-decoration:underline;"`;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
+      <div style="min-width:28px;text-align:right;font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;">${p.count}×</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          <span ${fromClick}>${escapeHTML(p.from)}</span>
+          <span style="color:var(--muted);margin:0 5px;">›</span>
+          <span ${toClick}>${escapeHTML(p.to)}</span>
+        </div>
+        <div style="height:3px;background:var(--surface2);border-radius:2px;margin-top:3px;">
+          <div style="height:3px;width:${barW}%;background:var(--accent);border-radius:2px;"></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  body.innerHTML = title + `<div style="max-height:420px;overflow-y:auto;">${rows}</div>`;
 }
 
 function obsRatingColor(rating, reviews) {
