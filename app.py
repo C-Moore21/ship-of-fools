@@ -292,6 +292,10 @@ _shows_year_cache  = _db["shows_year_cache"]   # _id = year str
 _shows_src_cache   = _db["shows_src_cache"]    # _id = show_date str
 _today_cache       = _db["today_cache"]         # _id = "MM-DD"
 _tracks_cache_col  = _db["tracks_cache"]        # _id = archive identifier
+_venue_cache_col   = _db["venue_cache"]         # _id = normalised venue str
+_pool_cache_col    = _db["show_pool_cache"]     # _id = "all" | year str
+# TTL: auto-expire track metadata after 30 days (tracks rarely change)
+_tracks_cache_col.create_index("ts", expireAfterSeconds=30 * 86400)
 
 # ── Archive.org API ───────────────────────────────────────────────────────────
 ARCHIVE_SEARCH   = "https://archive.org/advancedsearch.php"
@@ -520,10 +524,14 @@ def today_in_history():
     today = date.today()
     mm = f"{today.month:02d}"
     dd = f"{today.day:02d}"
-    cache_key = f"{mm}-{dd}"
-    cached = _mcache_get(_today_cache, cache_key, max_age_s=86400)
+    cache_key = f"today:{mm}-{dd}"
+    cached = _cache_get(cache_key)
     if cached is not None:
         return jsonify(cached)
+    mongo_cached = _mcache_get(_today_cache, f"{mm}-{dd}", max_age_s=86400)
+    if mongo_cached is not None:
+        _cache_set(cache_key, mongo_cached)
+        return jsonify(mongo_cached)
     date_terms = " OR ".join(f"{y}-{mm}-{dd}" for y in range(1965, 1996))
     try:
         data = archive_search({
@@ -534,8 +542,9 @@ def today_in_history():
             "sort[]": "date asc",
         })
     except (requests.exceptions.Timeout, requests.exceptions.RequestException):
-        stale = _mcache_get(_today_cache, cache_key)
+        stale = _mcache_get(_today_cache, f"{mm}-{dd}")
         if stale is not None:
+            _cache_set(cache_key, stale)
             return jsonify(stale)
         return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
@@ -583,7 +592,8 @@ def today_in_history():
             listen_counts[bucket["_id"]] = bucket["count"]
     for r in result:
         r["community_listens"] = listen_counts.get(r["id"], 0)
-    _mcache_set(_today_cache, cache_key, result)
+    _cache_set(cache_key, result)
+    _mcache_set(_today_cache, f"{mm}-{dd}", result)
     return jsonify(result)
 
 @app.route("/api/years")
@@ -1274,45 +1284,49 @@ def on_this_tour(show_id):
         d = date.fromisoformat(show_id)
     except ValueError:
         return jsonify({"error": "invalid show_id"}), 400
-    # Fetch shows within 30 days either side — same year run
+    cache_key = f"tour:{show_id}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
     start = (d - timedelta(days=30)).isoformat()
     end   = (d + timedelta(days=30)).isoformat()
     year  = show_id[:4]
+    # Build from year cache — no Archive.org call needed
+    year_shows = _mcache_get(_shows_year_cache, year)
+    if year_shows:
+        result = [
+            {**s, "is_current": s["id"] == show_id}
+            for s in year_shows if start <= s["id"] <= end
+        ]
+        _cache_set(cache_key, result)
+        return jsonify(result)
+    # Fallback: live Archive.org fetch for uncached years
     try:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND year:{year} AND date:[{start} TO {end}]",
             "fl[]": "identifier,title,date,coverage",
-            "output": "json",
-            "rows": 60,
-            "sort[]": "date asc",
+            "output": "json", "rows": 60, "sort[]": "date asc",
         })
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "Archive.org timed out"}), 502
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException):
         return jsonify({"error": "Archive.org unavailable"}), 502
-    except Exception as e:
+    except Exception:
         return jsonify({"error": "Unexpected error"}), 500
     docs = data.get("response", {}).get("docs", [])
-    seen = {}
-    result = []
+    seen, result = {}, []
     for doc in docs:
         date_str = doc.get("date") or ""
-        if isinstance(date_str, list):
-            date_str = date_str[0] if date_str else ""
+        if isinstance(date_str, list): date_str = date_str[0] if date_str else ""
         date_str = date_str[:10]
-        if not date_str or date_str in seen:
-            continue
+        if not date_str or date_str in seen: continue
         seen[date_str] = True
         title = doc.get("title", "")
-        venue_name = ""
-        if " at " in title and " on " in title:
-            venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
-        result.append({
-            "id": date_str,
-            "display_date": date_str,
-            "is_current": date_str == show_id,
-            "venue": {"name": venue_name or title[:50], "location": doc.get("coverage", "")},
-        })
+        venue_name = (title.split(" at ", 1)[1].split(" on ")[0].strip()
+                      if " at " in title and " on " in title else "")
+        result.append({"id": date_str, "display_date": date_str,
+                       "is_current": date_str == show_id,
+                       "venue": {"name": venue_name or title[:50],
+                                 "location": doc.get("coverage", "")}})
+    _cache_set(cache_key, result)
     return jsonify(result)
 
 # ── Venue history ─────────────────────────────────────────────────────────────
@@ -1321,33 +1335,41 @@ def venue_history():
     venue = request.args.get("venue", "").strip()
     if not venue or len(venue) < 3:
         return jsonify({"error": "venue required"}), 400
+    vkey = venue.lower()[:120]
+    cache_key = f"venue:{vkey}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+    mongo_cached = _mcache_get(_venue_cache_col, vkey)
+    if mongo_cached is not None:
+        _cache_set(cache_key, mongo_cached)
+        return jsonify(mongo_cached)
     try:
         data = archive_search({
             "q": f'collection:{COLLECTION} AND coverage:"{venue}"',
             "fl[]": "identifier,title,date,coverage",
-            "output": "json",
-            "rows": 200,
-            "sort[]": "date asc",
+            "output": "json", "rows": 200, "sort[]": "date asc",
         })
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "Archive.org timed out"}), 502
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.Timeout, requests.exceptions.RequestException):
+        stale = _mcache_get(_venue_cache_col, vkey)
+        if stale is not None:
+            return jsonify(stale)
         return jsonify({"error": "Archive.org unavailable"}), 502
-    except Exception as e:
+    except Exception:
         return jsonify({"error": "Unexpected error"}), 500
     docs = data.get("response", {}).get("docs", [])
-    seen = {}
-    result = []
+    seen, shows = {}, []
     for doc in docs:
         date_str = doc.get("date") or ""
-        if isinstance(date_str, list):
-            date_str = date_str[0] if date_str else ""
+        if isinstance(date_str, list): date_str = date_str[0] if date_str else ""
         date_str = date_str[:10]
-        if not date_str or date_str in seen:
-            continue
+        if not date_str or date_str in seen: continue
         seen[date_str] = True
-        result.append({"id": date_str, "display_date": date_str})
-    return jsonify({"venue": venue, "shows": result})
+        shows.append({"id": date_str, "display_date": date_str})
+    result = {"venue": venue, "shows": shows}
+    _cache_set(cache_key, result)
+    _mcache_set(_venue_cache_col, vkey, result)
+    return jsonify(result)
 
 # ── The Parking Lot ──────────────────────────────────────────────────────────
 # Hardcoded lore for landmark shows
@@ -2045,6 +2067,7 @@ def _observatory_background_refresh():
                         {"$set": out},
                         upsert=True,
                     )
+                    _cache_set(f"obs2:{song_meta['id']}", out)
                     app.logger.info(f"  {song_meta['label']} — {len(out['performances'])} performances")
                 time.sleep(5)
             except Exception as e:
@@ -2103,6 +2126,10 @@ def search_shows():
     q = request.args.get("q", "").strip()
     if not q or len(q) < 2:
         return jsonify([])
+    cache_key = f"search:{q[:200]}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
     try:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND ({q})",
@@ -2137,79 +2164,87 @@ def search_shows():
             "display_date": date_str,
             "venue": {"name": venue_name or title[:60], "location": doc.get("coverage", "")},
         })
+    _cache_set(cache_key, result)
     return jsonify(result)
 
 # ── Random Show (The Gambler) ─────────────────────────────────────────────────
 @app.route("/api/random-show")
 def random_show():
     year = request.args.get("year", "").strip()
-    cache_key = f"gambler:{year or 'all'}"
+    pool_key = year or "all"
+    cache_key = f"gambler:{pool_key}"
     cached = _cache_get(cache_key)
     if cached is not None:
         pool = cached
     else:
-        if year:
-            q = f"collection:{COLLECTION} AND year:{year}"
+        # Try MongoDB pool cache first
+        pool = _mcache_get(_pool_cache_col, f"gambler:{pool_key}")
+        if pool:
+            _cache_set(cache_key, pool)
         else:
-            # Spread across all active GD years
-            q = f"collection:{COLLECTION} AND year:[1965 TO 1995]"
-        try:
-            data = archive_search({
-                "q": q,
-                "fl[]": "identifier,title,date,coverage,avg_rating,num_reviews",
-                "output": "json",
-                "rows": 1000,
-                "sort[]": "date asc",
-            })
-        except requests.exceptions.Timeout:
-            return jsonify({"error": "Archive.org timed out"}), 502
-        except requests.exceptions.RequestException:
-            return jsonify({"error": "Archive.org unavailable"}), 502
-        except Exception:
-            return jsonify({"error": "Unexpected error"}), 500
+            # Try building from shows_year_cache to avoid Archive.org
+            if year:
+                year_shows = _mcache_get(_shows_year_cache, year)
+                if year_shows:
+                    pool = [{"show_id": s["id"], "show_date": s["id"],
+                             "venue": s["venue"]["name"],
+                             "location": s["venue"]["location"],
+                             "avg_rating": s.get("avg_rating"),
+                             "num_reviews": 0} for s in year_shows]
+            else:
+                combined = []
+                for y in range(1965, 1996):
+                    yr_shows = _mcache_get(_shows_year_cache, str(y))
+                    if yr_shows:
+                        for s in yr_shows:
+                            combined.append({"show_id": s["id"], "show_date": s["id"],
+                                             "venue": s["venue"]["name"],
+                                             "location": s["venue"]["location"],
+                                             "avg_rating": s.get("avg_rating"),
+                                             "num_reviews": 0})
+                if combined:
+                    pool = combined
+            if pool:
+                _cache_set(cache_key, pool)
+                _mcache_set(_pool_cache_col, f"gambler:{pool_key}", pool)
+            else:
+                # Last resort: live Archive.org fetch
+                q = (f"collection:{COLLECTION} AND year:{year}" if year
+                     else f"collection:{COLLECTION} AND year:[1965 TO 1995]")
+                try:
+                    data = archive_search({
+                        "q": q, "fl[]": "identifier,title,date,coverage,avg_rating,num_reviews",
+                        "output": "json", "rows": 1000, "sort[]": "date asc",
+                    })
+                except (requests.exceptions.Timeout, requests.exceptions.RequestException):
+                    return jsonify({"error": "Archive.org unavailable"}), 502
+                except Exception:
+                    return jsonify({"error": "Unexpected error"}), 500
+                docs = data.get("response", {}).get("docs", [])
+                seen, pool = {}, []
+                for doc in docs:
+                    date_str = doc.get("date") or ""
+                    if isinstance(date_str, list): date_str = date_str[0] if date_str else ""
+                    date_str = date_str[:10]
+                    if not date_str or date_str in seen: continue
+                    seen[date_str] = True
+                    title = doc.get("title", "")
+                    venue_name = (title.split(" at ", 1)[1].split(" on ")[0].strip()
+                                  if " at " in title and " on " in title else "")
+                    pool.append({"show_id": date_str, "show_date": date_str,
+                                 "venue": venue_name or title[:60],
+                                 "location": doc.get("coverage", ""),
+                                 "avg_rating": doc.get("avg_rating"),
+                                 "num_reviews": doc.get("num_reviews", 0) or 0})
+                if not pool:
+                    return jsonify({"error": "No shows found"}), 404
+                _cache_set(cache_key, pool)
+                _mcache_set(_pool_cache_col, f"gambler:{pool_key}", pool)
 
-        docs = data.get("response", {}).get("docs", [])
-        seen = {}
-        pool = []
-        for doc in docs:
-            date_str = doc.get("date") or ""
-            if isinstance(date_str, list):
-                date_str = date_str[0] if date_str else ""
-            date_str = date_str[:10]
-            if not date_str or date_str in seen:
-                continue
-            seen[date_str] = True
-            title = doc.get("title", "")
-            venue_name = ""
-            if " at " in title and " on " in title:
-                venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
-            avg_rating = doc.get("avg_rating")
-            num_reviews = doc.get("num_reviews", 0) or 0
-            pool.append({
-                "show_id": date_str,
-                "show_date": date_str,
-                "venue": venue_name or title[:60],
-                "location": doc.get("coverage", ""),
-                "avg_rating": avg_rating,
-                "num_reviews": num_reviews,
-            })
-        if not pool:
-            return jsonify({"error": "No shows found"}), 404
-        _cache_set(cache_key, pool)
-
-    # Weighted random pick: use avg_rating as weight if available, else uniform
-    weights = []
-    for show in pool:
-        r = show.get("avg_rating")
-        weights.append(float(r) if r is not None else 3.5)
-
+    weights = [float(s.get("avg_rating") or 3.5) for s in pool]
     chosen = random.choices(pool, weights=weights, k=1)[0]
-    return jsonify({
-        "show_id": chosen["show_id"],
-        "show_date": chosen["show_date"],
-        "venue": chosen["venue"],
-        "location": chosen["location"],
-    })
+    return jsonify({"show_id": chosen["show_id"], "show_date": chosen["show_date"],
+                    "venue": chosen["venue"], "location": chosen["location"]})
 
 # ── Tour Runs ────────────────────────────────────────────────────────────────
 @app.route("/api/tours")
@@ -2367,39 +2402,35 @@ def blindtest():
     import random as _rand
     pool = _cache_get("blindtest:pool")
     if not pool:
+        pool = _mcache_get(_pool_cache_col, "blindtest")
+        if pool:
+            _cache_set("blindtest:pool", pool)
+    if not pool:
         try:
             data = archive_search({
                 "q": f"collection:{COLLECTION} AND year:[1965 TO 1995]",
                 "fl[]": "identifier,title,date,coverage",
-                "output": "json",
-                "rows": 1000,
-                "sort[]": "date asc",
+                "output": "json", "rows": 1000, "sort[]": "date asc",
             })
         except Exception:
             return jsonify({"error": "Archive.org unavailable"}), 502
         docs = data.get("response", {}).get("docs", [])
-        seen = {}
-        pool = []
+        seen, pool = {}, []
         for doc in docs:
             date_str = doc.get("date") or ""
-            if isinstance(date_str, list):
-                date_str = date_str[0] if date_str else ""
+            if isinstance(date_str, list): date_str = date_str[0] if date_str else ""
             date_str = date_str[:10]
-            if not date_str or date_str in seen:
-                continue
+            if not date_str or date_str in seen: continue
             seen[date_str] = True
             title = doc.get("title", "")
-            venue_name = ""
-            if " at " in title and " on " in title:
-                venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
-            pool.append({
-                "identifier": doc["identifier"],
-                "show_date": date_str,
-                "venue": venue_name or doc.get("coverage", ""),
-            })
+            venue_name = (title.split(" at ", 1)[1].split(" on ")[0].strip()
+                          if " at " in title and " on " in title else "")
+            pool.append({"identifier": doc["identifier"], "show_date": date_str,
+                         "venue": venue_name or doc.get("coverage", "")})
         if not pool:
             return jsonify({"error": "No shows available"}), 404
         _cache_set("blindtest:pool", pool)
+        _mcache_set(_pool_cache_col, "blindtest", pool)
 
     show = _rand.choice(pool)
     _meta_cache_key = f"blindtest:meta:{show['identifier']}"
@@ -2461,6 +2492,10 @@ def _pick_daily_track():
     today = _mt_today()
     pool = _cache_get("blindtest:pool")
     if not pool:
+        pool = _mcache_get(_pool_cache_col, "blindtest")
+        if pool:
+            _cache_set("blindtest:pool", pool)
+    if not pool:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND year:[1965 TO 1995]",
             "fl[]": "identifier,title,date,coverage",
@@ -2479,7 +2514,9 @@ def _pick_daily_track():
                      if " at " in title and " on " in title
                      else doc.get("coverage", ""))
             pool.append({"identifier": doc["identifier"], "show_date": d, "venue": venue})
-        if pool: _cache_set("blindtest:pool", pool)
+        if pool:
+            _cache_set("blindtest:pool", pool)
+            _mcache_set(_pool_cache_col, "blindtest", pool)
     if not pool:
         raise ValueError("Empty show pool")
     for _ in range(10):
@@ -2561,6 +2598,7 @@ def _cache_warmup_worker():
                                 "avg_rating": None})
             if result:
                 _mcache_set(_shows_year_cache, year, result)
+                _cache_set(f"shows:{year}", result)
         except Exception as e:
             app.logger.debug(f"cache warmup {year}: {e}")
         _t.sleep(3)  # be polite to Archive.org
