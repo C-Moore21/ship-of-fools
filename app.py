@@ -294,6 +294,7 @@ _today_cache       = _db["today_cache"]         # _id = "MM-DD"
 _tracks_cache_col  = _db["tracks_cache"]        # _id = archive identifier
 _venue_cache_col   = _db["venue_cache"]         # _id = normalised venue str
 _pool_cache_col    = _db["show_pool_cache"]     # _id = "all" | year str
+_weather_cache_col = _db["weather_cache"]       # _id = show_date, permanent (weather never changes)
 # TTL: auto-expire track metadata after 30 days (tracks rarely change)
 _tracks_cache_col.create_index("ts", expireAfterSeconds=30 * 86400)
 
@@ -326,6 +327,47 @@ def archive_search(params):
     r = requests.get(ARCHIVE_SEARCH, params=params, timeout=15)
     r.raise_for_status()
     return r.json()
+
+# ── Weather helpers ───────────────────────────────────────────────────────────
+_WMO_CODES = {
+    0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+    45: "Foggy", 48: "Icy fog", 51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle",
+    61: "Light rain", 63: "Rain", 65: "Heavy rain",
+    71: "Light snow", 73: "Snow", 75: "Heavy snow",
+    80: "Rain showers", 81: "Heavy showers", 82: "Violent showers",
+    95: "Thunderstorm", 96: "Hail storm",
+}
+
+def _wmo_to_text(code):
+    c = int(code or 0)
+    for k in sorted(_WMO_CODES.keys(), reverse=True):
+        if c >= k:
+            return _WMO_CODES[k]
+    return "Unknown"
+
+_coords_cache_val  = None
+_coords_cache_lock = threading.Lock()
+
+def _coords_index():
+    global _coords_cache_val
+    if _coords_cache_val is not None:
+        return _coords_cache_val
+    with _coords_cache_lock:
+        if _coords_cache_val is not None:
+            return _coords_cache_val
+        lru = _cache_get("coords:index")
+        if lru is not None:
+            _coords_cache_val = lru
+            return lru
+        tbl = _get_map_cache_table()
+        row = tbl.find_one({"_id": "shows_map"}, {"shows": 1})
+        if not row or not row.get("shows"):
+            return {}
+        idx = {s["date"]: [s["lat"], s["lng"]] for s in row["shows"]
+               if s.get("lat") and s.get("lng")}
+        _cache_set("coords:index", idx)
+        _coords_cache_val = idx
+        return idx
 
 def archive_metadata(identifier):
     r = requests.get(f"{ARCHIVE_METADATA}/{identifier}", timeout=15)
@@ -1989,6 +2031,57 @@ def map_extra_countries():
         "Extra countries",
         filter_fn=_filter,
     )
+
+
+@app.route("/api/shows/<path:show_date>/weather")
+def show_weather(show_date):
+    import re as _re
+    if not _re.match(r'^\d{4}-\d{2}-\d{2}$', show_date):
+        return jsonify({"error": "Invalid date"}), 400
+
+    # Permanent cache — weather for a past date never changes
+    cached = _mcache_get(_weather_cache_col, show_date)
+    if cached is not None:
+        return jsonify(cached)
+
+    coords = _coords_index().get(show_date)
+    if not coords:
+        return jsonify({"error": "No location data for this show"}), 404
+
+    lat, lng = coords
+    try:
+        r = requests.get(
+            "https://archive-api.open-meteo.com/v1/archive",
+            params={
+                "latitude": lat, "longitude": lng,
+                "start_date": show_date, "end_date": show_date,
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum",
+                "temperature_unit": "fahrenheit",
+                "precipitation_unit": "inch",
+                "timezone": "auto",
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return jsonify({"error": "Weather unavailable"}), 502
+
+    daily  = data.get("daily", {})
+    codes  = daily.get("weather_code", [])
+    tmax   = daily.get("temperature_2m_max", [])
+    tmin   = daily.get("temperature_2m_min", [])
+    precip = daily.get("precipitation_sum", [])
+
+    result = {
+        "date":       show_date,
+        "condition":  _wmo_to_text(codes[0]) if codes else "Unknown",
+        "temp_max_f": round(tmax[0]) if tmax and tmax[0] is not None else None,
+        "temp_min_f": round(tmin[0]) if tmin and tmin[0] is not None else None,
+        "precip_in":  round(float(precip[0]), 2) if precip and precip[0] else None,
+    }
+    _mcache_set(_weather_cache_col, show_date, result)
+    return jsonify(result)
 
 
 def _observatory_background_refresh():

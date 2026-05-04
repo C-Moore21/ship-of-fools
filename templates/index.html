@@ -1614,9 +1614,27 @@ function renderSourceButtons() {
   const parkingLotSection = `<div id="parking-lot-slot"></div>`;
   const _MOODS = ['Relaxed','Road Trip','Late Night','Morning','Party','Deep Dive'];
   const moodPickerHTML = loggedInUser ? `<div class="mood-picker"><div class="mood-picker-lbl">Listening Mood</div>${_MOODS.map(m=>`<button class="mood-btn" id="mood-btn-${m}" onclick="setMood('${m}')">${m}</button>`).join('')}</div>` : '';
-  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div>${showStarsHTML}<div id="rarity-slot"></div></div></div>${parkingLotSection}${moodPickerHTML}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div><div id="show-weather"></div>${showStarsHTML}<div id="rarity-slot"></div></div></div>${parkingLotSection}${moodPickerHTML}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
   // Load parking lot asynchronously — don't block track rendering
   loadParkingLot(currentShowDate);
+  loadShowWeather(currentShowDate);
+}
+
+async function loadShowWeather(date) {
+  const el = document.getElementById('show-weather');
+  if (!el || !date) return;
+  try {
+    const res = await fetch(`/api/shows/${encodeURIComponent(date)}/weather`);
+    if (!res.ok) return;
+    const w = await res.json();
+    if (w.error) return;
+    const parts = [];
+    if (w.condition) parts.push(w.condition);
+    if (w.temp_max_f != null && w.temp_min_f != null) parts.push(`${w.temp_min_f}–${w.temp_max_f}°F`);
+    else if (w.temp_max_f != null) parts.push(`${w.temp_max_f}°F`);
+    if (w.precip_in) parts.push(`${w.precip_in}" precip`);
+    if (parts.length) el.innerHTML = `<div style="font-size:10px;color:var(--muted);padding:1px 0 3px">☁ ${escapeHTML(parts.join(' · '))}</div>`;
+  } catch(e) {}
 }
 
 function starsLabel(s) {
@@ -3405,6 +3423,7 @@ function _buildObsStats(d, body) {
 async function renderObservatory(songId) {
   _obsSong = songId;
   _obsView = 'scatter';
+  _obsChartMode = 'duration';
   // keep heatmap tab highlighted since scatter is a heatmap drill-down
   document.querySelectorAll('.obs-inner-tab').forEach(t => t.classList.remove('active'));
   const ht = document.getElementById('obs-tab-heatmap');
@@ -3437,7 +3456,11 @@ async function renderObservatory(songId) {
   }
 }
 
+let _obsChartMode = 'duration'; // 'duration' | 'lineage'
+let _obsChartData = null;
+
 function buildObsChart(d, body) {
+  _obsChartData = d;
   const perfs = d.performances || [];
   const fmtDur = s => { const m=Math.floor(s/60),ss=Math.round(s%60); return `${m}:${String(ss).padStart(2,'0')}`; };
 
@@ -3450,6 +3473,8 @@ function buildObsChart(d, body) {
   const navHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
     <button class="obs-back-btn" onclick="renderHeatmap()">← All songs</button>
     <span style="font-size:14px;font-weight:700;color:var(--white);font-family:'Playfair Display',serif;flex:1">${escapeHTML(d.song || d.song_id)}</span>
+    <button class="obs-inner-tab ${_obsChartMode==='duration'?'active':''}" id="obs-mode-dur" onclick="obsSetMode('duration')">Duration</button>
+    <button class="obs-inner-tab ${_obsChartMode==='lineage'?'active':''}" id="obs-mode-lin" onclick="obsSetMode('lineage')">Lineage</button>
     ${prevSong ? `<button class="obs-inner-tab" style="border:1px solid var(--border);border-radius:2px" onclick="renderObservatory('${escapeHTML(prevSong.song_id)}')">‹ ${escapeHTML(prevSong.label)}</button>` : ''}
     ${nextSong ? `<button class="obs-inner-tab" style="border:1px solid var(--border);border-radius:2px" onclick="renderObservatory('${escapeHTML(nextSong.song_id)}')"> ${escapeHTML(nextSong.label)} ›</button>` : ''}
   </div>`;
@@ -3459,6 +3484,12 @@ function buildObsChart(d, body) {
       `<div class="obs-legend-item"><div class="obs-legend-dot" style="background:${c}"></div>${l}</div>`).join('')}
     <div class="obs-legend-item" style="margin-left:8px;">dot size = review count</div>
   </div>`;
+
+  if (_obsChartMode === 'lineage') {
+    body.innerHTML = navHTML;
+    renderLineage(d, body);
+    return;
+  }
 
   if (!perfs.length) {
     body.innerHTML = `${navHTML}${legendHTML}
@@ -3540,6 +3571,144 @@ function buildObsChart(d, body) {
       document.getElementById('obs-modal').classList.remove('open');
       tourRunGoTo(dot.dataset.date);
     });
+  });
+}
+
+function obsSetMode(mode) {
+  _obsChartMode = mode;
+  const body = document.getElementById('obs-modal-body');
+  if (body && _obsChartData) buildObsChart(_obsChartData, body);
+}
+
+function renderLineage(d, body) {
+  // Era bands: [label, startYear, endYear, color]
+  const ERAS = [
+    ['Pigpen Era',     1965, 1972, 'rgba(255,150,50,0.13)'],
+    ['Keith & Donna',  1972, 1979, 'rgba(100,200,100,0.13)'],
+    ['Brent Mydland',  1979, 1990, 'rgba(80,130,255,0.13)'],
+    ['Vince Welnick',  1990, 1995, 'rgba(200,80,200,0.13)'],
+  ];
+
+  // Prefer scatter performances (have per-show rating); fall back to year-bucket heatmap data
+  const heatmapSong = (_obsHeatmapData || []).find(s => s.song_id === d.song_id);
+  const yearBuckets = heatmapSong ? (heatmapSong.years || []) : [];
+  const perfs = (d.performances || []).filter(p => p.rating && p.rating > 0);
+
+  let points = [];
+  let useScatter = perfs.length > 0;
+
+  if (useScatter) {
+    // Each performance: x = fractional year, y = rating
+    function dateToDecimal(ds) {
+      const [y, m, day] = ds.split('-').map(Number);
+      return (y||0) + ((m||1)-1)/12 + ((day||1)-1)/365;
+    }
+    points = perfs.map(p => ({
+      x: dateToDecimal(p.date), year: parseInt(p.date),
+      y: p.rating, reviews: p.reviews,
+      source: p.source, date: p.date, id: p.id,
+    }));
+  } else if (yearBuckets.length) {
+    // Year-bucket fallback: one point per year at x = year + 0.5
+    points = yearBuckets.map(b => ({
+      x: parseInt(b.year) + 0.5, year: parseInt(b.year),
+      y: b.avg_rating, reviews: b.reviews,
+      source: 'UNK', date: String(b.year), id: null,
+    }));
+  }
+
+  if (!points.length) {
+    body.insertAdjacentHTML('beforeend', '<div class="obs-empty">No rating data available for Lineage view.</div>');
+    return;
+  }
+
+  const xMin = 1965, xMax = 1995, xSpan = 30;
+  const yMin = 0, yMax = 5, ySpan = 5;
+  const maxRev = Math.max(...points.map(p => p.reviews), 1);
+  const CHART_H = 200;
+
+  // Era band strips
+  const eraBands = ERAS.map(([label, s, e, col]) => {
+    const left = ((s - xMin) / xSpan * 94 + 3).toFixed(1);
+    const width = ((e - s) / xSpan * 94).toFixed(1);
+    return `<div style="position:absolute;left:${left}%;bottom:5%;width:${width}%;height:90%;background:${col};pointer-events:none;">
+      <span style="position:absolute;top:2px;left:3px;font-size:8px;color:var(--muted);white-space:nowrap;overflow:hidden;max-width:100%">${escapeHTML(label)}</span>
+    </div>`;
+  }).join('');
+
+  // Y-axis labels (rating 0–5)
+  const yLabels = [0,1,2,3,4,5].map(r => {
+    const pct = (r / ySpan * 90 + 5).toFixed(0);
+    return `<span class="obs-axis-y" style="bottom:${pct}%">${r}</span>`;
+  }).join('');
+
+  // X-axis labels
+  const xLabels = [];
+  for (let y = 1965; y <= 1995; y += 5) {
+    const xPct = ((y - xMin) / xSpan * 94 + 3).toFixed(1);
+    xLabels.push(`<span class="obs-axis-x" style="left:${xPct}%">${y}</span>`);
+  }
+
+  const srcColors = {SBD:'#c8a84b', AUD:'#2d65e0', MTX:'#7c4dff', FOB:'#2a9d6f', UNK:'#5a6e8a'};
+
+  const dotsHTML = points.map(p => {
+    const xPct = ((p.x - xMin) / xSpan * 94 + 3).toFixed(1);
+    const yPct = (p.y / ySpan * 90 + 5).toFixed(1);
+    const sz   = Math.max(5, Math.min(16, 5 + (p.reviews / maxRev) * 11));
+    const col  = srcColors[p.source] || srcColors.UNK;
+    const clickable = p.id ? `data-id="${escapeHTML(p.id)}" data-date="${escapeHTML(p.date)}"` : '';
+    return `<div class="obs-dot${p.id?' lin-clickable':''}" style="left:${xPct}%;bottom:${yPct}%;width:${sz}px;height:${sz}px;background:${col};margin-left:-${sz/2}px;margin-bottom:-${sz/2}px" ${clickable} data-rat="${p.y}" data-rev="${p.reviews}" data-src="${escapeHTML(p.source)}" data-yr="${p.year}"></div>`;
+  }).join('');
+
+  // Stats
+  const bestYearBucket = yearBuckets.length
+    ? yearBuckets.reduce((a,b) => b.avg_rating > a.avg_rating ? b : a)
+    : null;
+  const bestPoint = points.reduce((a,b) => b.y > a.y ? b : a);
+  const avgRating = points.reduce((a,p) => a + p.y, 0) / points.length;
+  const bestEra = ERAS.reduce((best, [label, s, e]) => {
+    const eraPoints = points.filter(p => p.year >= s && p.year < e);
+    if (!eraPoints.length) return best;
+    const avg = eraPoints.reduce((a,p) => a + p.y, 0) / eraPoints.length;
+    return avg > (best.avg || 0) ? {label, avg} : best;
+  }, {label: '—', avg: 0});
+
+  const modeNote = useScatter
+    ? `<div style="font-size:9px;color:var(--muted);margin-bottom:4px;">Per-performance ratings · click a dot to navigate to that show</div>`
+    : `<div style="font-size:9px;color:var(--muted);margin-bottom:4px;">Year-bucket averages (no per-show rating data available)</div>`;
+
+  body.insertAdjacentHTML('beforeend', `
+    ${modeNote}
+    <div class="obs-chart-wrap">
+      <div class="obs-chart" style="height:${CHART_H}px">${eraBands}${dotsHTML}${xLabels.join('')}${yLabels}</div>
+    </div>
+    <div class="obs-stats">
+      <div><div class="obs-stat-val">${points.length}</div><div class="obs-stat-lbl">${useScatter ? 'Rated Shows' : 'Years w/ Data'}</div></div>
+      <div><div class="obs-stat-val">${avgRating.toFixed(2)}</div><div class="obs-stat-lbl">Avg Rating</div></div>
+      <div><div class="obs-stat-val">${bestPoint.y.toFixed(1)}</div><div class="obs-stat-lbl">Peak · ${escapeHTML(String(bestPoint.year))}</div></div>
+      <div><div class="obs-stat-val">${escapeHTML(bestEra.label)}</div><div class="obs-stat-lbl">Best Era</div></div>
+    </div>`);
+
+  const tooltip = document.getElementById('obs-tooltip');
+  body.querySelectorAll('.obs-dot').forEach(dot => {
+    dot.addEventListener('mouseenter', () => {
+      const rat = parseFloat(dot.dataset.rat).toFixed(2);
+      const label = dot.dataset.date || dot.dataset.yr;
+      tooltip.innerHTML = `<strong style="color:var(--accent)">${escapeHTML(label)}</strong> · ★ ${rat} · ${dot.dataset.rev} review${dot.dataset.rev==1?'':'s'}${dot.dataset.src !== 'UNK' ? ' · ' + dot.dataset.src : ''}`;
+      tooltip.style.display = 'block';
+    });
+    dot.addEventListener('mousemove', e => {
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top  = (e.clientY - 32) + 'px';
+    });
+    dot.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    if (dot.classList.contains('lin-clickable')) {
+      dot.style.cursor = 'pointer';
+      dot.addEventListener('click', () => {
+        document.getElementById('obs-modal').classList.remove('open');
+        tourRunGoTo(dot.dataset.date);
+      });
+    }
   });
 }
 
