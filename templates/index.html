@@ -737,8 +737,8 @@
     <input type="range" class="volume-slider" id="vol-slider" min="0" max="1" step="0.02" value="1">
   </div>
   <button class="viz-toggle" id="viz-toggle" onclick="toggleViz()" title="Visualizer">VIZ</button>
-  <audio id="audio-player"></audio>
-  <audio id="audio-preload" preload="auto" muted style="display:none"></audio>
+  <audio id="audio-player" x-webkit-airplay="allow"></audio>
+  <audio id="audio-preload" preload="auto" muted disableRemotePlayback x-webkit-airplay="deny" style="display:none"></audio>
 </div>
 
 <div class="modal-overlay" id="auth-modal">
@@ -845,6 +845,11 @@ let audio = audioA; // active element
 let preload = audioB; // buffering next track — always kept muted
 audioA.muted = false;
 audioB.muted = true;
+// Prevent the preload element from participating in AirPlay/Cast routing
+// (a second audio session confuses macOS AirPlay and causes fallback to local)
+try { audioB.disableRemotePlayback = true; } catch(e) {}
+audioB.setAttribute('disableRemotePlayback', '');
+audioB.setAttribute('x-webkit-airplay', 'deny');
 let currentTracks = [], currentTrackIdx = -1, currentShowInfo = '';
 let currentSourceId = '', currentShowDate = '', currentShowLocation = '';
 let allSources = [], activeSourceIdx = 0;
@@ -1893,10 +1898,27 @@ function updatePlaybackUI(idx) {
   document.getElementById('btn-play').innerHTML = _IC.pause;
 }
 
+const _httpWarmed = new Set();
+function _warmHttpCache(url) {
+  if (!url || _httpWarmed.has(url)) return;
+  _httpWarmed.add(url);
+  // Warm the browser HTTP cache without creating a second audio session.
+  // Range request matches what the audio element will issue, so bytes get reused.
+  fetch(url, { headers: { 'Range': 'bytes=0-1048575' }, mode: 'cors', credentials: 'omit' })
+    .catch(() => { _httpWarmed.delete(url); });
+}
+
 function preloadTrack(idx) {
   if (idx < 0 || idx >= currentTracks.length) return;
   const url = currentTracks[idx].mp3_url;
   if (!url || _ps.idx === idx) return; // already loading/loaded this index
+  // While AirPlay/Remote Playback is active, a second <audio> element holding
+  // its own audio session breaks routing. Warm the HTTP cache instead — the
+  // bytes are ready when the active element loads the URL, no second session.
+  if (audio.remote && audio.remote.state === 'connected') {
+    _warmHttpCache(url);
+    return;
+  }
   _ps = { idx, url, ok: false, failed: false, retries: 0, fbSrcIdx: -1, fbTracks: null, fbUrl: null };
   preload.src = url;
   preload.load();
