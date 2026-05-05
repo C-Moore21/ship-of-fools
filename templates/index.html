@@ -854,15 +854,25 @@ audioB.setAttribute('disableRemotePlayback', '');
 audioB.setAttribute('x-webkit-airplay', 'deny');
 
 // Hard teardown of the preload element when AirPlay/Remote Playback is active.
-// disableRemotePlayback is not reliably honored on Safari/<audio>, so we
-// destroy the second AVPlayer outright the moment routing changes.
+// disableRemotePlayback is not reliably honored on Safari/<audio>, AND the
+// AVPlayer destruction triggered by src='' + load() is asynchronous in
+// WebKit — the old AVPlayer can still be registered with the AirPlay route
+// at the instant the user clicks HomePod, causing the ~1s connect-then-fall-back
+// symptom. The only reliable fix is to remove the element from the DOM entirely.
+const _preloadParent = audioB.parentNode;
+const _preloadNextSibling = audioB.nextSibling;
 function _tearDownPreload() {
   try {
     preload.pause();
     preload.removeAttribute('src');
-    preload.load(); // forces WebKit to release the underlying AVPlayer
+    preload.load();
+    if (preload.parentNode) preload.parentNode.removeChild(preload);
   } catch(e) {}
   _ps = { idx: -1, url: null, ok: false, failed: false, retries: 0, fbSrcIdx: -1, fbTracks: null, fbUrl: null };
+}
+function _restorePreload() {
+  if (preload.parentNode || !_preloadParent) return;
+  try { _preloadParent.insertBefore(preload, _preloadNextSibling); } catch(e) {}
 }
 
 let _airplayActive = false;
@@ -871,7 +881,8 @@ function _bindRemotePlaybackWatcher(el) {
   const sync = () => {
     const wasActive = _airplayActive;
     _airplayActive = (el.remote.state === 'connected' || el.remote.state === 'connecting');
-    if (_airplayActive && !wasActive) _tearDownPreload();
+    if (_airplayActive && !wasActive)      _tearDownPreload();
+    else if (!_airplayActive && wasActive) _restorePreload();
   };
   el.remote.addEventListener('connect', sync);
   el.remote.addEventListener('connecting', sync);
@@ -880,7 +891,8 @@ function _bindRemotePlaybackWatcher(el) {
   el.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', () => {
     const wasActive = _airplayActive;
     _airplayActive = !!el.webkitCurrentPlaybackTargetIsWireless;
-    if (_airplayActive && !wasActive) _tearDownPreload();
+    if (_airplayActive && !wasActive)      _tearDownPreload();
+    else if (!_airplayActive && wasActive) _restorePreload();
   });
 }
 _bindRemotePlaybackWatcher(audioA);
