@@ -2002,6 +2002,7 @@ function playTrack(idx) {
   // Don't restart a track that's already playing (prevents double-click double-play)
   if (idx === currentTrackIdx && !audio.paused && audio.currentTime > 0.5) return;
   _housePlaying = false; // user picked a real track — exit set-break mode
+  _gaplessHandoffStarted = false; // new track resets the pre-play handoff
   // Cancel any in-flight crossfade — user-initiated play takes priority
   if (_crossfadeActive) {
     _crossfadeActive = false;
@@ -2022,11 +2023,18 @@ function playTrack(idx) {
     || (audio.remote && audio.remote.state === 'connected')
     || audio.webkitCurrentPlaybackTargetIsWireless;
   if (!isIOS && !isCasting && preload.src === t.mp3_url && preload.readyState >= 3) {
-    audio.pause();
+    // Splice (gapless): start NEW first, pause OLD second. The play() call
+    // takes ~50-100ms before audio actually emits, so by ordering this way
+    // we get a tiny musical OVERLAP rather than a silent GAP. For Dead
+    // segues (Scarlet > Fire) the overlap aligns with the continuous music;
+    // for non-segues the overlap is imperceptible.
     [audio, preload] = [preload, audio];
-    audio.muted = false;   // unmute the new active element
-    preload.muted = true;  // silence the old active (now buffering)
+    audio.muted = false;
+    audio.volume = 1; // reset in case a cancelled crossfade left it modified
     audio.play().catch(() => {});
+    preload.muted = true;
+    preload.volume = 0;
+    try { preload.pause(); } catch(e) {}
   } else {
     audio.src = t.mp3_url;
     audio.load();
@@ -2091,10 +2099,14 @@ function onTimeUpdate() {
       _preloadFallbackSource(nextIdx);
     }
   }
-  // Equal-power crossfade trigger — 2.5s before track ends
-  if (!_crossfadeActive && audio.duration && !isNaN(audio.duration)) {
+  // Pre-play preload silently in the last few seconds so the swap is
+  // truly gapless. For non-segues, this is followed by a crossfade.
+  // For segues, preload is already producing audio (muted) at swap time
+  // so unmuting it is instantaneous — no audible cut.
+  if (audio.duration && !isNaN(audio.duration)) {
     const remaining = audio.duration - audio.currentTime;
-    if (remaining > 0 && remaining <= 2.8) _maybeStartCrossfade();
+    if (remaining > 0 && remaining <= 4.0) _maybeStartGaplessHandoff();
+    if (!_crossfadeActive && remaining > 0 && remaining <= FADE_TRIGGER_S) _maybeStartCrossfade();
   }
   // UI updates throttled to 250ms
   if (now - _lastUIUpdate < 250) return;
@@ -2253,14 +2265,62 @@ function onEnded() {
 }
 
 // ── Equal-power crossfade between tracks ─────────────────────────────────
-const FADE_DURATION_MS = 2500;
+// Short fade — Dead shows often have continuous music split across tracks
+// (Scarlet > Fire, Help > Slipknot, etc). A short fade smooths hard stops
+// without creating audible double-tracking on real segues.
+const FADE_DURATION_MS = 1200;
+const FADE_TRIGGER_S   = 1.4; // seconds before end to start the fade
 let _crossfadeActive = false;
 let _suppressNextEnded = false;
+
+function _isSegueTrack(track) {
+  // Track titles ending in ">" indicate the band played continuously into
+  // the next track — never crossfade these or you'll hear the same music
+  // twice over itself.
+  if (!track || !track.title) return false;
+  const t = String(track.title).trim();
+  return /[>→]\s*$/.test(t);
+}
+
+let _gaplessHandoffStarted = false;
+function _maybeStartGaplessHandoff() {
+  if (_gaplessHandoffStarted || _housePlaying) return;
+  // Only do silent pre-play for SEGUES — the next track's first few seconds
+  // are the same continuous music as the current track's last few seconds,
+  // so advancing preload's clock in parallel keeps them aligned. For non-
+  // segues this would cause the listener to miss the start of the new track.
+  const cur = currentTracks[currentTrackIdx];
+  if (!_isSegueTrack(cur)) return;
+  const nextIdx = currentTrackIdx + 1;
+  if (nextIdx >= currentTracks.length) return;
+  const t = currentTracks[nextIdx];
+  if (!t || !t.mp3_url) return;
+  if (preload.src !== t.mp3_url || preload.readyState < 3) return;
+  // Skip on AirPlay / Cast / iOS — running two audio elements at once
+  // breaks remote routing.
+  if (_airplayActive) return;
+  if (audio.remote && audio.remote.state === 'connected') return;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) return;
+  _gaplessHandoffStarted = true;
+  // Start preload playing silently — disableRemotePlayback prevents
+  // AirPlay routing competition. The clock will advance ~4s while muted,
+  // perfectly aligning with the segue continuation.
+  try {
+    preload.muted = true;
+    preload.volume = 0;
+    preload.play().catch(() => { _gaplessHandoffStarted = false; });
+  } catch(e) { _gaplessHandoffStarted = false; }
+}
 
 function _maybeStartCrossfade() {
   if (_crossfadeActive || _housePlaying) return;
   const nextIdx = currentTrackIdx + 1;
   if (nextIdx >= currentTracks.length) return;
+  // Don't crossfade segues — current track flows directly into the next
+  const cur = currentTracks[currentTrackIdx];
+  if (_isSegueTrack(cur)) return;
   const t = currentTracks[nextIdx];
   if (!t || !t.mp3_url) return;
   // Need preload to be ready and matching the next track URL
@@ -2312,6 +2372,7 @@ function _finalizeCrossfade(nextIdx) {
   // The new preload (old active) goes back to muted/silent
   try { preload.muted = true; preload.volume = 0; preload.pause(); } catch(e) {}
   _crossfadeActive = false;
+  _gaplessHandoffStarted = false;
   _preload75Done = false;
   preloadTrack(currentTrackIdx + 1);
   updatePlaybackUI(currentTrackIdx);
