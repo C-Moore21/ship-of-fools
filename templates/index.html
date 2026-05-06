@@ -1559,6 +1559,8 @@ async function loadSources(showId, date, venue) {
   _sourcesAbort = new AbortController();
   _tourLoaded = false;
   _venueLoaded = false;
+  // Mood is per-show — reset when switching shows
+  _currentMood = null;
   mobNav('tracks');
   history.pushState({}, '', '?show=' + showId);
   document.getElementById('track-panel').innerHTML = skelTracks();
@@ -2430,8 +2432,17 @@ function _newListenSession() {
   listenSeconds = 0;
   listenLastTime = null;
   listenSessionId = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  _currentMood = null;
-  document.querySelectorAll('.mood-btn').forEach(b => b.classList.remove('active'));
+  // Carry the mood across tracks within a show — apply to the new session row
+  if (_currentMood && loggedInUser) {
+    const sid = listenSessionId, m = _currentMood;
+    setTimeout(() => {
+      fetch('/api/listen/mood', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session_id: sid, mood: m}),
+      }).catch(() => {});
+    }, 1500); // wait for the listen row to be created server-side
+  }
 }
 
 function listenTick() {
@@ -3944,10 +3955,15 @@ async function loadNowSpinning() {
 
 // ── MOOD ──────────────────────────────────────────────────────────────────────
 async function setMood(mood) {
-  if (!loggedInUser || !listenSessionId) return;
+  if (!loggedInUser) { openModal('login'); return; }
+  // Toggle the visual state FIRST so clicks always feel responsive,
+  // even before a track has started playing.
   _currentMood = (_currentMood === mood) ? null : mood;
   document.querySelectorAll('.mood-btn').forEach(b => b.classList.toggle('active', b.id === `mood-btn-${_currentMood}`));
-  if (_currentMood) {
+  // Only POST if there's an active listen session — otherwise the mood
+  // is staged client-side and applied by _newListenSession() when a
+  // track starts.
+  if (_currentMood && listenSessionId) {
     try {
       await fetch('/api/listen/mood', {
         method: 'POST',

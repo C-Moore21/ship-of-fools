@@ -87,8 +87,8 @@ def main():
     rows = ROW_RE.findall(html)
     print(f"Found {len(rows)} entries on the page.")
 
-    # Group full-show releases by date
-    by_date = {}  # date_str -> list of {name, year, url}
+    # First pass: collect every full-show release entry
+    raw_entries = []  # list of (date_str, release_dict)
     skipped_partial = 0
     skipped_unknown = 0
     for date_cell, type_cell, link_url, link_text in rows:
@@ -102,12 +102,28 @@ def main():
             skipped_unknown += 1
             continue
         title, year = parse_release_text(link_text)
+        full_url = f"https://www.deaddisc.com/{link_url}" if not link_url.startswith("http") else link_url
         for d in dates:
-            by_date.setdefault(d, []).append({
-                "name": title,
-                "year": year,
-                "url":  f"https://www.deaddisc.com/{link_url}" if not link_url.startswith("http") else link_url,
-            })
+            raw_entries.append((d, {"name": title, "year": year, "url": full_url}))
+
+    # Count distinct dates per release URL — releases covering fewer dates are more
+    # specific (a standalone "Cornell 5/8/77" beats a 4-date box set like
+    # "May 1977: Get Shown The Light").
+    from collections import defaultdict
+    coverage = defaultdict(set)  # url -> set of dates it covers
+    for d, rel in raw_entries:
+        coverage[rel["url"]].add(d)
+
+    by_date = {}
+    for d, rel in raw_entries:
+        rel = dict(rel)
+        rel["coverage"] = len(coverage[rel["url"]])
+        by_date.setdefault(d, []).append(rel)
+
+    # Sort each date's releases: most specific first (lowest coverage),
+    # then most recent reissue (highest year) as tiebreaker
+    for d in by_date:
+        by_date[d].sort(key=lambda r: (r["coverage"], -int(r["year"] or 0)))
 
     print(f"  Full-show releases kept:  {sum(len(v) for v in by_date.values())}")
     print(f"  Distinct show dates:       {len(by_date)}")
