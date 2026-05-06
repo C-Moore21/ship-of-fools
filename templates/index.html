@@ -2099,14 +2099,12 @@ function onTimeUpdate() {
       _preloadFallbackSource(nextIdx);
     }
   }
-  // Pre-play preload silently in the last few seconds so the swap is
-  // truly gapless. For non-segues, this is followed by a crossfade.
-  // For segues, preload is already producing audio (muted) at swap time
-  // so unmuting it is instantaneous — no audible cut.
+  // Universal silent handoff: 600ms before end, kick the preload into silent
+  // playback so the audio engine is already emitting by swap time. Eliminates
+  // the play-start latency that causes the half-beat blip.
   if (audio.duration && !isNaN(audio.duration)) {
     const remaining = audio.duration - audio.currentTime;
-    if (remaining > 0 && remaining <= 4.0) _maybeStartGaplessHandoff();
-    if (!_crossfadeActive && remaining > 0 && remaining <= FADE_TRIGGER_S) _maybeStartCrossfade();
+    if (remaining > 0 && remaining <= HANDOFF_LEAD_S + 0.3) _maybeStartGaplessHandoff();
   }
   // UI updates throttled to 250ms
   if (now - _lastUIUpdate < 250) return;
@@ -2283,14 +2281,11 @@ function _isSegueTrack(track) {
 }
 
 let _gaplessHandoffStarted = false;
+const HANDOFF_LEAD_S = 0.6;  // start preload silently 600ms before end so audio
+                             // engine is "warm" by swap time — eliminates the
+                             // 50-200ms play-start latency that causes the blip.
 function _maybeStartGaplessHandoff() {
   if (_gaplessHandoffStarted || _housePlaying) return;
-  // Only do silent pre-play for SEGUES — the next track's first few seconds
-  // are the same continuous music as the current track's last few seconds,
-  // so advancing preload's clock in parallel keeps them aligned. For non-
-  // segues this would cause the listener to miss the start of the new track.
-  const cur = currentTracks[currentTrackIdx];
-  if (!_isSegueTrack(cur)) return;
   const nextIdx = currentTrackIdx + 1;
   if (nextIdx >= currentTracks.length) return;
   const t = currentTracks[nextIdx];
@@ -2304,9 +2299,11 @@ function _maybeStartGaplessHandoff() {
                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   if (isIOS) return;
   _gaplessHandoffStarted = true;
-  // Start preload playing silently — disableRemotePlayback prevents
-  // AirPlay routing competition. The clock will advance ~4s while muted,
-  // perfectly aligning with the segue continuation.
+  // Start preload playing silently — by the time we swap, the audio engine
+  // is already emitting (just muted), so unmuting is instantaneous. For
+  // segues the ~600ms clock advance aligns with continuous music. For
+  // non-segues we sacrifice ~600ms of the new track's start (usually quiet
+  // applause/lead-in) for true gapless playback.
   try {
     preload.muted = true;
     preload.volume = 0;
