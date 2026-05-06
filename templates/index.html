@@ -1998,6 +1998,7 @@ function playTrack(idx) {
   if (idx < 0 || idx >= currentTracks.length) return;
   // Don't restart a track that's already playing (prevents double-click double-play)
   if (idx === currentTrackIdx && !audio.paused && audio.currentTime > 0.5) return;
+  _housePlaying = false; // user picked a real track — exit set-break mode
   flushListen(); // save time on the outgoing track before switching
   _newListenSession(); // fresh session ID for the new track
   currentTrackIdx = idx;
@@ -2197,9 +2198,11 @@ async function _preloadFallbackSource(trackIdx) {
 function onEnded() {
   if (this !== audio) return;
   const nextIdx = currentTrackIdx + 1;
-  // If this is the last track, clear the resume position
+  // If this is the last track, clear the resume position and queue house music
   if (nextIdx >= currentTracks.length) {
     try { localStorage.removeItem('sof_resume'); } catch(e) {}
+    playHouseMusic();
+    return;
   }
   // If preload failed on current source but we buffered a fallback, use it seamlessly
   if (_ps.failed && _ps.fbSrcIdx >= 0 && _ps.fbTracks) {
@@ -2232,6 +2235,47 @@ function onEnded() {
     }
   }
   playTrack(nextIdx);
+}
+
+let _housePlaying = false;
+async function playHouseMusic() {
+  if (_housePlaying) return;
+  try {
+    const res = await fetch('/api/house-music');
+    if (!res.ok) return;
+    const t = await res.json();
+    if (t.error || !t.url) return;
+    _housePlaying = true;
+    flushListen();
+    audio.src = t.url;
+    audio.load();
+    audio.play().catch(() => { _housePlaying = false; });
+    // Show a subtle house-music indicator on the player bar
+    const trackEl = document.querySelector('.player-track');
+    if (trackEl) {
+      const dateStr = t.date ? ` · ${escapeHTML(t.date)}` : '';
+      trackEl.innerHTML = `<span style="color:var(--accent2);font-size:10px;letter-spacing:1.5px;">SET BREAK</span> · ${escapeHTML(t.artist)} — ${escapeHTML(t.title)}${dateStr}`;
+    }
+    // Stop the visualizer "next track" preload
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: t.title || 'House Music',
+          artist: t.artist || 'Various',
+          album: 'Set Break',
+        });
+      } catch(e) {}
+    }
+    // When this house track ends, queue another one
+    const onHouseEnd = () => {
+      audio.removeEventListener('ended', onHouseEnd);
+      _housePlaying = false;
+      playHouseMusic();
+    };
+    audio.addEventListener('ended', onHouseEnd, { once: true });
+  } catch(e) {
+    _housePlaying = false;
+  }
 }
 
 function onPause() { if (this === audio) { document.getElementById('btn-play').innerHTML = _IC.play; if (_vizAudio) _vizAudio.pause(); } }
@@ -2658,11 +2702,12 @@ function renderTourList(eras, body) {
             <div class="tour-momentum-label">${r.momentum.toFixed(1)} ★ avg</div>
           </div>`
         : '';
-      html += `<div class="tour-card" data-era="${ei}" data-run="${ri}">
+      html += `<div class="tour-card" data-era="${ei}" data-run="${ri}" data-tour-id="${escapeHTML(r.id)}">
         <div class="tour-card-name">${escapeHTML(r.name)}</div>
         ${momHTML}
         <div class="tour-card-count" style="font-size:10px;">${escapeHTML(r.start.slice(0,7))} – ${escapeHTML(r.end.slice(0,7))}</div>
-        <button class="tour-card-btn">View</button>
+        <button class="tour-card-btn" data-action="route">Route</button>
+        <button class="tour-card-btn" data-action="view">View</button>
       </div>`;
     });
     html += `</div></div>`;
@@ -2683,14 +2728,19 @@ function renderTourList(eras, body) {
 
   // Run card click handlers
   body.querySelectorAll('.tour-card').forEach(card => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      const action = e.target.closest('button')?.dataset?.action;
       const eraIdx = +card.dataset.era;
       const runIdx = +card.dataset.run;
       if (!eras || eraIdx < 0 || eraIdx >= eras.length) return;
       const era = eras[eraIdx];
       if (!era.runs || runIdx < 0 || runIdx >= era.runs.length) return;
       const run = era.runs[runIdx];
-      openTourDetail(run.id, run.name);
+      if (action === 'route') {
+        renderTourRoute(run.id, run.name);
+      } else {
+        openTourDetail(run.id, run.name);
+      }
     });
   });
 }
@@ -3150,6 +3200,142 @@ async function _loadExtraGeoJSON() {
     _mapExtraGeoJSON = res.ok ? await res.json() : {features:[]};
   } catch { _mapExtraGeoJSON = {features:[]}; }
   return _mapExtraGeoJSON;
+}
+
+/* ── Tour Route Map ──────────────────────────────────────────────────────── */
+async function renderTourRoute(tourId, tourName) {
+  // Open the Observatory modal in a special "tour route" mode
+  const modal = document.getElementById('obs-modal');
+  if (modal) modal.classList.add('open');
+  const body = document.getElementById('obs-modal-body');
+  body.innerHTML = '<div class="loading">Tracing the route…</div>';
+  // Highlight the Crow's Nest tab since this is a map
+  document.querySelectorAll('.obs-inner-tab').forEach(t => t.classList.remove('active'));
+  const cnTab = document.getElementById('obs-tab-crows-nest');
+  if (cnTab) cnTab.classList.add('active');
+
+  try {
+    const [routeRes] = await Promise.all([
+      fetch(`/api/tours/${encodeURIComponent(tourId)}/route`).then(r => r.json()),
+      _loadStatesGeoJSON(),
+      _loadEuropeGeoJSON(),
+      _loadExtraGeoJSON(),
+    ]);
+    if (!routeRes || !routeRes.shows || !routeRes.shows.length) {
+      body.innerHTML = `<div class="obs-empty">No mappable shows in this tour run yet — the show map cache may still be warming up.<br><br><button class="btn" onclick="renderTourRoute('${escapeHTML(tourId)}','${escapeHTML(tourName||'')}')">Retry</button></div>`;
+      return;
+    }
+    _buildTourRouteMap(routeRes, body);
+  } catch (e) {
+    body.innerHTML = `<div class="obs-empty">Could not load tour route: ${escapeHTML(e.message||String(e))}</div>`;
+  }
+}
+
+function _buildTourRouteMap(data, body) {
+  const t = data.tour, shows = data.shows, miles = data.total_miles;
+  const dateRange = `${t.start.slice(0,10)} – ${t.end.slice(0,10)}`;
+
+  body.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;margin-bottom:8px;gap:8px;">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:var(--white);font-family:'Playfair Display',serif;">${escapeHTML(t.name)}</div>
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px;">${escapeHTML(dateRange)}</div>
+      </div>
+      <div style="display:flex;gap:14px;font-family:'Space Mono',monospace;">
+        <div style="text-align:right"><div style="font-size:18px;font-weight:700;color:var(--accent);">${shows.length}</div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;">SHOWS</div></div>
+        <div style="text-align:right"><div style="font-size:18px;font-weight:700;color:var(--accent2);">${miles.toLocaleString()}</div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;">EST. MILES</div></div>
+      </div>
+    </div>
+    <canvas class="crows-nest-map" id="tr-canvas" height="360"></canvas>
+    <div style="font-size:9px;color:var(--muted);margin-top:4px;">Numbers indicate chronological order · click a dot to open that show</div>
+    <div id="tr-show-list" style="margin-top:10px;max-height:160px;overflow-y:auto;border-top:1px solid var(--border);padding-top:6px;"></div>`;
+
+  const canvas = document.getElementById('tr-canvas');
+  const W = canvas.offsetWidth || 840;
+  const H = 360;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const vp = _fitNAViewport(W, H);
+
+  // Background + land
+  _drawMap(ctx, W, H);
+  _drawGeoLayer(ctx, _mapStatesGeoJSON, W, H, vp, '#0e1d33', '#1c3050');
+  _drawGeoLayer(ctx, _mapEuropeGeoJSON, W, H, vp, '#0e1d33', '#1c3050');
+  _drawGeoLayer(ctx, _mapExtraGeoJSON, W, H, vp, '#0e1d33', '#1c3050');
+
+  // Project show points
+  const pts = shows.map(s => {
+    const [x, y] = _project(s.lat, s.lng, W, H, vp);
+    return { x, y, ...s };
+  });
+
+  // Connecting line between consecutive shows
+  ctx.strokeStyle = 'rgba(232,51,42,0.55)';
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+  ctx.stroke();
+
+  // Numbered dots
+  pts.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = i === 0 ? '#2a9d6f' : (i === pts.length - 1 ? '#e8332a' : '#1a4bbf');
+    ctx.fill();
+    ctx.strokeStyle = '#06111e';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 9px "Space Mono",monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(i + 1), p.x, p.y);
+  });
+
+  // Hover tooltip + click navigation
+  const tooltip = document.getElementById('obs-tooltip');
+  canvas.style.cursor = 'pointer';
+  canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (e.clientY - rect.top)  * (canvas.height / rect.height);
+    let hit = null;
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const p = pts[i];
+      if ((mx-p.x)**2 + (my-p.y)**2 <= 64) { hit = { p, i }; break; }
+    }
+    if (hit) {
+      tooltip.innerHTML = `<strong style="color:var(--accent)">#${hit.i+1} · ${hit.p.date}</strong> · ${escapeHTML(hit.p.venue || '—')}${hit.p.location ? ' · '+escapeHTML(hit.p.location) : ''}`;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top  = (e.clientY - 32) + 'px';
+      canvas.dataset.hitIdx = hit.i;
+    } else {
+      tooltip.style.display = 'none';
+      delete canvas.dataset.hitIdx;
+    }
+  };
+  canvas.onmouseleave = () => { tooltip.style.display = 'none'; };
+  canvas.onclick = (e) => {
+    const i = parseInt(canvas.dataset.hitIdx);
+    if (!isNaN(i) && pts[i]) {
+      document.getElementById('obs-modal').classList.remove('open');
+      tourRunGoTo(pts[i].date);
+    }
+  };
+
+  // Show list below the map
+  const listEl = document.getElementById('tr-show-list');
+  listEl.innerHTML = pts.map((p, i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:3px 4px;cursor:pointer;font-size:11px;border-bottom:1px solid rgba(30,42,69,0.6);" onclick="document.getElementById('obs-modal').classList.remove('open');tourRunGoTo('${escapeHTML(p.date)}')">
+      <span style="min-width:22px;text-align:right;color:var(--muted);font-family:'Space Mono',monospace;">${i+1}.</span>
+      <span style="font-family:'Space Mono',monospace;color:var(--accent);">${escapeHTML(p.date)}</span>
+      <span style="flex:1;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(p.venue || '—')}</span>
+      <span style="color:var(--muted);font-size:10px;">${escapeHTML(p.location || '')}</span>
+    </div>
+  `).join('');
 }
 
 async function renderCrowsNest() {

@@ -287,7 +287,14 @@ notes_table.create_index([("username", 1), ("show_id", 1)], unique=True)
 observatory_table = _db["observatory_cache"]
 observatory_table.create_index("song_id", unique=True)
 setlist_cache = _db["setlist_cache"]
-setlist_cache.create_index([("song", 1), ("date", 1)], unique=True)
+# Non-unique compound index — songs can repeat within a show (Drums in both
+# sets, reprises, etc.) and we now store position so the same song can have
+# multiple rows per (song, date).
+try:
+    setlist_cache.drop_index("song_1_date_1")
+except Exception:
+    pass
+setlist_cache.create_index([("song", 1), ("date", 1)])
 _shows_year_cache  = _db["shows_year_cache"]   # _id = year str
 _shows_src_cache   = _db["shows_src_cache"]    # _id = show_date str
 _today_cache       = _db["today_cache"]         # _id = "MM-DD"
@@ -297,6 +304,7 @@ _pool_cache_col    = _db["show_pool_cache"]     # _id = "all" | year str
 _weather_cache_col = _db["weather_cache"]       # _id = show_date, permanent (weather never changes)
 _segue_col         = _db["segue_cache"]         # _id = "from||to", count of occurrences
 _releases_cache_col = _db["releases_cache"]     # _id = show_date, official Dead releases
+_house_music_col    = _db["house_music_cache"]  # _id = "pool", curated jazz playlist
 # TTL: auto-expire track metadata after 30 days (tracks rarely change)
 _tracks_cache_col.create_index("ts", expireAfterSeconds=30 * 86400)
 
@@ -845,16 +853,16 @@ def source_tracks(identifier):
     date_str = (item_meta.get("date") or "")[:10]
     if date_str and _re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
         _titles = [t["title"] for s in sets for t in s.get("tracks", [])]
-        def _bg_index(d=date_str, ts=_titles):
+        def _bg_index(d=date_str, ts=_titles, src_id=identifier):
             norms = []
-            for title in ts:
+            for pos, title in enumerate(ts):
                 clean = title.rstrip('>').strip()
                 n = _norm_song(clean)
                 if n and len(n) > 2:
                     try:
                         setlist_cache.update_one(
-                            {"song": n, "date": d},
-                            {"$setOnInsert": {"song": n, "date": d}},
+                            {"song": n, "date": d, "position": pos, "source_id": src_id},
+                            {"$setOnInsert": {"song": n, "date": d, "position": pos, "source_id": src_id}},
                             upsert=True
                         )
                     except Exception:
@@ -1787,6 +1795,77 @@ def show_releases(show_date):
     return jsonify(result)
 
 
+@app.route("/api/house-music")
+def house_music():
+    """Return one random jazz/ambient track from Archive.org for set-break playback.
+    Pulls from a pool of live jazz recordings on the etree collection — same
+    spirit as what played over the PA between Dead sets."""
+    cache_key = "house:pool"
+    pool = _cache_get(cache_key)
+    if pool is None:
+        # Try MongoDB cache first
+        pool = _mcache_get(_house_music_col, "pool", max_age_s=30 * 86400)
+    if not pool:
+        # Build pool from Archive.org search
+        try:
+            data = archive_search({
+                "q": ('collection:etree AND mediatype:audio AND ('
+                      '"John Coltrane" OR "Miles Davis" OR "Pharoah Sanders" OR '
+                      '"Alice Coltrane" OR "Sun Ra" OR "Albert Ayler" OR '
+                      '"Charles Mingus" OR "Ornette Coleman")'),
+                "fl[]": "identifier,title,creator,date",
+                "output": "json",
+                "rows": 200,
+                "sort[]": "downloads desc",
+            })
+            docs = data.get("response", {}).get("docs", [])
+            pool = []
+            for d in docs:
+                ident = d.get("identifier")
+                if not ident: continue
+                creator = d.get("creator")
+                if isinstance(creator, list): creator = creator[0] if creator else ""
+                title = d.get("title") or ident
+                if isinstance(title, list): title = title[0] if title else ident
+                pool.append({
+                    "identifier": ident,
+                    "title":      title,
+                    "artist":     creator or "Unknown",
+                    "date":       (d.get("date") or "")[:10],
+                })
+            if pool:
+                _mcache_set(_house_music_col, "pool", pool)
+        except Exception:
+            pool = []
+        _cache_set(cache_key, pool)
+
+    if not pool:
+        return jsonify({"error": "No house music available right now"}), 503
+
+    pick = random.choice(pool)
+    # Fetch one playable mp3 for the picked item
+    try:
+        meta = archive_metadata(pick["identifier"])
+        files = meta.get("files", [])
+        mp3s = [f for f in files
+                if f.get("format") in ("VBR MP3", "MP3", "128Kbps MP3", "64Kbps MP3")
+                and f.get("name")]
+        if not mp3s:
+            return jsonify({"error": "No mp3 available"}), 503
+        # Pick a track in the middle of the set (avoid intros/outros)
+        track = mp3s[len(mp3s) // 2] if len(mp3s) > 2 else mp3s[0]
+        return jsonify({
+            "url":        f"{ARCHIVE_DOWNLOAD}/{pick['identifier']}/{requests.utils.quote(track['name'])}",
+            "title":      track.get("title") or track.get("name") or "",
+            "artist":     pick["artist"],
+            "show_title": pick["title"],
+            "date":       pick["date"],
+            "duration":   _parse_duration(track.get("length")),
+        })
+    except Exception:
+        return jsonify({"error": "Couldn't load track"}), 502
+
+
 @app.route("/api/segues")
 def segues():
     song = request.args.get("song", "").strip().lower()
@@ -2419,6 +2498,66 @@ def list_tours():
         if e["id"] in runs_by_era
     ]
     return jsonify({"eras": eras})
+
+def _haversine_miles(lat1, lng1, lat2, lng2):
+    import math as _m
+    R = 3958.8  # earth radius in miles
+    lat1_r, lat2_r = _m.radians(lat1), _m.radians(lat2)
+    dlat = _m.radians(lat2 - lat1)
+    dlng = _m.radians(lng2 - lng1)
+    a = _m.sin(dlat/2)**2 + _m.cos(lat1_r) * _m.cos(lat2_r) * _m.sin(dlng/2)**2
+    return R * 2 * _m.asin(_m.sqrt(a))
+
+@app.route("/api/tours/<tour_id>/route")
+def tour_route(tour_id):
+    tour = next((t for t in TOUR_RUNS if t["id"] == tour_id), None)
+    if not tour:
+        return jsonify({"error": "Tour not found"}), 404
+    cache_key = f"tour_route:{tour_id}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
+    coords = _coords_index()  # {date: [lat, lng]}
+
+    # Build venue lookup from year caches covering this tour
+    start_year = int(tour["start"][:4])
+    end_year   = int(tour["end"][:4])
+    venue_lookup = {}
+    for y in range(start_year, end_year + 1):
+        ys = _mcache_get(_shows_year_cache, str(y)) or []
+        for s in ys:
+            d = s.get("display_date") or s.get("id")
+            if d:
+                venue_lookup[d] = s.get("venue", {}) or {}
+
+    shows = []
+    for date, latlng in coords.items():
+        if not (tour["start"] <= date <= tour["end"]):
+            continue
+        v = venue_lookup.get(date, {})
+        shows.append({
+            "date": date,
+            "lat":  latlng[0],
+            "lng":  latlng[1],
+            "venue":    v.get("name") or "",
+            "location": v.get("location") or "",
+        })
+    shows.sort(key=lambda s: s["date"])
+
+    total_miles = 0.0
+    for i in range(1, len(shows)):
+        a, b = shows[i-1], shows[i]
+        total_miles += _haversine_miles(a["lat"], a["lng"], b["lat"], b["lng"])
+
+    result = {
+        "tour": {"id": tour["id"], "name": tour["name"],
+                 "start": tour["start"], "end": tour["end"]},
+        "shows": shows,
+        "total_miles": round(total_miles),
+    }
+    _cache_set(cache_key, result)
+    return jsonify(result)
 
 @app.route("/api/tours/<tour_id>/progress")
 @login_required
