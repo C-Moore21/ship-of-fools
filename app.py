@@ -1812,73 +1812,15 @@ def show_releases(show_date):
 
 @app.route("/api/house-music")
 def house_music():
-    """Return one random jazz/ambient track from Archive.org for set-break playback.
-    Pulls from a pool of live jazz recordings on the etree collection — same
-    spirit as what played over the PA between Dead sets."""
-    cache_key = "house:pool"
-    pool = _cache_get(cache_key)
-    if pool is None:
-        # Try MongoDB cache first
-        pool = _mcache_get(_house_music_col, "pool", max_age_s=30 * 86400)
+    """Return one random pre-resolved jazz track for set-break playback.
+    Pool is seeded from a local machine via seed_house_music.py — entries
+    contain fully-resolved Archive.org download URLs so this endpoint
+    never needs to call Archive.org at request time."""
+    pool_doc = _house_music_col.find_one({"_id": "pool"}, {"data": 1, "_id": 0})
+    pool = (pool_doc or {}).get("data") or []
     if not pool:
-        # Build pool from Archive.org search
-        try:
-            data = archive_search({
-                "q": ('collection:etree AND mediatype:audio AND ('
-                      '"John Coltrane" OR "Miles Davis" OR "Pharoah Sanders" OR '
-                      '"Alice Coltrane" OR "Sun Ra" OR "Albert Ayler" OR '
-                      '"Charles Mingus" OR "Ornette Coleman")'),
-                "fl[]": "identifier,title,creator,date",
-                "output": "json",
-                "rows": 200,
-                "sort[]": "downloads desc",
-            })
-            docs = data.get("response", {}).get("docs", [])
-            pool = []
-            for d in docs:
-                ident = d.get("identifier")
-                if not ident: continue
-                creator = d.get("creator")
-                if isinstance(creator, list): creator = creator[0] if creator else ""
-                title = d.get("title") or ident
-                if isinstance(title, list): title = title[0] if title else ident
-                pool.append({
-                    "identifier": ident,
-                    "title":      title,
-                    "artist":     creator or "Unknown",
-                    "date":       (d.get("date") or "")[:10],
-                })
-            if pool:
-                _mcache_set(_house_music_col, "pool", pool)
-        except Exception:
-            pool = []
-        _cache_set(cache_key, pool)
-
-    if not pool:
-        return jsonify({"error": "No house music available right now"}), 503
-
-    pick = random.choice(pool)
-    # Fetch one playable mp3 for the picked item
-    try:
-        meta = archive_metadata(pick["identifier"])
-        files = meta.get("files", [])
-        mp3s = [f for f in files
-                if f.get("format") in ("VBR MP3", "MP3", "128Kbps MP3", "64Kbps MP3")
-                and f.get("name")]
-        if not mp3s:
-            return jsonify({"error": "No mp3 available"}), 503
-        # Pick a track in the middle of the set (avoid intros/outros)
-        track = mp3s[len(mp3s) // 2] if len(mp3s) > 2 else mp3s[0]
-        return jsonify({
-            "url":        f"{ARCHIVE_DOWNLOAD}/{pick['identifier']}/{requests.utils.quote(track['name'])}",
-            "title":      track.get("title") or track.get("name") or "",
-            "artist":     pick["artist"],
-            "show_title": pick["title"],
-            "date":       pick["date"],
-            "duration":   _parse_duration(track.get("length")),
-        })
-    except Exception:
-        return jsonify({"error": "Couldn't load track"}), 502
+        return jsonify({"error": "House music pool not seeded yet"}), 503
+    return jsonify(random.choice(pool))
 
 
 @app.route("/api/songs/timeline")

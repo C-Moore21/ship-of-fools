@@ -2002,6 +2002,11 @@ function playTrack(idx) {
   // Don't restart a track that's already playing (prevents double-click double-play)
   if (idx === currentTrackIdx && !audio.paused && audio.currentTime > 0.5) return;
   _housePlaying = false; // user picked a real track — exit set-break mode
+  // Cancel any in-flight crossfade — user-initiated play takes priority
+  if (_crossfadeActive) {
+    _crossfadeActive = false;
+    try { audio.volume = 1; preload.volume = 0; preload.muted = true; preload.pause(); } catch(e) {}
+  }
   flushListen(); // save time on the outgoing track before switching
   _newListenSession(); // fresh session ID for the new track
   currentTrackIdx = idx;
@@ -2085,6 +2090,11 @@ function onTimeUpdate() {
     } else if (_ps.failed && _ps.fbSrcIdx < 0) {
       _preloadFallbackSource(nextIdx);
     }
+  }
+  // Equal-power crossfade trigger — 2.5s before track ends
+  if (!_crossfadeActive && audio.duration && !isNaN(audio.duration)) {
+    const remaining = audio.duration - audio.currentTime;
+    if (remaining > 0 && remaining <= 2.8) _maybeStartCrossfade();
   }
   // UI updates throttled to 250ms
   if (now - _lastUIUpdate < 250) return;
@@ -2200,6 +2210,8 @@ async function _preloadFallbackSource(trackIdx) {
 
 function onEnded() {
   if (this !== audio) return;
+  // Crossfade is mid-flight — let it finish the swap; ignore the ended event.
+  if (_crossfadeActive) return;
   const nextIdx = currentTrackIdx + 1;
   // If this is the last track, clear the resume position and queue house music
   if (nextIdx >= currentTracks.length) {
@@ -2238,6 +2250,71 @@ function onEnded() {
     }
   }
   playTrack(nextIdx);
+}
+
+// ── Equal-power crossfade between tracks ─────────────────────────────────
+const FADE_DURATION_MS = 2500;
+let _crossfadeActive = false;
+let _suppressNextEnded = false;
+
+function _maybeStartCrossfade() {
+  if (_crossfadeActive || _housePlaying) return;
+  const nextIdx = currentTrackIdx + 1;
+  if (nextIdx >= currentTracks.length) return;
+  const t = currentTracks[nextIdx];
+  if (!t || !t.mp3_url) return;
+  // Need preload to be ready and matching the next track URL
+  if (preload.src !== t.mp3_url || preload.readyState < 3) return;
+  // Skip on AirPlay (preload element is AirPlay-denied — would route to laptop mid-fade)
+  if (_airplayActive) return;
+  // Skip if Remote Playback API says we're casting
+  if (audio.remote && audio.remote.state === 'connected') return;
+  // Skip on iOS — preload swap is also skipped there for same reasons
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) return;
+  _crossfadeActive = true;
+  _doCrossfade(nextIdx);
+}
+
+function _doCrossfade(nextIdx) {
+  flushListen();
+  // Bring preload up at volume 0 and start playing
+  try {
+    preload.muted = false;
+    preload.volume = 0;
+    preload.play().catch(() => { _crossfadeActive = false; });
+  } catch(e) { _crossfadeActive = false; return; }
+
+  const start = performance.now();
+  const tick = (now) => {
+    const progress = Math.min((now - start) / FADE_DURATION_MS, 1);
+    const outGain = Math.cos(progress * Math.PI / 2);
+    const inGain  = Math.sin(progress * Math.PI / 2);
+    try { audio.volume = Math.max(0, Math.min(1, outGain)); } catch(e) {}
+    try { preload.volume = Math.max(0, Math.min(1, inGain)); } catch(e) {}
+    if (progress < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      _finalizeCrossfade(nextIdx);
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+function _finalizeCrossfade(nextIdx) {
+  _newListenSession();
+  currentTrackIdx = nextIdx;
+  // Pause + reset the outgoing element
+  try { audio.pause(); audio.currentTime = 0; audio.volume = 1; } catch(e) {}
+  // Swap roles
+  [audio, preload] = [preload, audio];
+  // The new preload (old active) goes back to muted/silent
+  try { preload.muted = true; preload.volume = 0; preload.pause(); } catch(e) {}
+  _crossfadeActive = false;
+  _preload75Done = false;
+  preloadTrack(currentTrackIdx + 1);
+  updatePlaybackUI(currentTrackIdx);
 }
 
 let _housePlaying = false;
