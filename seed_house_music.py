@@ -58,9 +58,11 @@ def parse_length(val):
     return 0
 
 def search_jazz(rows=400):
-    creator_clause = " OR ".join(f'"{a}"' for a in JAZZ_ARTISTS)
+    # Broader search — etree is fan-recorded live shows (mostly jam bands),
+    # commercial jazz isn't there. Search all audio with these creators.
+    creator_clause = " OR ".join(f'creator:"{a}"' for a in JAZZ_ARTISTS)
     params = {
-        "q": f'collection:etree AND mediatype:audio AND ({creator_clause})',
+        "q": f'mediatype:audio AND ({creator_clause})',
         "fl[]": "identifier,title,creator,date,downloads",
         "output": "json",
         "rows": rows,
@@ -68,7 +70,18 @@ def search_jazz(rows=400):
     }
     r = requests.get(ARCHIVE_SEARCH, params=params, timeout=30)
     r.raise_for_status()
-    return r.json().get("response", {}).get("docs", [])
+    docs = r.json().get("response", {}).get("docs", [])
+    # If still nothing, fall back to title/description match
+    if not docs:
+        title_clause = " OR ".join(f'title:"{a}"' for a in JAZZ_ARTISTS)
+        r = requests.get(ARCHIVE_SEARCH, params={
+            "q": f'mediatype:audio AND ({title_clause})',
+            "fl[]": "identifier,title,creator,date,downloads",
+            "output": "json", "rows": rows, "sort[]": "downloads desc",
+        }, timeout=30)
+        r.raise_for_status()
+        docs = r.json().get("response", {}).get("docs", [])
+    return docs
 
 def extract_track(doc):
     """Pick one mid-set mp3 from this item and return a fully-resolved entry."""
