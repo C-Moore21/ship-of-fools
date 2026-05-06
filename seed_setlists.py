@@ -172,6 +172,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--year", type=int, help="Only seed this year")
     parser.add_argument("--force", action="store_true", help="Re-seed shows that already have rows")
+    parser.add_argument("--missing", action="store_true", help="Only retry dates with zero setlist rows (fast)")
     parser.add_argument("--workers", type=int, default=12, help="Parallel workers")
     args = parser.parse_args()
 
@@ -212,6 +213,16 @@ def main():
     if not all_dates:
         print("Nothing to seed. Run seed_cache.py first to populate shows_year_cache.")
         return
+
+    # --missing: filter to only dates with zero setlist rows (one fast query)
+    if args.missing:
+        print("\nFinding missing dates (this is one MongoDB query, much faster than iterating)...")
+        seeded = set(_setlist_col.distinct("date"))
+        all_dates = [d for d in all_dates if d not in seeded]
+        print(f"  {len(all_dates)} dates have no setlist data — retrying just those.")
+        if not all_dates:
+            print("Nothing missing. All shows have setlists.")
+            return
 
     # Process in parallel
     seeded = skipped = failed = 0

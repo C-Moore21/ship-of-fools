@@ -1374,7 +1374,7 @@ async function showHistory() {
         <div class="history-show-header" onclick="toggleHistoryShow('${gid}')">
           <div class="history-show-header-left">
             <span id="${gid}-arrow">${isFirst ? _IC.chevD : _IC.chevR}</span>
-            <span class="history-show-date">${escapeHTML(showDate)}</span>
+            <span class="history-show-date" style="cursor:pointer;text-decoration:underline;text-decoration-color:rgba(232,51,42,0.4);text-underline-offset:2px;" onclick="event.stopPropagation();showBrowse();tourRunGoTo('${escapeHTML(showDate)}')" title="Open this show">${escapeHTML(showDate)}</span>
             <span class="history-show-meta">${collapsed.length} track${collapsed.length !== 1 ? 's' : ''} · ${fmt(totalSecs)}</span>
           </div>
         </div>
