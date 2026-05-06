@@ -48,7 +48,7 @@
     .panel-divider { background:var(--border); cursor:col-resize; position:relative; z-index:5; transition:background 0.1s; }
     .panel-divider:hover, .panel-divider.dragging { background:var(--accent2); }
     .years-panel { overflow-y:auto; height:100%; scrollbar-width:thin; -webkit-overflow-scrolling:touch; padding-bottom:90px; }
-    .panel-label { padding:10px 16px 7px; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); }
+    .panel-label { padding:10px 16px 7px; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:5; }
     .year-item { display:flex; align-items:center; justify-content:space-between; padding:9px 16px; cursor:pointer; transition:background 0.15s; position:relative; }
     .year-item:hover { background:var(--surface); }
     .year-item.active { background:var(--surface2); padding-left:13px; color:var(--accent); }
@@ -99,7 +99,8 @@
     .track-panel { overflow-y:auto; overflow-x:auto; height:100%; scrollbar-width:thin; -webkit-overflow-scrolling:touch; padding-bottom:90px; }
     .track-panel-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:300px; gap:12px; color:var(--muted); }
     .track-panel-empty .big-skull { font-size:57px; opacity:0.3; }
-    .source-header { padding:10px 16px 8px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); overflow:hidden; }
+    .source-header { padding:10px 16px 8px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); overflow:hidden; z-index:10; }
+    .official-release-badge { display:inline-block; background:rgba(46,160,67,0.18); color:#4ec76a; border:1px solid rgba(46,160,67,0.45); padding:3px 8px; border-radius:3px; font-size:10px; font-family:'Space Mono',monospace; letter-spacing:0.5px; margin:4px 0 2px; }
     .source-header-content { position:relative; z-index:1; }
     .ticket-stub { position:absolute; top:6px; right:10px; z-index:0; pointer-events:none; user-select:none; transform:rotate(1.5deg); }
     .ticket-stub-inner { background:#f5ead6; border:1px solid #c9a96e; border-left:none; padding:5px 10px 5px 14px; position:relative; display:flex; flex-direction:column; align-items:flex-end; min-width:76px; box-shadow:1px 2px 6px rgba(0,0,0,0.35); }
@@ -1667,10 +1668,25 @@ function renderSourceButtons() {
   const parkingLotSection = `<div id="parking-lot-slot"></div>`;
   const _MOODS = ['Relaxed','Road Trip','Late Night','Morning','Party','Deep Dive'];
   const moodPickerHTML = loggedInUser ? `<div class="mood-picker"><div class="mood-picker-lbl">Listening Mood</div>${_MOODS.map(m=>`<button class="mood-btn" id="mood-btn-${m}" onclick="setMood('${m}')">${m}</button>`).join('')}</div>` : '';
-  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div><div id="show-weather"></div>${showStarsHTML}<div id="rarity-slot"></div></div></div>${parkingLotSection}${moodPickerHTML}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div><div id="show-weather"></div><div id="show-release"></div>${showStarsHTML}<div id="rarity-slot"></div></div></div>${parkingLotSection}${moodPickerHTML}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
   // Load parking lot asynchronously — don't block track rendering
   loadParkingLot(currentShowDate);
   loadShowWeather(currentShowDate);
+  loadShowReleases(currentShowDate);
+}
+
+async function loadShowReleases(date) {
+  const el = document.getElementById('show-release');
+  if (!el || !date) return;
+  try {
+    const res = await fetch(`/api/shows/${encodeURIComponent(date)}/releases`);
+    if (!res.ok) return;
+    const releases = await res.json();
+    if (!Array.isArray(releases) || !releases.length) return;
+    const r = releases[0]; // primary full release
+    const yr = r.year ? ` (${escapeHTML(r.year)})` : '';
+    el.innerHTML = `<div class="official-release-badge">Officially released as ${escapeHTML(r.name)}${yr}</div>`;
+  } catch(e) {}
 }
 
 async function loadShowWeather(date) {

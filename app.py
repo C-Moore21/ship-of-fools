@@ -296,6 +296,7 @@ _venue_cache_col   = _db["venue_cache"]         # _id = normalised venue str
 _pool_cache_col    = _db["show_pool_cache"]     # _id = "all" | year str
 _weather_cache_col = _db["weather_cache"]       # _id = show_date, permanent (weather never changes)
 _segue_col         = _db["segue_cache"]         # _id = "from||to", count of occurrences
+_releases_cache_col = _db["releases_cache"]     # _id = show_date, official Dead releases
 # TTL: auto-expire track metadata after 30 days (tracks rarely change)
 _tracks_cache_col.create_index("ts", expireAfterSeconds=30 * 86400)
 
@@ -1769,6 +1770,21 @@ def observatory_heatmap():
     result.sort(key=lambda x: order.get(x["song_id"], 999))
     _cache_set(cache_key, result)
     return jsonify({"songs": result, "all_songs": _OBS_SONGS})
+
+
+@app.route("/api/shows/<path:show_date>/releases")
+def show_releases(show_date):
+    import re as _re
+    if not _re.match(r'^\d{4}-\d{2}-\d{2}$', show_date):
+        return jsonify({"error": "Invalid date"}), 400
+    cache_key = f"releases:{show_date}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+    doc = _releases_cache_col.find_one({"_id": show_date}, {"_id": 0, "ts": 0})
+    result = doc.get("releases", []) if doc else []
+    _cache_set(cache_key, result)
+    return jsonify(result)
 
 
 @app.route("/api/segues")
