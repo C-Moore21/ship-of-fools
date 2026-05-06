@@ -10,8 +10,18 @@ Grateful Dead live concert browser. Flask + MongoDB Atlas M0 + Render free tier.
 
 ## Caching pattern
 Three-tier: LRU in-memory (`_LRUCache`, 500 entries, 5min TTL) → MongoDB → live fetch.
-Background daemon threads warm caches at startup (90s delay for observatory, 15s for map).
 Bump `_OBS_QUERY_VERSION` in `app.py` to force re-scrape of Observatory data.
+
+## Cache seeding (Archive.org blocks Render's IP — must seed from local)
+Run these scripts from a developer machine; they write directly to MongoDB Atlas:
+- `seed_cache.py` — `shows_year_cache` (31 years) + `today_cache` (365 days)
+- `seed_observatory.py` — `observatory_cache` (heatmap + scatter for 50 songs)
+- `seed_setlists.py` — `setlist_cache` (every show's tracklist with position)
+- `seed_releases.py` — `releases_cache` (deaddisc.com official releases)
+Re-run monthly to pick up new Archive.org uploads. Render serves only from MongoDB —
+it does NOT have any background workers that hit Archive.org (those were removed
+because they always failed). Per-request fallback paths still exist if a cache miss
+happens, but they'll just 502 on Render.
 
 ## MongoDB collections
 - `users`, `listens`, `ratings`, `show_ratings`, `notes`, `sessions`

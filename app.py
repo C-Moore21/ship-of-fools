@@ -1660,19 +1660,13 @@ def _fetch_observatory_song(song_meta):
             "rating": round(rating, 1), "id": identifier,
         }
 
-    # Lower concurrency on memory-constrained hosts (Render free tier = 512MB).
-    # 8 in-flight metadata responses + their buffers can push us to OOM,
-    # especially when Archive.org times out and exception state accumulates.
-    _max_workers = 3 if _DISABLE_BG_REFRESH else 8
     performances = []
-    with ThreadPoolExecutor(max_workers=_max_workers) as pool:
+    with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(fetch_perf, doc): doc for doc in candidates}
         for future in as_completed(futures):
             r = future.result()
             if r:
                 performances.append(r)
-            # Free the future reference immediately so its result can be GC'd
-            del futures[future]
 
     performances.sort(key=lambda x: x["date"])
     return {
@@ -2217,97 +2211,9 @@ def show_weather(show_date):
     return jsonify(result)
 
 
-_DISABLE_BG_REFRESH = os.environ.get("DISABLE_BG_REFRESH", "").lower() in ("1", "true", "yes")
-
-def _observatory_background_refresh():
-    """At startup, warm Observatory caches. Heatmap (fast) runs first for all songs,
-    then scatter (slow) runs for the 12 most improv-heavy songs."""
-    if _DISABLE_BG_REFRESH:
-        app.logger.info("Observatory background refresh disabled by DISABLE_BG_REFRESH")
-        return
-    import threading as _threading
-    # Songs worth fetching scatter/duration data for (improv-heavy, duration variance interesting)
-    _SCATTER_SONGS = {
-        "dark star","the other one","terrapin station","playing in the band",
-        "st. stephen","eyes of the world","estimated prophet","drums","space",
-        "scarlet begonias","weather report suite","here comes sunshine",
-    }
-
-    def _run():
-        time.sleep(90)
-        app.logger.info("Observatory: starting background warm-up")
-
-        # ── Pass 1: Heatmap data for ALL songs (search-only, fast) ──────────
-        app.logger.info("Observatory: Pass 1 — heatmap ratings for all songs")
-        for song_meta in _OBS_SONGS:
-            try:
-                row = observatory_table.find_one(
-                    {"song_id": song_meta["id"]},
-                    {"heatmap_fetched_at": 1, "years": 1}
-                )
-                if row and row.get("years") and row.get("query_version") == _OBS_QUERY_VERSION:
-                    age_days = (time.time() - row.get("heatmap_fetched_at", 0)) / 86400
-                    if age_days < _OBS_HM_REFRESH_DAYS:
-                        app.logger.info(f"  {song_meta['label']} heatmap — cached, skip")
-                        continue
-                app.logger.info(f"  {song_meta['label']} — fetching heatmap…")
-                years = _fetch_heatmap_song(song_meta)
-                if years is not None:
-                    observatory_table.update_one(
-                        {"song_id": song_meta["id"]},
-                        {"$set": {
-                            "song_id":       song_meta["id"],
-                            "song":          song_meta["label"],
-                            "years":         years,
-                            "heatmap_fetched_at": time.time(),
-                            "query_version": _OBS_QUERY_VERSION,
-                        }},
-                        upsert=True,
-                    )
-                    app.logger.info(f"  {song_meta['label']} — {len(years)} year buckets")
-                time.sleep(2)  # polite gap between search calls
-            except Exception as e:
-                app.logger.warning(f"Observatory heatmap failed for {song_meta['label']}: {e}")
-
-        # Invalidate heatmap LRU so next request gets fresh MongoDB data
-        _cache_set("obs:heatmap", None)
-        app.logger.info("Observatory: Pass 1 complete")
-
-        # ── Pass 2: Scatter/duration data for improv-heavy songs ─────────────
-        app.logger.info("Observatory: Pass 2 — scatter durations for improv songs")
-        for song_meta in _OBS_SONGS:
-            if song_meta["id"] not in _SCATTER_SONGS:
-                continue
-            try:
-                row = observatory_table.find_one(
-                    {"song_id": song_meta["id"]},
-                    {"fetched_at": 1, "performances": 1}
-                )
-                if row and row.get("performances") and row.get("query_version") == _OBS_QUERY_VERSION:
-                    age_days = (time.time() - row.get("fetched_at", 0)) / 86400
-                    if age_days < _OBS_REFRESH_DAYS:
-                        app.logger.info(f"  {song_meta['label']} scatter — cached, skip")
-                        continue
-                app.logger.info(f"  {song_meta['label']} — fetching scatter…")
-                out = _fetch_observatory_song(song_meta)
-                if out:
-                    out["fetched_at"] = time.time()
-                    out["query_version"] = _OBS_QUERY_VERSION
-                    observatory_table.update_one(
-                        {"song_id": song_meta["id"]},
-                        {"$set": out},
-                        upsert=True,
-                    )
-                    _cache_set(f"obs2:{song_meta['id']}", out)
-                    app.logger.info(f"  {song_meta['label']} — {len(out['performances'])} performances")
-                time.sleep(5)
-            except Exception as e:
-                app.logger.warning(f"Observatory scatter failed for {song_meta['label']}: {e}")
-
-        app.logger.info("Observatory: background warm-up complete")
-    _threading.Thread(target=_run, daemon=True).start()
-
-_observatory_background_refresh()
+# Note: Observatory background refresh removed — Archive.org permanently blocks
+# Render's outbound IP. All observatory_cache data is seeded from a local machine
+# via seed_observatory.py. Re-run that script monthly to pick up new uploads.
 
 # Warm map cache at startup if not already populated
 import threading as _startup_t
@@ -2320,42 +2226,9 @@ def _startup_map_warm():
         _refresh_map_cache()
 _startup_t.Thread(target=_startup_map_warm, daemon=True).start()
 
-def _seed_setlist_cache():
-    """Seed setlist_cache from listen history so gap data works from day one."""
-    if _DISABLE_BG_REFRESH:
-        return
-    # Skip entirely if seed_setlists.py has already populated setlist_cache —
-    # iterating listens_table is expensive on a busy app.
-    if setlist_cache.estimated_document_count() > 1000:
-        return
-    time.sleep(120)
-    try:
-        seen = set()
-        import re as _re
-        for doc in listens_table.find(
-            {"track_title": {"$ne": ""}, "show_date": {"$ne": ""}},
-            {"track_title": 1, "show_date": 1, "_id": 0}
-        ):
-            title = doc.get("track_title") or ""
-            date  = (doc.get("show_date") or "")[:10]
-            if not title or not date or not _re.match(r'^\d{4}-\d{2}-\d{2}$', date):
-                continue
-            n = _norm_song(title)
-            key = (n, date)
-            if not n or len(n) <= 2 or key in seen:
-                continue
-            seen.add(key)
-            try:
-                setlist_cache.update_one(
-                    {"song": n, "date": date},
-                    {"$setOnInsert": {"song": n, "date": date}},
-                    upsert=True
-                )
-            except Exception:
-                pass
-    except Exception:
-        pass
-threading.Thread(target=_seed_setlist_cache, daemon=True).start()
+# Note: setlist_cache backfill from listen history removed. Use seed_setlists.py
+# for the authoritative setlist data — it scrapes Archive.org track listings
+# directly and includes position + source_id per row.
 
 # ── Search ────────────────────────────────────────────────────────────────────
 @app.route("/api/search")
@@ -2863,56 +2736,8 @@ def _daily_blind_worker():
 
 threading.Thread(target=_daily_blind_worker, daemon=True).start()
 
-def _cache_warmup_worker():
-    """Pre-populate MongoDB show/source caches for all years so Archive.org
-    outages don't cause 502s on cold cache hits."""
-    if _DISABLE_BG_REFRESH:
-        app.logger.info("Cache warmup disabled by DISABLE_BG_REFRESH")
-        return
-    import time as _t
-    _t.sleep(20)
-    years = [str(y) for y in range(1995, 1964, -1)]
-    # Circuit breaker: if Archive.org is blocked, don't churn through every year
-    consecutive_failures = 0
-    for year in years:
-        if _mcache_get(_shows_year_cache, year) is not None:
-            continue  # already cached
-        if consecutive_failures >= 3:
-            app.logger.warning("Cache warmup: Archive.org appears blocked, aborting")
-            return
-        try:
-            data = archive_search({
-                "q": f"collection:{COLLECTION} AND year:{year}",
-                "fl[]": "identifier,title,date,coverage",
-                "output": "json", "rows": 1000, "sort[]": "date asc",
-            })
-            docs = data.get("response", {}).get("docs", [])
-            seen, result = {}, []
-            for doc in docs:
-                d = doc.get("date") or ""
-                if isinstance(d, list): d = d[0] if d else ""
-                d = d[:10]
-                if not d or d in seen: continue
-                seen[d] = True
-                title = doc.get("title", "")
-                venue = (title.split(" at ", 1)[1].split(" on ")[0].strip()
-                         if " at " in title and " on " in title else "")
-                result.append({"id": d, "display_date": d,
-                                "venue": {"name": venue or title[:60],
-                                          "location": doc.get("coverage", "")},
-                                "avg_rating": None})
-            if result:
-                _mcache_set(_shows_year_cache, year, result)
-                _cache_set(f"shows:{year}", result)
-                consecutive_failures = 0
-            else:
-                consecutive_failures += 1
-        except Exception as e:
-            app.logger.debug(f"cache warmup {year}: {e}")
-            consecutive_failures += 1
-        _t.sleep(3)  # be polite to Archive.org
-
-threading.Thread(target=_cache_warmup_worker, daemon=True).start()
+# Note: shows_year_cache warmup removed. Use seed_cache.py from a local machine
+# to populate all 31 years' show lists — Archive.org permanently blocks Render.
 
 _ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
