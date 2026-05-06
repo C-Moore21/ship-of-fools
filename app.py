@@ -998,9 +998,9 @@ def show_setlist_stats(show_date):
     # Gap data per song
     song_data = {}
     for n in norm_titles:
-        all_dates = sorted(
+        all_dates = sorted(set(
             d["date"] for d in setlist_cache.find({"song": n}, {"date": 1, "_id": 0})
-        )
+        ))
         prev_date  = next((d for d in reversed(all_dates) if d < show_date), None)
         next_date  = next((d for d in all_dates if d > show_date), None)
         perf_num   = sum(1 for d in all_dates if d <= show_date)
@@ -1011,10 +1011,25 @@ def show_setlist_stats(show_date):
                 gap_before = (_dc.fromisoformat(show_date) - _dc.fromisoformat(prev_date)).days
             except Exception:
                 pass
+
+        # Drought breaker rank: where does this gap sit among ALL gaps for this song?
+        drought_rank = None
+        if gap_before is not None and len(all_dates) >= 2:
+            try:
+                all_gaps = []
+                for i in range(1, len(all_dates)):
+                    g = (_dc.fromisoformat(all_dates[i]) - _dc.fromisoformat(all_dates[i-1])).days
+                    all_gaps.append(g)
+                # Rank = how many gaps are larger than this one (1 = longest ever)
+                drought_rank = sum(1 for g in all_gaps if g > gap_before) + 1
+            except Exception:
+                pass
+
         song_data[n] = {
             "raw": norm_to_raw[n], "prev_date": prev_date, "next_date": next_date,
             "gap_before": gap_before, "perf_num": perf_num, "total": total,
             "is_debut": perf_num == 1 and total >= 1,
+            "drought_rank": drought_rank,  # 1 = longest gap ever for this song
         }
 
     # Rarity score
@@ -1864,6 +1879,141 @@ def house_music():
         })
     except Exception:
         return jsonify({"error": "Couldn't load track"}), 502
+
+
+@app.route("/api/songs/timeline")
+def songs_timeline():
+    """Aggregate setlist_cache: every song's debut, last, and total play count."""
+    cache_key = "songs:timeline"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+    pipeline = [
+        # Dedupe so a song repeated within a show (Drums in both sets) only
+        # counts as one performance for play_count purposes.
+        {"$group": {"_id": {"song": "$song", "date": "$date"}}},
+        {"$group": {
+            "_id":         "$_id.song",
+            "debut_date":  {"$min": "$_id.date"},
+            "final_date":  {"$max": "$_id.date"},
+            "play_count":  {"$sum": 1},
+        }},
+        {"$sort": {"play_count": -1}},
+    ]
+    rows = list(setlist_cache.aggregate(pipeline, allowDiskUse=False))
+    result = [{
+        "song":       r["_id"],
+        "debut_date": r["debut_date"],
+        "final_date": r["final_date"],
+        "play_count": r["play_count"],
+        "years_active": int(r["final_date"][:4]) - int(r["debut_date"][:4]) + 1
+                        if r.get("debut_date") and r.get("final_date") else 0,
+    } for r in rows if r.get("_id") and len(r["_id"]) > 2]
+    _cache_set(cache_key, result)
+    return jsonify(result)
+
+
+@app.route("/api/songs/<path:song>/positions")
+def song_positions(song):
+    """Position distribution for a song across shows, bucketed by era + slot.
+    Returns counts of where in the setlist this song typically appeared."""
+    song = song.strip().lower()
+    cache_key = f"song_pos:{song}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
+    # Pull all rows for this song with their show's max position (for relative bucketing)
+    rows = list(setlist_cache.find(
+        {"song": song},
+        {"date": 1, "position": 1, "_id": 0}
+    ))
+    if not rows:
+        return jsonify({"song": song, "total": 0, "buckets": {}, "by_era": {}})
+
+    # Fetch max position per show date (the show's track count - 1) so we can
+    # compute relative positions
+    dates = list({r["date"] for r in rows if r.get("date")})
+    show_max = {}
+    if dates:
+        max_pipeline = [
+            {"$match": {"date": {"$in": dates}}},
+            {"$group": {"_id": "$date", "max_pos": {"$max": "$position"}}},
+        ]
+        for d in setlist_cache.aggregate(max_pipeline):
+            show_max[d["_id"]] = d.get("max_pos") or 0
+
+    def era_for(date_str):
+        y = int(date_str[:4])
+        if y <= 1972: return "Pigpen"
+        if y <= 1979: return "Keith & Donna"
+        if y <= 1990: return "Brent"
+        return "Vince"
+
+    def slot_for(pos, max_pos):
+        if max_pos <= 0: return "opener"
+        if pos == 0: return "opener"
+        if pos == max_pos: return "encore"
+        rel = pos / max_pos
+        if rel < 0.30: return "set1_early"
+        if rel < 0.50: return "set1_late"
+        if rel < 0.75: return "set2_early"
+        return "set2_late"
+
+    buckets = {"opener": 0, "set1_early": 0, "set1_late": 0,
+               "set2_early": 0, "set2_late": 0, "encore": 0}
+    by_era = {}
+    for r in rows:
+        if r.get("position") is None or not r.get("date"):
+            continue
+        max_pos = show_max.get(r["date"], 0)
+        slot = slot_for(r["position"], max_pos)
+        buckets[slot] += 1
+        era = era_for(r["date"])
+        by_era.setdefault(era, dict(buckets.fromkeys(buckets, 0)))
+        by_era[era][slot] += 1
+
+    result = {"song": song, "total": sum(buckets.values()),
+              "buckets": buckets, "by_era": by_era}
+    _cache_set(cache_key, result)
+    return jsonify(result)
+
+
+@app.route("/api/songs/<path:song>/cooccurrences")
+def song_cooccurrences(song):
+    """Songs most often played in the same show as <song>.
+    Different from segue map (transitions) — this is companionship within a show."""
+    song = song.strip().lower()
+    cache_key = f"song_co:{song}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
+    dates = setlist_cache.distinct("date", {"song": song})
+    if not dates:
+        return jsonify({"song": song, "total_shows": 0, "cooccurrences": []})
+
+    pipeline = [
+        {"$match": {"date": {"$in": dates}, "song": {"$ne": song}}},
+        # Dedupe — count once per (other_song, date)
+        {"$group": {"_id": {"song": "$song", "date": "$date"}}},
+        {"$group": {"_id": "$_id.song", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 30},
+    ]
+    rows = list(setlist_cache.aggregate(pipeline))
+    total = len(dates)
+    result = {
+        "song": song,
+        "total_shows": total,
+        "cooccurrences": [
+            {"song": r["_id"], "count": r["count"],
+             "pct": round(r["count"] / total * 100)}
+            for r in rows if r.get("_id") and len(r["_id"]) > 2
+        ],
+    }
+    _cache_set(cache_key, result)
+    return jsonify(result)
 
 
 @app.route("/api/segues")

@@ -512,6 +512,7 @@
       .player-controls { order:1; gap:8px; }
       .progress-wrap { order:2; flex:1; }
       .volume-wrap { display:none; }
+      .song-detail-grid { grid-template-columns: 1fr !important; }
     }
     /* ── Today hero teaser (years panel) ───────────────────────────────── */
     .today-hero-teaser { padding:8px 10px; border-bottom:1px solid var(--border); }
@@ -563,6 +564,7 @@
     .gap-debut { background:rgba(42,157,111,0.15); color:#2a9d6f; border:1px solid rgba(42,157,111,0.4); }
     .gap-bust  { background:rgba(232,51,42,0.1); color:var(--accent); border:1px solid rgba(232,51,42,0.4); }
     .gap-gap   { background:rgba(26,75,191,0.1); color:var(--accent2); border:1px solid rgba(26,75,191,0.35); }
+    .gap-drought { background:rgba(232,51,42,0.22); color:#ff8a82; border:1px solid var(--accent); font-weight:700; letter-spacing:0.5px; }
     /* ── Listening Calendar ─────────────────────────────────────────────── */
     .listen-cal-wrap { margin-top:14px; overflow-x:auto; }
     .listen-cal-lbl { font-size:9px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; }
@@ -799,6 +801,7 @@
       <button class="obs-inner-tab active" id="obs-tab-heatmap" onclick="obsTabSwitch('heatmap')">⬡ Song Heatmap</button>
       <button class="obs-inner-tab" id="obs-tab-crows-nest" onclick="obsTabSwitch('crows-nest')">🗺 Crow's Nest</button>
       <button class="obs-inner-tab" id="obs-tab-segues" onclick="obsTabSwitch('segues')">⥤ Segue Map</button>
+      <button class="obs-inner-tab" id="obs-tab-archive" onclick="obsTabSwitch('archive')">⏳ Archive</button>
       <button class="obs-inner-tab" id="obs-tab-mystats" onclick="obsTabSwitch('mystats')">◈ My Stats</button>
     </div>
     <div class="obs-modal-body" id="obs-modal-body"><div class="loading">Loading</div></div>
@@ -2883,6 +2886,7 @@ function obsTabSwitch(view) {
   if (view === 'heatmap')     renderHeatmap();
   else if (view === 'crows-nest') renderCrowsNest();
   else if (view === 'segues')     renderSegueMap();
+  else if (view === 'archive')    renderSongArchive();
   else if (view === 'mystats')    renderObsStats();
 }
 
@@ -2961,6 +2965,181 @@ function buildSegueMap(pairs, filterSong, body) {
   }).join('');
 
   body.innerHTML = title + `<div style="max-height:420px;overflow-y:auto;">${rows}</div>`;
+}
+
+/* ── Song Archive (Debut/Last-Ever Timeline) ────────────────────────────── */
+let _songArchiveData = null;
+let _songArchiveSort = { col: 'play_count', dir: 'desc' };
+
+async function renderSongArchive() {
+  _obsView = 'archive';
+  const body = document.getElementById('obs-modal-body');
+  body.innerHTML = '<div class="loading">Loading every song the band ever played…</div>';
+  try {
+    if (!_songArchiveData) {
+      const res = await fetch('/api/songs/timeline');
+      if (!res.ok) throw new Error(res.statusText);
+      _songArchiveData = await res.json();
+    }
+    buildSongArchive(_songArchiveData, body);
+  } catch(e) {
+    body.innerHTML = `<div class="obs-empty">Could not load archive: ${escapeHTML(e.message||String(e))}</div>`;
+  }
+}
+
+function buildSongArchive(songs, body) {
+  if (!songs || !songs.length) {
+    body.innerHTML = '<div class="obs-empty">Setlist data not yet seeded — run seed_setlists.py.</div>';
+    return;
+  }
+  const sortKey = _songArchiveSort.col;
+  const sortDir = _songArchiveSort.dir === 'asc' ? 1 : -1;
+  const sorted = [...songs].sort((a, b) => {
+    const av = a[sortKey], bv = b[sortKey];
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return av < bv ? -sortDir : av > bv ? sortDir : 0;
+  });
+  const arrow = c => _songArchiveSort.col === c ? (_songArchiveSort.dir === 'asc' ? '↑' : '↓') : '';
+  const hdr = (col, label) => `<th style="cursor:pointer;padding:4px 6px;text-align:left;border-bottom:1px solid var(--border);font-size:9px;letter-spacing:1px;color:var(--muted);" onclick="_songArchiveSetSort('${col}')">${label} ${arrow(col)}</th>`;
+
+  body.innerHTML = `
+    <div style="margin-bottom:8px;">
+      <div style="font-size:13px;font-weight:700;color:var(--white);font-family:'Playfair Display',serif;">Song Archive</div>
+      <div style="font-size:10px;color:var(--muted);">${sorted.length} songs · click a date to open that show</div>
+    </div>
+    <div style="max-height:480px;overflow-y:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead style="position:sticky;top:0;background:var(--bg);z-index:1;"><tr>
+          ${hdr('song','Song')}
+          ${hdr('debut_date','Debut')}
+          ${hdr('final_date','Final')}
+          ${hdr('play_count','Plays')}
+          ${hdr('years_active','Years')}
+        </tr></thead>
+        <tbody>
+          ${sorted.map(s => `
+            <tr style="border-bottom:1px solid rgba(30,42,69,0.5);">
+              <td style="padding:4px 6px;color:var(--text);cursor:pointer;" onclick="openSongDetail('${escapeHTML(s.song)}')" title="Click for position + co-occurrence stats">${escapeHTML(s.song)}</td>
+              <td style="padding:4px 6px;color:var(--accent);font-family:'Space Mono',monospace;cursor:pointer;" onclick="document.getElementById('obs-modal').classList.remove('open');tourRunGoTo('${escapeHTML(s.debut_date)}')">${escapeHTML(s.debut_date)}</td>
+              <td style="padding:4px 6px;color:var(--accent2);font-family:'Space Mono',monospace;cursor:pointer;" onclick="document.getElementById('obs-modal').classList.remove('open');tourRunGoTo('${escapeHTML(s.final_date)}')">${escapeHTML(s.final_date)}</td>
+              <td style="padding:4px 6px;color:var(--text);font-family:'Space Mono',monospace;text-align:right;">${s.play_count}</td>
+              <td style="padding:4px 6px;color:var(--muted);font-family:'Space Mono',monospace;text-align:right;">${s.years_active}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function _songArchiveSetSort(col) {
+  if (_songArchiveSort.col === col) {
+    _songArchiveSort.dir = _songArchiveSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _songArchiveSort.col = col;
+    _songArchiveSort.dir = (col === 'song' || col === 'debut_date') ? 'asc' : 'desc';
+  }
+  buildSongArchive(_songArchiveData, document.getElementById('obs-modal-body'));
+}
+
+/* ── Song Detail Popup (Position Tracker + Co-Occurrence) ──────────────── */
+async function openSongDetail(song) {
+  // Reuse the obs-modal-body to show the song's deeper stats
+  const body = document.getElementById('obs-modal-body');
+  body.innerHTML = `<div class="loading">Loading stats for "${escapeHTML(song)}"…</div>`;
+  try {
+    const [pos, co] = await Promise.all([
+      fetch(`/api/songs/${encodeURIComponent(song)}/positions`).then(r => r.json()),
+      fetch(`/api/songs/${encodeURIComponent(song)}/cooccurrences`).then(r => r.json()),
+    ]);
+    buildSongDetail(song, pos, co, body);
+  } catch(e) {
+    body.innerHTML = `<div class="obs-empty">Could not load stats: ${escapeHTML(e.message||String(e))}</div>`;
+  }
+}
+
+function buildSongDetail(song, pos, co, body) {
+  const SLOT_LABELS = {
+    opener:     'Opener',
+    set1_early: 'Set 1 early',
+    set1_late:  'Set 1 late',
+    set2_early: 'Set 2 early',
+    set2_late:  'Set 2 late',
+    encore:     'Encore',
+  };
+  const SLOT_ORDER = ['opener','set1_early','set1_late','set2_early','set2_late','encore'];
+  const SLOT_COLORS = {
+    opener:'#2a9d6f', set1_early:'#1a4bbf', set1_late:'#7c4dff',
+    set2_early:'#e88f1a', set2_late:'#e8332a', encore:'#c8a84b',
+  };
+
+  const totalPos = pos.total || 0;
+  const positionsHTML = totalPos === 0
+    ? `<div class="obs-empty" style="padding:8px 0;">No position data yet.</div>`
+    : `<div style="display:flex;flex-direction:column;gap:3px;margin-top:6px;">
+        ${SLOT_ORDER.map(k => {
+          const v = (pos.buckets || {})[k] || 0;
+          const pct = totalPos ? (v / totalPos * 100) : 0;
+          return `<div style="display:flex;align-items:center;gap:8px;font-size:11px;">
+            <div style="min-width:78px;color:var(--muted);font-size:10px;">${SLOT_LABELS[k]}</div>
+            <div style="flex:1;background:var(--surface2);height:14px;border-radius:2px;position:relative;">
+              <div style="width:${pct.toFixed(1)}%;height:100%;background:${SLOT_COLORS[k]};border-radius:2px;"></div>
+            </div>
+            <div style="min-width:54px;text-align:right;font-family:'Space Mono',monospace;color:var(--text);">${v} (${pct.toFixed(0)}%)</div>
+          </div>`;
+        }).join('')}
+      </div>`;
+
+  // Era breakdown
+  const eras = pos.by_era || {};
+  const eraNames = Object.keys(eras);
+  const eraHTML = !eraNames.length ? '' : `
+    <div style="margin-top:14px;">
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:4px;">BY ERA</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;">
+        ${eraNames.map(era => {
+          const eb = eras[era];
+          const top = SLOT_ORDER.reduce((a, k) => (eb[k]||0) > (eb[a]||0) ? k : a, 'opener');
+          const total = SLOT_ORDER.reduce((s, k) => s + (eb[k]||0), 0);
+          if (total === 0) return '';
+          return `<div style="background:var(--surface2);border-left:2px solid ${SLOT_COLORS[top]};padding:4px 8px;">
+            <div style="color:var(--text);font-weight:700;">${escapeHTML(era)}</div>
+            <div style="color:var(--muted);">Mostly ${SLOT_LABELS[top]} (${eb[top]||0}/${total})</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+
+  // Co-occurrences
+  const cos = (co.cooccurrences || []).slice(0, 15);
+  const totalShows = co.total_shows || 0;
+  const coHTML = !cos.length
+    ? `<div class="obs-empty" style="padding:8px 0;">No co-occurrence data.</div>`
+    : `<div style="margin-top:6px;display:flex;flex-direction:column;gap:2px;">
+        ${cos.map(c => `<div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:2px 0;border-bottom:1px solid rgba(30,42,69,0.5);cursor:pointer;" onclick="openSongDetail('${escapeHTML(c.song)}')">
+          <div style="flex:1;color:var(--text);">${escapeHTML(c.song)}</div>
+          <div style="min-width:34px;text-align:right;color:var(--muted);font-family:'Space Mono',monospace;">${c.count}×</div>
+          <div style="min-width:36px;text-align:right;color:var(--accent);font-family:'Space Mono',monospace;">${c.pct}%</div>
+        </div>`).join('')}
+      </div>`;
+
+  body.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      <button class="obs-back-btn" onclick="renderSongArchive()">← Archive</button>
+      <span style="font-size:15px;font-weight:700;color:var(--white);font-family:'Playfair Display',serif;flex:1">${escapeHTML(song)}</span>
+    </div>
+    <div class="song-detail-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+      <div>
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px;">SET POSITION · ${totalPos} performances</div>
+        ${positionsHTML}
+        ${eraHTML}
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px;">PLAYED ALONGSIDE · ${totalShows} shows</div>
+        <div style="font-size:9px;color:var(--muted);">% of shows where ${escapeHTML(song)} also featured this song · click to drill in</div>
+        ${coHTML}
+      </div>
+    </div>`;
 }
 
 function obsRatingColor(rating, reviews) {
@@ -4204,14 +4383,20 @@ async function loadSetlistStats() {
       const norm = _normSongJS(track.title||'');
       const info = (d.songs||{})[norm];
       if (!info) return;
-      // Only show gap badges when we have enough indexed performances to trust the data.
-      // Debut badge removed — requires a complete setlist DB we don't have.
+      // Lower threshold (was 40) since seed_setlists.py populates the full archive.
       let badge = '';
-      if (info.gap_before != null && info.gap_before >= 365 && info.total >= 40) {
+      // DROUGHT BREAKER: top-3 longest gap ever for this song
+      if (info.drought_rank != null && info.drought_rank <= 3 && info.gap_before >= 180 && info.total >= 5) {
+        const yrs = (info.gap_before/365).toFixed(1);
+        const rankLabel = info.drought_rank === 1 ? 'longest ever' : `#${info.drought_rank} longest`;
+        badge = `<span class="gap-badge gap-drought" title="${rankLabel} gap for this song · last played ${escapeHTML(info.prev_date||'')}">DROUGHT BREAKER · ${yrs}yr</span>`;
+      } else if (info.gap_before != null && info.gap_before >= 365 && info.total >= 5) {
         const yrs = (info.gap_before/365).toFixed(1);
         badge = `<span class="gap-badge gap-bust" title="Last played ${escapeHTML(info.prev_date||'')} — ${info.gap_before} days gap">↑ ${yrs}yr bust-out</span>`;
-      } else if (info.gap_before != null && info.gap_before >= 180 && info.total >= 40) {
+      } else if (info.gap_before != null && info.gap_before >= 180 && info.total >= 5) {
         badge = `<span class="gap-badge gap-gap" title="Last played ${escapeHTML(info.prev_date||'')}">↑ ${info.gap_before}d</span>`;
+      } else if (info.is_debut && info.total >= 1) {
+        badge = `<span class="gap-badge gap-debut" title="First-ever performance">DEBUT</span>`;
       }
       if (badge) {
         const row = document.getElementById(`track-row-${idx}`);
