@@ -1660,13 +1660,19 @@ def _fetch_observatory_song(song_meta):
             "rating": round(rating, 1), "id": identifier,
         }
 
+    # Lower concurrency on memory-constrained hosts (Render free tier = 512MB).
+    # 8 in-flight metadata responses + their buffers can push us to OOM,
+    # especially when Archive.org times out and exception state accumulates.
+    _max_workers = 3 if _DISABLE_BG_REFRESH else 8
     performances = []
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=_max_workers) as pool:
         futures = {pool.submit(fetch_perf, doc): doc for doc in candidates}
         for future in as_completed(futures):
             r = future.result()
             if r:
                 performances.append(r)
+            # Free the future reference immediately so its result can be GC'd
+            del futures[future]
 
     performances.sort(key=lambda x: x["date"])
     return {
@@ -2211,9 +2217,14 @@ def show_weather(show_date):
     return jsonify(result)
 
 
+_DISABLE_BG_REFRESH = os.environ.get("DISABLE_BG_REFRESH", "").lower() in ("1", "true", "yes")
+
 def _observatory_background_refresh():
     """At startup, warm Observatory caches. Heatmap (fast) runs first for all songs,
     then scatter (slow) runs for the 12 most improv-heavy songs."""
+    if _DISABLE_BG_REFRESH:
+        app.logger.info("Observatory background refresh disabled by DISABLE_BG_REFRESH")
+        return
     import threading as _threading
     # Songs worth fetching scatter/duration data for (improv-heavy, duration variance interesting)
     _SCATTER_SONGS = {
@@ -2311,6 +2322,12 @@ _startup_t.Thread(target=_startup_map_warm, daemon=True).start()
 
 def _seed_setlist_cache():
     """Seed setlist_cache from listen history so gap data works from day one."""
+    if _DISABLE_BG_REFRESH:
+        return
+    # Skip entirely if seed_setlists.py has already populated setlist_cache —
+    # iterating listens_table is expensive on a busy app.
+    if setlist_cache.estimated_document_count() > 1000:
+        return
     time.sleep(120)
     try:
         seen = set()
@@ -2849,12 +2866,20 @@ threading.Thread(target=_daily_blind_worker, daemon=True).start()
 def _cache_warmup_worker():
     """Pre-populate MongoDB show/source caches for all years so Archive.org
     outages don't cause 502s on cold cache hits."""
+    if _DISABLE_BG_REFRESH:
+        app.logger.info("Cache warmup disabled by DISABLE_BG_REFRESH")
+        return
     import time as _t
     _t.sleep(20)
     years = [str(y) for y in range(1995, 1964, -1)]
+    # Circuit breaker: if Archive.org is blocked, don't churn through every year
+    consecutive_failures = 0
     for year in years:
         if _mcache_get(_shows_year_cache, year) is not None:
             continue  # already cached
+        if consecutive_failures >= 3:
+            app.logger.warning("Cache warmup: Archive.org appears blocked, aborting")
+            return
         try:
             data = archive_search({
                 "q": f"collection:{COLLECTION} AND year:{year}",
@@ -2879,8 +2904,12 @@ def _cache_warmup_worker():
             if result:
                 _mcache_set(_shows_year_cache, year, result)
                 _cache_set(f"shows:{year}", result)
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
         except Exception as e:
             app.logger.debug(f"cache warmup {year}: {e}")
+            consecutive_failures += 1
         _t.sleep(3)  # be polite to Archive.org
 
 threading.Thread(target=_cache_warmup_worker, daemon=True).start()
