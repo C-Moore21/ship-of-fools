@@ -775,18 +775,38 @@ def _parse_duration(raw):
 @app.route("/api/shows/<path:show_id>/sources")
 def _enrich_and_sort_sources(sources):
     """Compute composite score per source, sort by it, mark top as recommended.
-    Works on both freshly-fetched and cached source lists."""
+    Works on both freshly-fetched and cached source lists. Defensive — any
+    scoring failure falls back to the original list unchanged."""
+    if not sources or not isinstance(sources, list):
+        return sources or []
+    # Work on a shallow copy so we don't mutate the cached LRU/Mongo reference
+    out = []
     for s in sources:
-        s["score"] = _composite_score(
-            s.get("archive_rating"),
-            s.get("archive_reviews", 0),
-            s.get("source_type"),
-        )
-        s["recommended"] = False
-    sources.sort(key=lambda s: s["score"], reverse=True)
-    if sources:
-        sources[0]["recommended"] = True
-    return sources
+        if not isinstance(s, dict):
+            continue
+        s2 = dict(s)
+        try:
+            r = s2.get("archive_rating")
+            if isinstance(r, str):
+                try: r = float(r)
+                except (ValueError, TypeError): r = None
+            n = s2.get("archive_reviews", 0)
+            if isinstance(n, str):
+                try: n = int(n)
+                except (ValueError, TypeError): n = 0
+            n = n or 0
+            s2["score"] = _composite_score(r, n, s2.get("source_type"))
+        except Exception:
+            s2["score"] = 0.0
+        s2["recommended"] = False
+        out.append(s2)
+    try:
+        out.sort(key=lambda s: s.get("score", 0), reverse=True)
+        if out:
+            out[0]["recommended"] = True
+    except Exception:
+        pass
+    return out
 
 def show_sources(show_id):
     import re
