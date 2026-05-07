@@ -114,6 +114,21 @@
     .src-btn { padding:4px 10px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; display:flex; align-items:center; gap:5px; }
     .src-btn:hover { border-color:var(--accent); color:var(--text); }
     .src-btn.active { background:var(--surface2); color:var(--text); border-color:var(--accent2); }
+    .archive-stars-inline { font-size:10px; color:var(--accent); font-family:'Space Mono',monospace; white-space:nowrap; }
+    .archive-stars-inline.low-conf { color:#a08040; opacity:0.8; }
+    /* Compact comparison view (4+ sources) */
+    .source-grid { display:flex; flex-direction:column; gap:0; padding:6px 12px 8px; border-bottom:1px solid var(--border); }
+    .source-grid-row { display:grid; grid-template-columns:auto 60px 70px 1fr; align-items:center; gap:8px; padding:5px 8px; cursor:pointer; border-radius:2px; border:1px solid transparent; transition:background 0.12s, border-color 0.12s; font-family:'Space Mono',monospace; font-size:11px; }
+    .source-grid-row:hover { background:var(--surface); border-color:var(--border); }
+    .source-grid-row.active { background:var(--surface2); border-color:var(--accent2); }
+    .source-grid-row.recommended { border-color:rgba(46,160,67,0.55); background:rgba(46,160,67,0.06); }
+    .source-grid-row.recommended.active { background:rgba(46,160,67,0.15); border-color:#4ec76a; }
+    .source-grid-rec-badge { display:inline-block; background:rgba(46,160,67,0.22); color:#4ec76a; border:1px solid rgba(46,160,67,0.55); padding:1px 6px; border-radius:2px; font-size:8px; font-family:'Space Mono',monospace; letter-spacing:0.6px; margin-left:6px; }
+    .source-grid-rating { color:var(--accent); text-align:right; }
+    .source-grid-rating.low-conf { color:#a08040; opacity:0.8; }
+    .source-grid-reviews { color:var(--muted); font-size:10px; text-align:right; }
+    .source-grid-title { color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .source-grid-taper { color:var(--accent2-light, #6090ff); font-size:10px; font-weight:700; }
     .source-collapse-header { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; border-bottom:1px solid var(--border); cursor:pointer; font-size:12px; color:var(--muted); }
     .source-collapse-header:hover { color:var(--text); }
     .source-selector.collapsed { display:none; }
@@ -1613,9 +1628,25 @@ function srcTypeBadge(type) {
 }
 
 function archiveStars(rating, reviews) {
-  if (rating == null) return '';
-  const full = Math.round(rating);
-  return `<span class="archive-stars" title="Archive.org: ${Number(rating).toFixed(1)}★ (${reviews||0} reviews)">${'★'.repeat(full)}${'☆'.repeat(5-full)}</span>`;
+  if (rating == null) return '<span class="archive-stars-inline" style="color:var(--muted);">— · 0 rev</span>';
+  const r = Number(rating).toFixed(1);
+  const n = reviews || 0;
+  // Low-confidence flag for tiny review counts
+  const lowConf = n > 0 && n < 5;
+  return `<span class="archive-stars-inline${lowConf?' low-conf':''}" title="${r}★ from ${n} review${n!==1?'s':''}${lowConf?' (low confidence — small sample)':''}">${r}★ · ${n} rev${lowConf?' ⚠':''}</span>`;
+}
+
+// Extract a likely taper name from the title for inline display
+function _extractTaper(title) {
+  if (!title) return '';
+  const m = title.match(/(?:by|taper:|taped by)\s+([A-Z][\w\.\-' ]{2,30})/i);
+  if (m) return m[1].trim();
+  // Look for known legendary taper names embedded in title
+  const known = ['Charlie Miller','Betty Cantor','Dan Healy','Bob Matthews','Owsley','Bear','Rob Eaton','David Lemieux','Jeffrey Norman'];
+  for (const t of known) {
+    if (title.toLowerCase().includes(t.toLowerCase())) return t;
+  }
+  return '';
 }
 
 function renderHalfStars(rating, size, onHalf, onFull, loggedOut) {
@@ -1654,7 +1685,28 @@ function renderSourceButtons() {
   const showStarsHTML = `<div class="show-rating-widget"><span class="show-rating-label">My Show Rating:</span><span id="show-stars-widget">${buildShowStars(currentShowDate, myStars)}</span></div>`;
   const activeSrc = allSources[activeSourceIdx];
   const activeLbl = activeSrc ? `${activeSrc.source_type||'UNK'} — ${activeSrc.title||activeSrc.id}` : 'Sources';
-  const selectorHTML = `<div class="source-collapse-header" onclick="toggleSourceList()" id="source-collapse-hdr"><span id="source-collapse-label">${escapeHTML(activeLbl)}</span><span id="source-collapse-arrow">${_IC.chevD}</span></div><div class="source-selector" id="source-selector-list">${allSources.map((s,i)=>`<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}<span style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(s.title||s.id)}</span></button>`).join('')}</div>`;
+  // Source selector: pill row for ≤3 sources, comparison grid for 4+
+  let sourceListHTML;
+  if (allSources.length >= 4) {
+    sourceListHTML = `<div class="source-grid" id="source-selector-list">${allSources.map((s,i)=>{
+      const r = s.archive_rating;
+      const n = s.archive_reviews || 0;
+      const ratingStr = r != null ? `${Number(r).toFixed(1)}★` : '—';
+      const lowConf = r != null && n > 0 && n < 5;
+      const taper = _extractTaper(s.title || '');
+      const taperHTML = taper ? `<span class="source-grid-taper">${escapeHTML(taper)}</span> · ` : '';
+      const recBadge = s.recommended ? `<span class="source-grid-rec-badge">PICK</span>` : '';
+      return `<div class="source-grid-row ${i===activeSourceIdx?'active':''} ${s.recommended?'recommended':''}" onclick="switchSource(${i})">
+        ${srcTypeBadge(s.source_type||'UNK')}
+        <span class="source-grid-rating ${lowConf?'low-conf':''}">${ratingStr}</span>
+        <span class="source-grid-reviews">${n} rev${lowConf?' ⚠':''}</span>
+        <span class="source-grid-title">${taperHTML}${escapeHTML(s.title||s.id)}${recBadge}</span>
+      </div>`;
+    }).join('')}</div>`;
+  } else {
+    sourceListHTML = `<div class="source-selector" id="source-selector-list">${allSources.map((s,i)=>`<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})" title="${s.recommended?'Recommended · ':''}${(s.archive_rating!=null?Number(s.archive_rating).toFixed(1)+'★ · ':'')}${s.archive_reviews||0} reviews">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}${s.recommended?'<span class="source-grid-rec-badge">PICK</span>':''}<span style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(s.title||s.id)}</span></button>`).join('')}</div>`;
+  }
+  const selectorHTML = `<div class="source-collapse-header" onclick="toggleSourceList()" id="source-collapse-hdr"><span id="source-collapse-label">${escapeHTML(activeLbl)}</span><span id="source-collapse-arrow">${_IC.chevD}</span></div>${sourceListHTML}`;
   const notesWidget = loggedInUser ? `<div class="notes-widget"><div class="notes-label">My Notes</div><textarea class="notes-textarea" id="notes-textarea" placeholder="Your thoughts on this show…" oninput="scheduleNoteSave()"></textarea><div class="notes-saved" id="notes-saved"></div></div>` : '';
   const tourSection = `<div class="tour-section"><div class="tour-header" onclick="toggleTour()"><span>On This Tour</span><span id="tour-arrow">${_IC.chevR}</span></div><div class="tour-list" id="tour-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
   const venueSection = `<div class="venue-section"><div class="venue-header" onclick="toggleVenue()"><span id="venue-header-text">Venue History</span><span id="venue-arrow">${_IC.chevR}</span></div><div class="venue-list" id="venue-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
@@ -1786,7 +1838,7 @@ async function loadSourceTracks(idx) {
   history.replaceState({}, '', '?show=' + currentShowDate + '&src=' + encodeURIComponent(currentSourceId));
   if (loggedInUser) await loadShowRatings(currentSourceId);
 
-  document.querySelectorAll('.src-btn').forEach((b,i) => b.classList.toggle('active', i===idx));
+  document.querySelectorAll('.src-btn, .source-grid-row').forEach((b,i) => b.classList.toggle('active', i===idx));
 
   const container = document.getElementById('tracks-container');
   if (!container) return;
@@ -2242,7 +2294,7 @@ function onEnded() {
       currentSourceId  = String(src.id || '');
       currentTracks    = tracks.map((tr, i) => ({...tr, _track_id: `${currentSourceId}_${tr.id||i}`}));
       currentTrackIdx  = tIdx;
-      document.querySelectorAll('.src-btn').forEach((b, i) => b.classList.toggle('active', i === activeSourceIdx));
+      document.querySelectorAll('.src-btn, .source-grid-row').forEach((b, i) => b.classList.toggle('active', i === activeSourceIdx));
       if (preload.src === _ps.fbUrl && preload.readyState >= 3) {
         audio.pause();
         [audio, preload] = [preload, audio];
@@ -2473,7 +2525,7 @@ async function onAudioError() {
     activeSourceIdx = nextSourceIdx;
     currentSourceId = String(allSources[nextSourceIdx].id || '');
     currentTracks   = newTracks.map((t, i) => ({...t, _track_id: `${currentSourceId}_${t.id||i}`}));
-    document.querySelectorAll('.src-btn').forEach((b, i) => b.classList.toggle('active', i === nextSourceIdx));
+    document.querySelectorAll('.src-btn, .source-grid-row').forEach((b, i) => b.classList.toggle('active', i === nextSourceIdx));
     audio.src = newTrack.mp3_url;
     audio.load();
     audio.play().catch(() => {});

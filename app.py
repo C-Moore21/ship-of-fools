@@ -773,6 +773,21 @@ def _parse_duration(raw):
         return 0
 
 @app.route("/api/shows/<path:show_id>/sources")
+def _enrich_and_sort_sources(sources):
+    """Compute composite score per source, sort by it, mark top as recommended.
+    Works on both freshly-fetched and cached source lists."""
+    for s in sources:
+        s["score"] = _composite_score(
+            s.get("archive_rating"),
+            s.get("archive_reviews", 0),
+            s.get("source_type"),
+        )
+        s["recommended"] = False
+    sources.sort(key=lambda s: s["score"], reverse=True)
+    if sources:
+        sources[0]["recommended"] = True
+    return sources
+
 def show_sources(show_id):
     import re
     if not re.match(r'^\d{4}-\d{2}-\d{2}', show_id):
@@ -780,11 +795,11 @@ def show_sources(show_id):
     cache_key = f"sources:{show_id}"
     cached = _cache_get(cache_key)
     if cached is not None:
-        return jsonify(cached)
+        return jsonify(_enrich_and_sort_sources(cached))
     mongo_cached = _mcache_get(_shows_src_cache, show_id)
     if mongo_cached is not None:
         _cache_set(cache_key, mongo_cached)
-        return jsonify(mongo_cached)
+        return jsonify(_enrich_and_sort_sources(mongo_cached))
     try:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND date:{show_id}*",
@@ -815,10 +830,9 @@ def show_sources(show_id):
             "sets": None,
         })
 
-    sources.sort(key=lambda s: _SOURCE_TYPE_ORDER.get(s["source_type"], 99))
     _cache_set(cache_key, sources)
     _mcache_set(_shows_src_cache, show_id, sources)
-    return jsonify(sources)
+    return jsonify(_enrich_and_sort_sources(sources))
 
 @app.route("/api/sources/<path:identifier>/tracks")
 def source_tracks(identifier):
