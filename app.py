@@ -772,7 +772,6 @@ def _parse_duration(raw):
     except (ValueError, TypeError):
         return 0
 
-@app.route("/api/shows/<path:show_id>/sources")
 def _enrich_and_sort_sources(sources):
     """Compute composite score per source, sort by it, mark top as recommended.
     Works on both freshly-fetched and cached source lists. Defensive — any
@@ -808,6 +807,7 @@ def _enrich_and_sort_sources(sources):
         pass
     return out
 
+@app.route("/api/shows/<path:show_id>/sources")
 def show_sources(show_id):
     import re
     if not re.match(r'^\d{4}-\d{2}-\d{2}', show_id):
