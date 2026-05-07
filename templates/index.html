@@ -113,16 +113,17 @@
     .source-selector { display:flex; gap:6px; padding:8px 16px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
     .src-btn { padding:4px 10px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:'Space Mono',monospace; font-size:11px; cursor:pointer; border-radius:2px; transition:all 0.12s; display:flex; align-items:center; gap:5px; }
     .src-btn:hover { border-color:var(--accent); color:var(--text); }
-    .src-btn.active { background:var(--surface2); color:var(--text); border-color:var(--accent2); }
+    .src-btn.active { background:rgba(232,51,42,0.10); color:var(--text); border-color:var(--accent); }
     .archive-stars-inline { font-size:10px; color:var(--accent); font-family:'Space Mono',monospace; white-space:nowrap; }
     .archive-stars-inline.low-conf { color:#a08040; opacity:0.8; }
     /* Compact comparison view (4+ sources) */
     .source-grid { display:flex; flex-direction:column; gap:0; padding:6px 12px 8px; border-bottom:1px solid var(--border); }
+    .source-grid.collapsed { display:none; }
     .source-grid-row { display:grid; grid-template-columns:auto 60px 70px 1fr; align-items:center; gap:8px; padding:5px 8px; cursor:pointer; border-radius:2px; border:1px solid transparent; transition:background 0.12s, border-color 0.12s; font-family:'Space Mono',monospace; font-size:11px; }
     .source-grid-row:hover { background:var(--surface); border-color:var(--border); }
-    .source-grid-row.active { background:var(--surface2); border-color:var(--accent2); }
-    .source-grid-row.recommended { border-color:rgba(46,160,67,0.55); background:rgba(46,160,67,0.06); }
-    .source-grid-row.recommended.active { background:rgba(46,160,67,0.15); border-color:#4ec76a; }
+    .source-grid-row.active { background:rgba(232,51,42,0.10); border-color:var(--accent); color:var(--text); }
+    .source-grid-row.active .source-grid-rating { color:var(--accent); }
+    .src-btn.active { background:rgba(232,51,42,0.10); color:var(--text); border-color:var(--accent); }
     .source-grid-rec-badge { display:inline-block; background:rgba(46,160,67,0.22); color:#4ec76a; border:1px solid rgba(46,160,67,0.55); padding:1px 6px; border-radius:2px; font-size:8px; font-family:'Space Mono',monospace; letter-spacing:0.6px; margin-left:6px; }
     .source-grid-rating { color:var(--accent); text-align:right; }
     .source-grid-rating.low-conf { color:#a08040; opacity:0.8; }
@@ -1636,17 +1637,45 @@ function archiveStars(rating, reviews) {
   return `<span class="archive-stars-inline${lowConf?' low-conf':''}" title="${r}★ from ${n} review${n!==1?'s':''}${lowConf?' (low confidence — small sample)':''}">${r}★ · ${n} rev${lowConf?' ⚠':''}</span>`;
 }
 
-// Extract a likely taper name from the title for inline display
-function _extractTaper(title) {
-  if (!title) return '';
-  const m = title.match(/(?:by|taper:|taped by)\s+([A-Z][\w\.\-' ]{2,30})/i);
-  if (m) return m[1].trim();
-  // Look for known legendary taper names embedded in title
-  const known = ['Charlie Miller','Betty Cantor','Dan Healy','Bob Matthews','Owsley','Bear','Rob Eaton','David Lemieux','Jeffrey Norman'];
-  for (const t of known) {
-    if (title.toLowerCase().includes(t.toLowerCase())) return t;
+// Extract a likely taper name from the identifier or title.
+// The identifier (gd1977-05-07.sbd.miller.flac16) is much more reliable
+// than the title (which is usually generic "Grateful Dead Live at X on DATE").
+const _TAPER_TOKEN_MAP = {
+  miller: 'Charlie Miller', cantor: 'Betty Cantor', cantorjackson: 'Betty Cantor',
+  healy: 'Dan Healy', matthews: 'Bob Matthews', owsley: 'Owsley', bear: 'Owsley',
+  eaton: 'Rob Eaton', lemieux: 'David Lemieux', norman: 'Jeffrey Norman',
+  noel: 'Joe Noel', vernon: 'Vernon', stoneman: 'Stoneman', menke: 'Menke',
+  petersen: 'Petersen', weiner: 'Weiner', bertha: 'Bertha (Owsley)',
+  hornsby: 'Hornsby', clugston: 'Scott Clugston', latvala: 'Dick Latvala',
+  serafin: 'Serafin', haynie: 'Haynie', kidd: 'Kidd', menasian: 'Menasian',
+  motb: 'MOTB', sirmick: 'Sirmick', ladner: 'Ladner', kaplan: 'Kaplan',
+  rob: 'Rob Eaton',
+};
+function _extractTaper(identifier, title) {
+  // First: parse the identifier. GD format is gd<DATE>.<src>.<taper>.<extra>
+  if (identifier) {
+    const parts = String(identifier).toLowerCase().split(/[.\-_]/);
+    for (const p of parts) {
+      if (_TAPER_TOKEN_MAP[p]) return _TAPER_TOKEN_MAP[p];
+    }
+  }
+  // Fallback: check title for "by/taper:" patterns or known names
+  if (title) {
+    const m = title.match(/(?:by|taper:|taped by)\s+([A-Z][\w\.\-' ]{2,30})/i);
+    if (m) return m[1].trim();
+    const known = Object.values(_TAPER_TOKEN_MAP);
+    for (const t of known) {
+      if (title.toLowerCase().includes(t.toLowerCase())) return t;
+    }
   }
   return '';
+}
+
+// Build a short identifier-suffix label (drops "gd<DATE>." prefix)
+function _shortenIdentifier(identifier) {
+  if (!identifier) return '';
+  // gd1977-05-07.sbd.miller.flac16 → sbd.miller.flac16
+  return String(identifier).replace(/^gd\d{4}-\d{2}-\d{2}\.?/i, '');
 }
 
 function renderHalfStars(rating, size, onHalf, onFull, loggedOut) {
@@ -1693,18 +1722,26 @@ function renderSourceButtons() {
       const n = s.archive_reviews || 0;
       const ratingStr = r != null ? `${Number(r).toFixed(1)}★` : '—';
       const lowConf = r != null && n > 0 && n < 5;
-      const taper = _extractTaper(s.title || '');
-      const taperHTML = taper ? `<span class="source-grid-taper">${escapeHTML(taper)}</span> · ` : '';
-      const recBadge = s.recommended ? `<span class="source-grid-rec-badge">PICK</span>` : '';
-      return `<div class="source-grid-row ${i===activeSourceIdx?'active':''} ${s.recommended?'recommended':''}" onclick="switchSource(${i})">
+      const taper = _extractTaper(s.id, s.title || '');
+      const shortId = _shortenIdentifier(s.id);
+      const taperHTML = taper
+        ? `<span class="source-grid-taper">${escapeHTML(taper)}</span>`
+        : `<span style="color:var(--muted);font-style:italic;">unknown taper</span>`;
+      const idHTML = shortId ? ` <span style="color:var(--muted);font-size:9px;">· ${escapeHTML(shortId)}</span>` : '';
+      const recBadge = s.recommended ? `<span class="source-grid-rec-badge">SUGGESTION</span>` : '';
+      return `<div class="source-grid-row ${i===activeSourceIdx?'active':''} ${s.recommended?'recommended':''}" onclick="switchSource(${i})" title="${escapeHTML(s.id||'')}">
         ${srcTypeBadge(s.source_type||'UNK')}
         <span class="source-grid-rating ${lowConf?'low-conf':''}">${ratingStr}</span>
         <span class="source-grid-reviews">${n} rev${lowConf?' ⚠':''}</span>
-        <span class="source-grid-title">${taperHTML}${escapeHTML(s.title||s.id)}${recBadge}</span>
+        <span class="source-grid-title">${taperHTML}${idHTML}${recBadge}</span>
       </div>`;
     }).join('')}</div>`;
   } else {
-    sourceListHTML = `<div class="source-selector" id="source-selector-list">${allSources.map((s,i)=>`<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})" title="${s.recommended?'Recommended · ':''}${(s.archive_rating!=null?Number(s.archive_rating).toFixed(1)+'★ · ':'')}${s.archive_reviews||0} reviews">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}${s.recommended?'<span class="source-grid-rec-badge">PICK</span>':''}<span style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(s.title||s.id)}</span></button>`).join('')}</div>`;
+    sourceListHTML = `<div class="source-selector" id="source-selector-list">${allSources.map((s,i)=>{
+      const taper = _extractTaper(s.id, s.title || '');
+      const label = taper || _shortenIdentifier(s.id) || s.id;
+      return `<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})" title="${s.recommended?'Suggested · ':''}${(s.archive_rating!=null?Number(s.archive_rating).toFixed(1)+'★ · ':'')}${s.archive_reviews||0} reviews · ${escapeHTML(s.id||'')}">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}${s.recommended?'<span class="source-grid-rec-badge">SUGGESTION</span>':''}<span style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(label)}</span></button>`;
+    }).join('')}</div>`;
   }
   const selectorHTML = `<div class="source-collapse-header" onclick="toggleSourceList()" id="source-collapse-hdr"><span id="source-collapse-label">${escapeHTML(activeLbl)}</span><span id="source-collapse-arrow">${_IC.chevD}</span></div>${sourceListHTML}`;
   const notesWidget = loggedInUser ? `<div class="notes-widget"><div class="notes-label">My Notes</div><textarea class="notes-textarea" id="notes-textarea" placeholder="Your thoughts on this show…" oninput="scheduleNoteSave()"></textarea><div class="notes-saved" id="notes-saved"></div></div>` : '';
@@ -4598,9 +4635,14 @@ async function loadSetlistStats() {
       } else if (info.is_debut && info.total >= 1) {
         badge = `<span class="gap-badge gap-debut" title="First-ever performance">DEBUT</span>`;
       }
+      const row = document.getElementById(`track-row-${idx}`);
+      if (!row) return;
+      // Always clear existing badges first — loadSetlistStats can re-run on
+      // source switch, AirPlay state change, etc., which would otherwise
+      // duplicate badges on the same row.
+      row.querySelectorAll('.gap-badge').forEach(b => b.remove());
       if (badge) {
-        const row = document.getElementById(`track-row-${idx}`);
-        const nameEl = row && row.querySelector('.track-name');
+        const nameEl = row.querySelector('.track-name');
         if (nameEl) nameEl.insertAdjacentHTML('afterend', badge);
       }
     });
