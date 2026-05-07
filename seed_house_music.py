@@ -14,7 +14,7 @@ Each pool entry includes a fully-resolved download URL so the
 /api/house-music endpoint on Render can serve directly from MongoDB
 without any Archive.org calls at request time.
 """
-import os, sys, time, argparse
+import os, sys, time, argparse, re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import requests
