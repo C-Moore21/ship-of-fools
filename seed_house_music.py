@@ -57,13 +57,38 @@ def parse_length(val):
             pass
     return 0
 
+# Items with these substrings in the title are almost certainly NOT music
+NON_MUSIC_TITLE_PATTERNS = re.compile(
+    r'\b(podcast|interview|interviews|interviewing|discusses|discussion|'
+    r'lecture|talk|talks|episode|presents|tribute to|in conversation|'
+    r'reads|reading|narrated|narrates|audiobook|book|chapter|'
+    r'session #|show #|ep\.?\s*\d|ep\s*#?\d|'
+    r'documentary|biography|history of|story of|life of|the music of|'
+    r'radio show|radio program|broadcast|news|report)\b',
+    re.IGNORECASE
+)
+
+# Track titles that indicate spoken word, not music
+SPOKEN_TRACK_PATTERNS = re.compile(
+    r'\b(intro|outro|interview|talk|spoken|introduction|discusses|'
+    r'narration|narrator|liner notes|reading|reads|presents|'
+    r'announcement|tribute|biography|history|documentary)\b',
+    re.IGNORECASE
+)
+
+# Collections that are mostly NOT music
+EXCLUDE_COLLECTIONS = [
+    'podcasts', 'radioprograms', 'librivox', 'ourmedia', 'opensource_audio',
+    'audio_bookspoetry', 'audio_religion', 'oldtimeradio', 'newsandpublicaffairs',
+]
+
 def search_jazz(rows=400):
-    # Broader search — etree is fan-recorded live shows (mostly jam bands),
-    # commercial jazz isn't there. Search all audio with these creators.
+    """Search Archive.org for actual jazz music (not podcasts/interviews/tributes)."""
     creator_clause = " OR ".join(f'creator:"{a}"' for a in JAZZ_ARTISTS)
+    exclude_clause = " ".join(f'-collection:{c}' for c in EXCLUDE_COLLECTIONS)
     params = {
-        "q": f'mediatype:audio AND ({creator_clause})',
-        "fl[]": "identifier,title,creator,date,downloads",
+        "q": f'mediatype:audio AND ({creator_clause}) {exclude_clause}',
+        "fl[]": "identifier,title,creator,date,downloads,collection,subject",
         "output": "json",
         "rows": rows,
         "sort[]": "downloads desc",
@@ -71,20 +96,34 @@ def search_jazz(rows=400):
     r = requests.get(ARCHIVE_SEARCH, params=params, timeout=30)
     r.raise_for_status()
     docs = r.json().get("response", {}).get("docs", [])
-    # If still nothing, fall back to title/description match
-    if not docs:
-        title_clause = " OR ".join(f'title:"{a}"' for a in JAZZ_ARTISTS)
-        r = requests.get(ARCHIVE_SEARCH, params={
-            "q": f'mediatype:audio AND ({title_clause})',
-            "fl[]": "identifier,title,creator,date,downloads",
-            "output": "json", "rows": rows, "sort[]": "downloads desc",
-        }, timeout=30)
-        r.raise_for_status()
-        docs = r.json().get("response", {}).get("docs", [])
-    return docs
+    # Pre-filter by title before expensive metadata fetches
+    return [d for d in docs if not _looks_like_non_music_item(d)]
+
+def _looks_like_non_music_item(doc):
+    """Heuristics: filter podcasts/interviews/etc. before fetching metadata."""
+    title = doc.get("title") or ""
+    if isinstance(title, list): title = title[0] if title else ""
+    if NON_MUSIC_TITLE_PATTERNS.search(title):
+        return True
+    # Check subject tags too
+    subject = doc.get("subject") or []
+    if isinstance(subject, str): subject = [subject]
+    bad_subjects = {'podcast', 'interview', 'spoken word', 'spoken-word',
+                    'audiobook', 'lecture', 'talk', 'discussion'}
+    for s in subject:
+        if str(s).lower() in bad_subjects:
+            return True
+    # Check collections
+    cols = doc.get("collection") or []
+    if isinstance(cols, str): cols = [cols]
+    cols_lower = {str(c).lower() for c in cols}
+    if cols_lower & set(EXCLUDE_COLLECTIONS):
+        return True
+    return False
 
 def extract_track(doc):
-    """Pick one mid-set mp3 from this item and return a fully-resolved entry."""
+    """Pick one mid-set mp3 from this item and return a fully-resolved entry.
+    Returns None if the item doesn't look like a real music recording."""
     ident = doc.get("identifier")
     if not ident: return None
     creator = doc.get("creator")
@@ -98,16 +137,42 @@ def extract_track(doc):
         meta = r.json()
     except Exception:
         return None
+
+    # Re-check title against non-music patterns (some items pass the search but
+    # have giveaway titles in the metadata)
+    if NON_MUSIC_TITLE_PATTERNS.search(title):
+        return None
+
     files = meta.get("files", [])
     mp3s = [f for f in files
             if f.get("format") in ("VBR MP3", "MP3", "128Kbps MP3", "64Kbps MP3")
             and f.get("name")]
     if not mp3s:
         return None
-    # Pick mid-set track (avoid intros/outros). Filter out very short tracks (<60s).
-    playable = [f for f in mp3s if parse_length(f.get("length")) >= 60]
+
+    # Filter out spoken-word tracks by their titles
+    music_tracks = []
+    for f in mp3s:
+        ft = (f.get("title") or f.get("name") or "")
+        if SPOKEN_TRACK_PATTERNS.search(ft):
+            continue
+        music_tracks.append(f)
+    if not music_tracks:
+        return None
+
+    # A real concert/album usually has 3+ tracks. A podcast often has 1 long
+    # track. Skip items with too few tracks (likely spoken-word episodes).
+    if len(music_tracks) < 3:
+        return None
+
+    # Filter out very short (<60s) and very long (>20 min) tracks — long
+    # tracks are usually podcast episodes or lectures rather than songs.
+    playable = [f for f in music_tracks
+                if 60 <= parse_length(f.get("length")) <= 1200]
     if not playable:
-        playable = mp3s
+        return None
+
+    # Pick mid-set track (avoid intros/outros)
     track = playable[len(playable) // 2] if len(playable) > 2 else playable[0]
     fname = track["name"]
     url = f"{ARCHIVE_DOWNLOAD}/{ident}/{requests.utils.quote(fname)}"
