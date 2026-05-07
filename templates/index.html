@@ -2491,7 +2491,20 @@ async function onAudioError() {
   a.addEventListener('canplaythrough', onCanPlayThrough);
 });
 
-document.getElementById('btn-play').onclick = ()=>{ if(audio.paused) audio.play(); else audio.pause(); };
+document.getElementById('btn-play').onclick = ()=>{ if(audio.paused) audio.play().catch(()=>{}); else audio.pause(); };
+
+// Suppress benign HTML5 media-abort warnings.
+// These fire whenever a load is interrupted by another load (track switch,
+// crossfade, handoff swap, AirPlay teardown). The browser logs them as
+// "uncaught" DOMExceptions even when our own .catch handlers ran. They're
+// informational, not errors — the audio still works correctly.
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason;
+  if (r && (r.name === 'AbortError' ||
+            (typeof r.message === 'string' && /aborted|interrupted|user agent/i.test(r.message)))) {
+    e.preventDefault();
+  }
+});
 document.getElementById('btn-prev').onclick = ()=>playTrack(currentTrackIdx-1);
 document.getElementById('btn-next').onclick = ()=>playTrack(currentTrackIdx+1);
 
