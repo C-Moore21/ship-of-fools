@@ -85,6 +85,31 @@ def _norm_song(title):
     return _ALIASES.get(t, t)
 
 _TOTAL_SHOWS = 2318  # approximate GD lifetime show count (1965–1995)
+
+# Track titles that are structural/non-musical — we don't want debut badges,
+# drought breaker badges, or "first ever" timelines for these. They survive
+# in setlist_cache (useful for set position tracking) but get filtered out
+# of any user-facing "song"-themed display.
+_NON_SONGS = {
+    "drums", "space", "drum solo", "space jam", "drumz",
+    "encore", "encore break", "set break", "intermission",
+    "tuning", "tune up", "tune-up", "tunes",
+    "intro", "outro", "introduction", "opening", "closing",
+    "jam", "instrumental", "audience", "crowd", "applause",
+    "banter", "talk", "chat", "soundcheck", "sound check",
+    "silence", "gap", "stage announcement", "announcement",
+    "tape flip", "reel change", "stage banter", "feedback",
+    "noise", "experimental", "unknown", "unknown song",
+    "untitled", "untitled jam", "rap",  # "rap" = Pigpen's spoken raps
+    "",
+}
+
+def _is_non_song(name):
+    if not name: return True
+    n = name.strip().lower()
+    if n in _NON_SONGS: return True
+    if len(n) <= 2: return True
+    return False
 _SONG_PLAYS = {
     "me and my uncle": 614, "not fade away": 530, "jack straw": 475,
     "playing in the band": 465, "deal": 444, "china cat sunflower": 441,
@@ -974,11 +999,10 @@ def show_setlist_stats(show_date):
     if not isinstance(raw_songs, list):
         return jsonify({"error": "songs must be a list"}), 400
 
-    _SKIP = {"drums", "space", "tuning", "drum solo", "space jam", "encore", ""}
     norm_to_raw = {}
     for title in raw_songs:
         n = _norm_song(title)
-        if n and n not in _SKIP and len(n) > 2 and n not in norm_to_raw:
+        if not _is_non_song(n) and n not in norm_to_raw:
             norm_to_raw[n] = title
     norm_titles = list(norm_to_raw.keys())
 
@@ -1850,7 +1874,7 @@ def songs_timeline():
         "play_count": r["play_count"],
         "years_active": int(r["final_date"][:4]) - int(r["debut_date"][:4]) + 1
                         if r.get("debut_date") and r.get("final_date") else 0,
-    } for r in rows if r.get("_id") and len(r["_id"]) > 2]
+    } for r in rows if not _is_non_song(r.get("_id"))]
     _cache_set(cache_key, result)
     return jsonify(result)
 
@@ -1951,7 +1975,7 @@ def song_cooccurrences(song):
         "cooccurrences": [
             {"song": r["_id"], "count": r["count"],
              "pct": round(r["count"] / total * 100)}
-            for r in rows if r.get("_id") and len(r["_id"]) > 2
+            for r in rows if not _is_non_song(r.get("_id"))
         ],
     }
     _cache_set(cache_key, result)
