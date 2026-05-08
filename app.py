@@ -330,6 +330,29 @@ _weather_cache_col = _db["weather_cache"]       # _id = show_date, permanent (we
 _segue_col         = _db["segue_cache"]         # _id = "from||to", count of occurrences
 _releases_cache_col = _db["releases_cache"]     # _id = show_date, official Dead releases
 _house_music_col    = _db["house_music_cache"]  # _id = "pool", curated jazz playlist
+_canonical_songs_col = _db["canonical_songs"]   # _id = norm_song name from deaddisc.com
+
+# Load canonical song set into memory at startup. Authoritative gate for
+# DEBUT / DROUGHT BREAKER badges and the Song Archive timeline. Things like
+# "encore break", "tuning", "soundcheck only" entries don't appear because
+# seed_songs.py filters them at the source.
+_CANONICAL_SONGS = set()
+def _load_canonical_songs():
+    global _CANONICAL_SONGS
+    try:
+        _CANONICAL_SONGS = {d["_id"] for d in _canonical_songs_col.find({}, {"_id": 1})}
+    except Exception:
+        _CANONICAL_SONGS = set()
+_load_canonical_songs()
+
+def _is_canonical_song(name):
+    """True if name is a real performed Dead song per the GDFD canonical list.
+    If the canonical list isn't seeded yet, falls back to the heuristic
+    _is_non_song() check (returns True for anything not explicitly non-song)."""
+    if not name: return False
+    if not _CANONICAL_SONGS:
+        return not _is_non_song(name)  # graceful fallback
+    return name in _CANONICAL_SONGS
 # TTL: auto-expire track metadata after 30 days (tracks rarely change)
 _tracks_cache_col.create_index("ts", expireAfterSeconds=30 * 86400)
 
@@ -1036,7 +1059,7 @@ def show_setlist_stats(show_date):
     norm_to_raw = {}
     for title in raw_songs:
         n = _norm_song(title)
-        if not _is_non_song(n) and n not in norm_to_raw:
+        if _is_canonical_song(n) and n not in norm_to_raw:
             norm_to_raw[n] = title
     norm_titles = list(norm_to_raw.keys())
 
@@ -1908,7 +1931,7 @@ def songs_timeline():
         "play_count": r["play_count"],
         "years_active": int(r["final_date"][:4]) - int(r["debut_date"][:4]) + 1
                         if r.get("debut_date") and r.get("final_date") else 0,
-    } for r in rows if not _is_non_song(r.get("_id"))]
+    } for r in rows if _is_canonical_song(r.get("_id"))]
     _cache_set(cache_key, result)
     return jsonify(result)
 
@@ -2009,7 +2032,7 @@ def song_cooccurrences(song):
         "cooccurrences": [
             {"song": r["_id"], "count": r["count"],
              "pct": round(r["count"] / total * 100)}
-            for r in rows if not _is_non_song(r.get("_id"))
+            for r in rows if _is_canonical_song(r.get("_id"))
         ],
     }
     _cache_set(cache_key, result)
