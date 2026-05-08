@@ -97,7 +97,9 @@
     .show-group-track-row:last-child { border-bottom:none; }
     .show-group-track-title { font-size:12px; color:var(--text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .show-group-track-stars { font-size:12px; color:var(--accent); flex-shrink:0; }
-    .track-panel { overflow-y:auto; overflow-x:auto; height:100%; scrollbar-width:thin; -webkit-overflow-scrolling:touch; padding-bottom:90px; }
+    .track-panel { overflow-y:auto; overflow-x:auto; height:100%; scrollbar-width:thin; -webkit-overflow-scrolling:touch; padding-bottom:90px; transition:padding-bottom 0.22s; }
+    body.viz-open .track-panel { padding-bottom:260px; }
+    body.viz-open .shows-panel { padding-bottom:260px; }
     .track-panel-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:300px; gap:12px; color:var(--muted); }
     .track-panel-empty .big-skull { font-size:57px; opacity:0.3; }
     .source-header { padding:10px 16px 8px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); overflow:hidden; z-index:10; }
@@ -505,6 +507,8 @@
       /* Stack panels, show only the active one */
       .layout { display:block; overflow:visible; }
       .years-panel, .shows-panel, .track-panel { height:auto; max-height:none; overflow-y:visible; padding-bottom:150px; }
+      body.viz-open .track-panel,
+      body.viz-open .shows-panel { padding-bottom:280px; }
       .panel-divider { display:none; }
       .shows-panel, .track-panel { display:none; }
       .shows-panel.mob-active, .track-panel.mob-active { display:block; }
@@ -4903,8 +4907,21 @@ function toggleViz() {
   _vizOpen = !_vizOpen;
   document.getElementById('viz-panel').classList.toggle('open', _vizOpen);
   document.getElementById('viz-toggle').classList.toggle('active', _vizOpen);
-  if (_vizOpen) { _initViz(); _startVizLoop(); }
-  else { _stopVizLoop(); if (_vizAudio) _vizAudio.pause(); }
+  // Bump body padding so the viz panel doesn't cover the bottom of the
+  // track list (desktop) or the show list (mobile) when scrolled to bottom.
+  document.body.classList.toggle('viz-open', _vizOpen);
+  if (_vizOpen) {
+    _initViz();
+    _startVizLoop();
+    // Resume context (modern browsers suspend until a user gesture)
+    if (_vizCtx && _vizCtx.state === 'suspended') {
+      _vizCtx.resume().catch(() => {});
+    }
+    _syncVizAudio();
+  } else {
+    _stopVizLoop();
+    if (_vizAudio) _vizAudio.pause();
+  }
 }
 
 function setVizMode(m) {
@@ -4935,9 +4952,21 @@ function _initViz() {
 
 function _syncVizAudio() {
   if (!_vizOpen || !_vizAudio || !audio.src) return;
+  // Resume the AudioContext if suspended — modern browsers won't run an
+  // AudioContext until a user gesture, and even then it can suspend
+  // again when the tab loses focus or the page is backgrounded.
+  if (_vizCtx && _vizCtx.state === 'suspended') {
+    _vizCtx.resume().catch(() => {});
+  }
   if (_vizAudio.src !== audio.src) {
-    _vizAudio.src = audio.src;
-    _vizAudio.currentTime = audio.currentTime;
+    try { _vizAudio.src = audio.src; } catch(e) {}
+    try { _vizAudio.currentTime = audio.currentTime; } catch(e) {}
+    try { _vizAudio.load(); } catch(e) {}
+  } else {
+    // Same src — keep clocks in sync if they've drifted significantly
+    if (Math.abs(_vizAudio.currentTime - audio.currentTime) > 0.5) {
+      try { _vizAudio.currentTime = audio.currentTime; } catch(e) {}
+    }
   }
   if (!audio.paused) _vizAudio.play().catch(() => {});
 }
