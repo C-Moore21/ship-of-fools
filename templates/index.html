@@ -5072,37 +5072,12 @@ function _startVizLoop() {
     _vizRaf = requestAnimationFrame(frame);
     if (canvas.clientWidth !== cw || canvas.clientHeight !== ch) resize();
     ctx.clearRect(0, 0, cw, ch);
-    if (!_vizAnalyser) { _drawIdleViz(ctx, cw, ch); _drawVizDiag(ctx, cw, ch, 'no analyser'); return; }
+    if (!_vizAnalyser) { _drawIdleViz(ctx, cw, ch); return; }
     if (_vizMode === 'bars') _drawBars(ctx, cw, ch);
     else if (_vizMode === 'radial') _drawRadial(ctx, cw, ch);
     else _drawScope(ctx, cw, ch);
-    _drawVizDiag(ctx, cw, ch);
   }
   frame();
-}
-
-// Diagnostic overlay — shows AudioContext state, connection path, and live
-// signal level. Helps figure out why bars aren't moving when something's off.
-function _drawVizDiag(ctx, w, h, override) {
-  if (!_vizFreqBuf) return;
-  let peak = 0;
-  for (let i = 0; i < _vizFreqBuf.length; i++) {
-    if (_vizFreqBuf[i] > peak) peak = _vizFreqBuf[i];
-  }
-  const state = _vizCtx ? _vizCtx.state : 'no ctx';
-  const path = _vizConnected
-    ? (_vizUsedFallback ? 'mediaElement' : 'captureStream')
-    : 'not connected';
-  const wired = (audioA && audioA._vizWired ? 'A' : '-') + (audioB && audioB._vizWired ? 'B' : '-');
-  const apl = _airplayActive ? 'AIRPLAY' : 'local';
-  const audioState = audio.paused ? 'paused' : 'playing';
-  const txt = override
-    ? override
-    : `ctx:${state} path:${path} wired:${wired} ${apl} audio:${audioState} peak:${peak}`;
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.font = '9px "Space Mono",monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText(txt, 6, h - 4);
 }
 
 function _stopVizLoop() {
