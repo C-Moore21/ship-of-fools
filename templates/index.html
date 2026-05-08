@@ -871,6 +871,12 @@ let audio = audioA; // active element
 let preload = audioB; // buffering next track — always kept muted
 audioA.muted = false;
 audioB.muted = true;
+// CORS for Web Audio analysis: without crossOrigin set, captureStream() and
+// createMediaElementSource() see "tainted" media and return silent data,
+// breaking the visualizer. Archive.org sends Access-Control-Allow-Origin: *
+// for download URLs, so anonymous CORS works. Must be set BEFORE any src.
+audioA.crossOrigin = 'anonymous';
+audioB.crossOrigin = 'anonymous';
 // Prevent the preload element from participating in AirPlay/Cast routing.
 // (Each <audio> element spawns its own AVPlayer in WebKit; a second AVPlayer
 // holding an output context causes route-assignment failures on macOS/iOS —
