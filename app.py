@@ -104,11 +104,33 @@ _NON_SONGS = {
     "",
 }
 
+import re as _re_non_song
+# Regex patterns matching non-song titles in any variant. Catches things
+# like "Equipment Repairs", "More Repairs", "Tune Up #2", "Tuning A" etc.
+# that aren't on the explicit blocklist but clearly aren't songs.
+_NON_SONG_PATTERNS = _re_non_song.compile(
+    r'^(?:'
+    r'.*\brepairs?\b.*|'                      # equipment repairs, more repairs, repairs
+    r'.*\btun(?:e|ing)\s*up.*|'                # tune up, tuning up, tune-up #2
+    r'.*\btun(?:e|ing)\b.*|'                   # tuning, tune
+    r'.*\bsoundcheck\b.*|'                     # any soundcheck variant
+    r'.*\brehearsal\b.*|'                      # any rehearsal variant
+    r'.*\b(intro|outro|opening|closing)\b.*|'  # intros/outros
+    r'.*\b(crowd|audience|applause|banter|chat|talk)\b.*|'
+    r'.*\b(announcement|stage)\b.*|'
+    r'.*\bgap\b.*|.*\bsilence\b.*|.*\bnoise\b.*|'
+    r'.*\b(unknown|untitled|unidentified)\b.*|'
+    r'.*\b(tape\s*flip|reel\s*change|feedback)\b.*'
+    r')$',
+    _re_non_song.IGNORECASE
+)
+
 def _is_non_song(name):
     if not name: return True
     n = name.strip().lower()
     if n in _NON_SONGS: return True
     if len(n) <= 2: return True
+    if _NON_SONG_PATTERNS.match(n): return True
     return False
 _SONG_PLAYS = {
     "me and my uncle": 614, "not fade away": 530, "jack straw": 475,
@@ -337,21 +359,33 @@ _canonical_songs_col = _db["canonical_songs"]   # _id = norm_song name from dead
 # "encore break", "tuning", "soundcheck only" entries don't appear because
 # seed_songs.py filters them at the source.
 _CANONICAL_SONGS = set()
+_CANONICAL_LOADED_AT = 0.0
+_CANONICAL_RELOAD_S = 300  # auto-refresh every 5 minutes
+
 def _load_canonical_songs():
-    global _CANONICAL_SONGS
+    global _CANONICAL_SONGS, _CANONICAL_LOADED_AT
     try:
         _CANONICAL_SONGS = {d["_id"] for d in _canonical_songs_col.find({}, {"_id": 1})}
+        _CANONICAL_LOADED_AT = time.time()
     except Exception:
-        _CANONICAL_SONGS = set()
+        # On error keep whatever we had previously
+        pass
 _load_canonical_songs()
 
 def _is_canonical_song(name):
     """True if name is a real performed Dead song per the GDFD canonical list.
-    If the canonical list isn't seeded yet, falls back to the heuristic
-    _is_non_song() check (returns True for anything not explicitly non-song)."""
+    Auto-reloads the in-memory set every 5 minutes so newly-seeded data
+    becomes visible without a Render redeploy. If the canonical list isn't
+    available, falls back to the _is_non_song heuristic."""
     if not name: return False
+    # Lazy reload — picks up fresh seed_songs.py runs without app restart
+    if time.time() - _CANONICAL_LOADED_AT > _CANONICAL_RELOAD_S:
+        _load_canonical_songs()
+    # Always reject patterns that match non-song regex even if the list
+    # somehow contains them
+    if _is_non_song(name): return False
     if not _CANONICAL_SONGS:
-        return not _is_non_song(name)  # graceful fallback
+        return True  # list not seeded — pass anything that survived _is_non_song
     return name in _CANONICAL_SONGS
 # TTL: auto-expire track metadata after 30 days (tracks rarely change)
 _tracks_cache_col.create_index("ts", expireAfterSeconds=30 * 86400)
