@@ -909,6 +909,7 @@ function _bindRemotePlaybackWatcher(el) {
     _airplayActive = (el.remote.state === 'connected' || el.remote.state === 'connecting');
     if (_airplayActive && !wasActive)      _tearDownPreload();
     else if (!_airplayActive && wasActive) _restorePreload();
+    if (typeof _updateVizButtonAvailability === 'function') _updateVizButtonAvailability();
   };
   el.remote.addEventListener('connect', sync);
   el.remote.addEventListener('connecting', sync);
@@ -919,6 +920,7 @@ function _bindRemotePlaybackWatcher(el) {
     _airplayActive = !!el.webkitCurrentPlaybackTargetIsWireless;
     if (_airplayActive && !wasActive)      _tearDownPreload();
     else if (!_airplayActive && wasActive) _restorePreload();
+    if (typeof _updateVizButtonAvailability === 'function') _updateVizButtonAvailability();
   });
 }
 _bindRemotePlaybackWatcher(audioA);
@@ -4895,32 +4897,53 @@ loadYears().then(async () => {
 });
 
 // ── VISUALIZER ────────────────────────────────────────────────────────────────
-// Uses a dedicated silent <audio> element for analysis so the main player
-// elements stay untouched — preserving AirPlay and iOS background playback.
+// Connects the MAIN audio elements directly to a Web Audio AnalyserNode for
+// guaranteed signal capture (the previous approach of mirroring via a separate
+// <audio> element was hitting CORS / redirect issues with Archive.org's CDN
+// and getting silent data). Trade-off: createMediaElementSource is one-way —
+// once an element is wired through Web Audio its native AirPlay routing is
+// permanently replaced for the rest of the session. So:
+//   - The viz button is hidden when AirPlay is currently active
+//   - When viz is opened, a one-time warning notes AirPlay won't work after
+//   - Both audioA and audioB are wired so the swap mechanism doesn't matter
 let _vizCtx = null, _vizAnalyser = null, _vizRaf = null;
 let _vizFreqBuf = null, _vizTimeBuf = null;
 let _vizMode = 'bars', _vizOpen = false;
-let _vizAudio = null; // dedicated analysis-only element, volume=0
+let _vizConnected = false; // true once main audio elements are wired into Web Audio
 let _scopeGrad = null, _scopeGradW = 0;
 
+function _isVizUnavailable() {
+  return _airplayActive ||
+    (audio && audio.remote && audio.remote.state === 'connected') ||
+    (audio && audio.webkitCurrentPlaybackTargetIsWireless);
+}
+
+function _updateVizButtonAvailability() {
+  const btn = document.getElementById('viz-toggle');
+  if (!btn) return;
+  if (_isVizUnavailable()) {
+    btn.style.display = 'none';
+    if (_vizOpen) toggleViz(); // close it if it was open
+  } else {
+    btn.style.display = '';
+  }
+}
+
 function toggleViz() {
+  // If AirPlay is active, never open the viz (would silently fail anyway)
+  if (!_vizOpen && _isVizUnavailable()) return;
   _vizOpen = !_vizOpen;
   document.getElementById('viz-panel').classList.toggle('open', _vizOpen);
   document.getElementById('viz-toggle').classList.toggle('active', _vizOpen);
-  // Bump body padding so the viz panel doesn't cover the bottom of the
-  // track list (desktop) or the show list (mobile) when scrolled to bottom.
   document.body.classList.toggle('viz-open', _vizOpen);
   if (_vizOpen) {
     _initViz();
     _startVizLoop();
-    // Resume context (modern browsers suspend until a user gesture)
     if (_vizCtx && _vizCtx.state === 'suspended') {
       _vizCtx.resume().catch(() => {});
     }
-    _syncVizAudio();
   } else {
     _stopVizLoop();
-    if (_vizAudio) _vizAudio.pause();
   }
 }
 
@@ -4938,37 +4961,37 @@ function _initViz() {
     _vizAnalyser.smoothingTimeConstant = 0.82;
     _vizFreqBuf = new Uint8Array(_vizAnalyser.frequencyBinCount);
     _vizTimeBuf = new Uint8Array(_vizAnalyser.fftSize);
-    // Dedicated silent element — never touches the main player elements
-    _vizAudio = document.createElement('audio');
-    _vizAudio.crossOrigin = 'anonymous';
-    _vizAudio.volume = 0;
-    _vizAudio.preload = 'auto';
-    document.body.appendChild(_vizAudio);
-    _vizCtx.createMediaElementSource(_vizAudio).connect(_vizAnalyser);
     _vizAnalyser.connect(_vizCtx.destination);
-    _syncVizAudio();
+    _connectMainAudioToViz();
   } catch(e) { _vizCtx = null; }
 }
 
+function _connectMainAudioToViz() {
+  // createMediaElementSource is one-shot per element — track which elements
+  // have been wired so we don't double-connect (which throws).
+  if (_vizConnected) return;
+  if (!_vizCtx || !_vizAnalyser) return;
+  try {
+    // audioA and audioB are the swappable pair. Wire both so the analyser
+    // sees signal regardless of which one is currently the active "audio".
+    [audioA, audioB].forEach(el => {
+      if (!el || el._vizWired) return;
+      const src = _vizCtx.createMediaElementSource(el);
+      src.connect(_vizAnalyser);
+      el._vizWired = true;
+    });
+    _vizConnected = true;
+  } catch(e) {
+    _vizConnected = false;
+  }
+}
+
+// Kept for backward compatibility — old call sites still trigger this. With
+// direct-connection viz it's a no-op (the analyser is wired to the source).
 function _syncVizAudio() {
-  if (!_vizOpen || !_vizAudio || !audio.src) return;
-  // Resume the AudioContext if suspended — modern browsers won't run an
-  // AudioContext until a user gesture, and even then it can suspend
-  // again when the tab loses focus or the page is backgrounded.
   if (_vizCtx && _vizCtx.state === 'suspended') {
     _vizCtx.resume().catch(() => {});
   }
-  if (_vizAudio.src !== audio.src) {
-    try { _vizAudio.src = audio.src; } catch(e) {}
-    try { _vizAudio.currentTime = audio.currentTime; } catch(e) {}
-    try { _vizAudio.load(); } catch(e) {}
-  } else {
-    // Same src — keep clocks in sync if they've drifted significantly
-    if (Math.abs(_vizAudio.currentTime - audio.currentTime) > 0.5) {
-      try { _vizAudio.currentTime = audio.currentTime; } catch(e) {}
-    }
-  }
-  if (!audio.paused) _vizAudio.play().catch(() => {});
 }
 
 function _startVizLoop() {
