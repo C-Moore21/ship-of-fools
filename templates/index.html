@@ -2133,6 +2133,11 @@ function playTrack(idx) {
   _preload75Done = false;
   preloadTrack(idx + 1);
   updatePlaybackUI(idx);
+  // Resync the visualizer's mirror-element to whichever <audio> is now active.
+  // Required because handoff/splice swaps don't fire a fresh 'play' event
+  // (the new element was already playing silently), so onPlay's auto-sync
+  // never runs.
+  if (typeof _syncVizAudio === 'function') _syncVizAudio();
 
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
@@ -2462,6 +2467,7 @@ function _finalizeCrossfade(nextIdx) {
   _preload75Done = false;
   preloadTrack(currentTrackIdx + 1);
   updatePlaybackUI(currentTrackIdx);
+  if (typeof _syncVizAudio === 'function') _syncVizAudio();
 }
 
 let _housePlaying = false;
@@ -2477,6 +2483,7 @@ async function playHouseMusic() {
     audio.src = t.url;
     audio.load();
     audio.play().catch(() => { _housePlaying = false; });
+    if (typeof _syncVizAudio === 'function') _syncVizAudio();
     // Show a subtle house-music indicator on the player bar
     const trackEl = document.querySelector('.player-track');
     if (trackEl) {
