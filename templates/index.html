@@ -2531,9 +2531,30 @@ function onCanPlayThrough() { if (this === preload) _ps.ok = true; }
 let _failoverInProgress = false;
 let _retryCount = 0;
 const MAX_RETRIES = 3;
+// CORS-fallback bookkeeping: if a URL fails to load with crossOrigin set,
+// retry once with crossOrigin cleared (sacrificing viz analysis on that
+// element for the rest of the session). Per-element flag prevents loops.
+function _maybeClearCrossOriginAndRetry(el) {
+  if (!el || el._corsFallbackTried) return false;
+  if (el.crossOrigin == null) return false;
+  el._corsFallbackTried = true;
+  const u = el.src;
+  try {
+    el.removeAttribute('crossorigin');
+    el.crossOrigin = null;
+    el.src = '';
+    el.src = u;
+    el.load();
+    if (el === audio) el.play().catch(() => {});
+  } catch(e) { return false; }
+  return true;
+}
+
 async function onAudioError() {
   if (this === preload) {
-    // Preload errored — retry up to PRELOAD_RETRIES times, then buffer from next source
+    // Preload errored — try CORS-clear fallback once, then retry up to
+    // PRELOAD_RETRIES times, then buffer from next source.
+    if (_maybeClearCrossOriginAndRetry(preload)) return;
     if (_ps.failed || !_ps.url) return;
     if (_ps.retries < PRELOAD_RETRIES) {
       _ps.retries++;
@@ -2551,6 +2572,10 @@ async function onAudioError() {
     return;
   }
   if (this !== audio || _failoverInProgress || currentTrackIdx < 0) return;
+  // First defense: if the failure is from CORS rejection, drop crossOrigin
+  // and retry the URL once. Audio will play but viz won't see signal from
+  // this element for the rest of the session.
+  if (_maybeClearCrossOriginAndRetry(audio)) return;
   if (_retryCount < MAX_RETRIES) {
     _retryCount++;
     _failoverInProgress = true;
