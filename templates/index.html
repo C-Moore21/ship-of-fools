@@ -4952,6 +4952,8 @@ function setVizMode(m) {
   document.querySelectorAll('.viz-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
 }
 
+let _vizUsedFallback = false; // true if we had to use createMediaElementSource
+
 function _initViz() {
   if (_vizCtx) { if (_vizCtx.state === 'suspended') _vizCtx.resume(); return; }
   try {
@@ -4961,19 +4963,45 @@ function _initViz() {
     _vizAnalyser.smoothingTimeConstant = 0.82;
     _vizFreqBuf = new Uint8Array(_vizAnalyser.frequencyBinCount);
     _vizTimeBuf = new Uint8Array(_vizAnalyser.fftSize);
-    _vizAnalyser.connect(_vizCtx.destination);
     _connectMainAudioToViz();
   } catch(e) { _vizCtx = null; }
 }
 
 function _connectMainAudioToViz() {
-  // createMediaElementSource is one-shot per element — track which elements
-  // have been wired so we don't double-connect (which throws).
   if (_vizConnected) return;
   if (!_vizCtx || !_vizAnalyser) return;
+
+  // PREFERRED PATH: captureStream() — taps a COPY of the audio output without
+  // replacing the element's native routing. AirPlay still works. The analyser
+  // sees real signal because the captured stream contains decoded PCM.
+  let captureWorked = false;
   try {
-    // audioA and audioB are the swappable pair. Wire both so the analyser
-    // sees signal regardless of which one is currently the active "audio".
+    [audioA, audioB].forEach(el => {
+      if (!el) return;
+      const captureFn = el.captureStream || el.mozCaptureStream;
+      if (!captureFn) throw new Error('no captureStream');
+      const stream = captureFn.call(el);
+      if (!stream || !stream.getAudioTracks || stream.getAudioTracks().length === 0) {
+        // Stream might be empty until audio actually plays — accept and retry later
+      }
+      const src = _vizCtx.createMediaStreamSource(stream);
+      src.connect(_vizAnalyser);
+      el._vizWired = true;
+    });
+    captureWorked = true;
+    _vizConnected = true;
+  } catch(e) {
+    // Reset partial state on failure
+    if (audioA) audioA._vizWired = false;
+    if (audioB) audioB._vizWired = false;
+  }
+
+  if (captureWorked) return;
+
+  // FALLBACK PATH: createMediaElementSource — replaces native routing. Audio
+  // now flows through Web Audio destination. AirPlay won't work after this.
+  try {
+    _vizAnalyser.connect(_vizCtx.destination);
     [audioA, audioB].forEach(el => {
       if (!el || el._vizWired) return;
       const src = _vizCtx.createMediaElementSource(el);
@@ -4981,6 +5009,7 @@ function _connectMainAudioToViz() {
       el._vizWired = true;
     });
     _vizConnected = true;
+    _vizUsedFallback = true;
   } catch(e) {
     _vizConnected = false;
   }
@@ -5012,12 +5041,37 @@ function _startVizLoop() {
     _vizRaf = requestAnimationFrame(frame);
     if (canvas.clientWidth !== cw || canvas.clientHeight !== ch) resize();
     ctx.clearRect(0, 0, cw, ch);
-    if (!_vizAnalyser) { _drawIdleViz(ctx, cw, ch); return; }
+    if (!_vizAnalyser) { _drawIdleViz(ctx, cw, ch); _drawVizDiag(ctx, cw, ch, 'no analyser'); return; }
     if (_vizMode === 'bars') _drawBars(ctx, cw, ch);
     else if (_vizMode === 'radial') _drawRadial(ctx, cw, ch);
     else _drawScope(ctx, cw, ch);
+    _drawVizDiag(ctx, cw, ch);
   }
   frame();
+}
+
+// Diagnostic overlay — shows AudioContext state, connection path, and live
+// signal level. Helps figure out why bars aren't moving when something's off.
+function _drawVizDiag(ctx, w, h, override) {
+  if (!_vizFreqBuf) return;
+  let peak = 0;
+  for (let i = 0; i < _vizFreqBuf.length; i++) {
+    if (_vizFreqBuf[i] > peak) peak = _vizFreqBuf[i];
+  }
+  const state = _vizCtx ? _vizCtx.state : 'no ctx';
+  const path = _vizConnected
+    ? (_vizUsedFallback ? 'mediaElement' : 'captureStream')
+    : 'not connected';
+  const wired = (audioA && audioA._vizWired ? 'A' : '-') + (audioB && audioB._vizWired ? 'B' : '-');
+  const apl = _airplayActive ? 'AIRPLAY' : 'local';
+  const audioState = audio.paused ? 'paused' : 'playing';
+  const txt = override
+    ? override
+    : `ctx:${state} path:${path} wired:${wired} ${apl} audio:${audioState} peak:${peak}`;
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font = '9px "Space Mono",monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(txt, 6, h - 4);
 }
 
 function _stopVizLoop() {
