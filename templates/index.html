@@ -2329,8 +2329,21 @@ function onEnded() {
   // Crossfade is mid-flight — let it finish the swap; ignore the ended event.
   if (_crossfadeActive) return;
   const nextIdx = currentTrackIdx + 1;
-  // If this is the last track, clear the resume position and queue house music
+  // If this is the last track, clear the resume position and queue house music.
+  // Guards against race conditions:
+  //   - currentTracks empty (user just switched shows; old audio finished its
+  //     play after we reset state, would spuriously trigger house music)
+  //   - currentTrackIdx is -1 (no track was actually active)
+  //   - audio.src doesn't match what we believe the current track is
+  //     (source-switch race — old element ended after a new src loaded)
   if (nextIdx >= currentTracks.length) {
+    const stillOnExpectedTrack =
+      currentTracks.length > 0 &&
+      currentTrackIdx >= 0 &&
+      currentTrackIdx === currentTracks.length - 1 &&
+      currentTracks[currentTrackIdx] &&
+      (audio.src === currentTracks[currentTrackIdx].mp3_url);
+    if (!stillOnExpectedTrack) return;  // stale ended event, do nothing
     try { localStorage.removeItem('sof_resume'); } catch(e) {}
     playHouseMusic();
     return;
