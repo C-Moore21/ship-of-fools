@@ -914,7 +914,7 @@ function _bindRemotePlaybackWatcher(el) {
     const wasActive = _airplayActive;
     _airplayActive = (el.remote.state === 'connected' || el.remote.state === 'connecting');
     if (_airplayActive && !wasActive)      _tearDownPreload();
-    else if (!_airplayActive && wasActive) _restorePreload();
+    else if (!_airplayActive && wasActive) { _restorePreload(); _notifyAirplayDropped(); }
     if (typeof _updateVizButtonAvailability === 'function') _updateVizButtonAvailability();
   };
   el.remote.addEventListener('connect', sync);
@@ -925,10 +925,26 @@ function _bindRemotePlaybackWatcher(el) {
     const wasActive = _airplayActive;
     _airplayActive = !!el.webkitCurrentPlaybackTargetIsWireless;
     if (_airplayActive && !wasActive)      _tearDownPreload();
-    else if (!_airplayActive && wasActive) _restorePreload();
+    else if (!_airplayActive && wasActive) { _restorePreload(); _notifyAirplayDropped(); }
     if (typeof _updateVizButtonAvailability === 'function') _updateVizButtonAvailability();
   });
 }
+
+let _airplayDropNoticeShownAt = 0;
+function _notifyAirplayDropped() {
+  // Throttle — don't spam if state flickers
+  if (Date.now() - _airplayDropNoticeShownAt < 4000) return;
+  _airplayDropNoticeShownAt = Date.now();
+  // Only show if audio is supposed to be playing (avoid noise on intentional disconnect)
+  if (audio.paused) return;
+  const n = document.createElement('div');
+  n.style.cssText = 'position:fixed;bottom:140px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--accent);color:var(--text);padding:10px 16px;border-radius:3px;font-family:"Space Mono",monospace;font-size:11px;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.6);max-width:90vw;';
+  n.textContent = 'AirPlay dropped — playback returned to this device. Reselect your speaker if you want to keep listening there.';
+  document.body.appendChild(n);
+  setTimeout(() => { n.style.transition = 'opacity 0.4s'; n.style.opacity = '0'; }, 5000);
+  setTimeout(() => { try { n.remove(); } catch(e) {} }, 5800);
+}
+
 _bindRemotePlaybackWatcher(audioA);
 _bindRemotePlaybackWatcher(audioB);
 let currentTracks = [], currentTrackIdx = -1, currentShowInfo = '';
@@ -2138,7 +2154,12 @@ function playTrack(idx) {
     try { preload.pause(); } catch(e) {}
   } else {
     audio.src = t.mp3_url;
-    audio.load();
+    // Skip explicit .load() — setting .src auto-loads, and the redundant
+    // call triggers an extra reset cycle that can drop the AirPlay session.
+    // Only call load() when there's a specific reason (no src previously).
+    if (!_airplayActive && !audio.webkitCurrentPlaybackTargetIsWireless) {
+      audio.load();
+    }
     audio.play().catch(() => {});
   }
 
@@ -2414,6 +2435,8 @@ function _maybeStartGaplessHandoff() {
   // breaks remote routing.
   if (_airplayActive) return;
   if (audio.remote && audio.remote.state === 'connected') return;
+  // Safari-specific AirPlay flag (event may lag _airplayActive on track changes)
+  if (audio.webkitCurrentPlaybackTargetIsWireless) return;
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   if (isIOS) return;
