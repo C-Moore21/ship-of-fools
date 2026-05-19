@@ -2124,7 +2124,6 @@ function playTrack(idx) {
   if (idx < 0 || idx >= currentTracks.length) return;
   // Don't restart a track that's already playing (prevents double-click double-play)
   if (idx === currentTrackIdx && !audio.paused && audio.currentTime > 0.5) return;
-  _housePlaying = false; // user picked a real track — exit set-break mode
   _gaplessHandoffStarted = false; // new track resets the pre-play handoff
   // Cancel any in-flight crossfade — user-initiated play takes priority
   if (_crossfadeActive) {
@@ -2356,23 +2355,9 @@ function onEnded() {
   // Crossfade is mid-flight — let it finish the swap; ignore the ended event.
   if (_crossfadeActive) return;
   const nextIdx = currentTrackIdx + 1;
-  // If this is the last track, clear the resume position and queue house music.
-  // Guards against race conditions:
-  //   - currentTracks empty (user just switched shows; old audio finished its
-  //     play after we reset state, would spuriously trigger house music)
-  //   - currentTrackIdx is -1 (no track was actually active)
-  //   - audio.src doesn't match what we believe the current track is
-  //     (source-switch race — old element ended after a new src loaded)
+  // If this is the last track, just clear the resume position and stop.
   if (nextIdx >= currentTracks.length) {
-    const stillOnExpectedTrack =
-      currentTracks.length > 0 &&
-      currentTrackIdx >= 0 &&
-      currentTrackIdx === currentTracks.length - 1 &&
-      currentTracks[currentTrackIdx] &&
-      (audio.src === currentTracks[currentTrackIdx].mp3_url);
-    if (!stillOnExpectedTrack) return;  // stale ended event, do nothing
     try { localStorage.removeItem('sof_resume'); } catch(e) {}
-    playHouseMusic();
     return;
   }
   // If preload failed on current source but we buffered a fallback, use it seamlessly
@@ -2431,7 +2416,7 @@ const HANDOFF_LEAD_S = 0.6;  // start preload silently 600ms before end so audio
                              // engine is "warm" by swap time — eliminates the
                              // 50-200ms play-start latency that causes the blip.
 function _maybeStartGaplessHandoff() {
-  if (_gaplessHandoffStarted || _housePlaying) return;
+  if (_gaplessHandoffStarted) return;
   const nextIdx = currentTrackIdx + 1;
   if (nextIdx >= currentTracks.length) return;
   const t = currentTracks[nextIdx];
@@ -2460,7 +2445,7 @@ function _maybeStartGaplessHandoff() {
 }
 
 function _maybeStartCrossfade() {
-  if (_crossfadeActive || _housePlaying) return;
+  if (_crossfadeActive) return;
   const nextIdx = currentTrackIdx + 1;
   if (nextIdx >= currentTracks.length) return;
   // Don't crossfade segues — current track flows directly into the next
@@ -2522,48 +2507,6 @@ function _finalizeCrossfade(nextIdx) {
   preloadTrack(currentTrackIdx + 1);
   updatePlaybackUI(currentTrackIdx);
   if (typeof _syncVizAudio === 'function') _syncVizAudio();
-}
-
-let _housePlaying = false;
-async function playHouseMusic() {
-  if (_housePlaying) return;
-  try {
-    const res = await fetch('/api/house-music');
-    if (!res.ok) return;
-    const t = await res.json();
-    if (t.error || !t.url) return;
-    _housePlaying = true;
-    flushListen();
-    audio.src = t.url;
-    audio.load();
-    audio.play().catch(() => { _housePlaying = false; });
-    if (typeof _syncVizAudio === 'function') _syncVizAudio();
-    // Show a subtle house-music indicator on the player bar
-    const trackEl = document.querySelector('.player-track');
-    if (trackEl) {
-      const dateStr = t.date ? ` · ${escapeHTML(t.date)}` : '';
-      trackEl.innerHTML = `<span style="color:var(--accent2);font-size:10px;letter-spacing:1.5px;">SET BREAK</span> · ${escapeHTML(t.artist)} — ${escapeHTML(t.title)}${dateStr}`;
-    }
-    // Stop the visualizer "next track" preload
-    if ('mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: t.title || 'House Music',
-          artist: t.artist || 'Various',
-          album: 'Set Break',
-        });
-      } catch(e) {}
-    }
-    // When this house track ends, queue another one
-    const onHouseEnd = () => {
-      audio.removeEventListener('ended', onHouseEnd);
-      _housePlaying = false;
-      playHouseMusic();
-    };
-    audio.addEventListener('ended', onHouseEnd, { once: true });
-  } catch(e) {
-    _housePlaying = false;
-  }
 }
 
 function onPause() { if (this === audio) { document.getElementById('btn-play').innerHTML = _IC.play; if (_vizAudio) _vizAudio.pause(); } }

@@ -351,7 +351,6 @@ _pool_cache_col    = _db["show_pool_cache"]     # _id = "all" | year str
 _weather_cache_col = _db["weather_cache"]       # _id = show_date, permanent (weather never changes)
 _segue_col         = _db["segue_cache"]         # _id = "from||to", count of occurrences
 _releases_cache_col = _db["releases_cache"]     # _id = show_date, official Dead releases
-_house_music_col    = _db["house_music_cache"]  # _id = "pool", curated jazz playlist
 _canonical_songs_col = _db["canonical_songs"]   # _id = norm_song name from deaddisc.com
 
 # Load canonical song set into memory at startup. Authoritative gate for
@@ -1977,19 +1976,6 @@ def show_releases(show_date):
     result = doc.get("releases", []) if doc else []
     _cache_set(cache_key, result)
     return jsonify(result)
-
-
-@app.route("/api/house-music")
-def house_music():
-    """Return one random pre-resolved jazz track for set-break playback.
-    Pool is seeded from a local machine via seed_house_music.py — entries
-    contain fully-resolved Archive.org download URLs so this endpoint
-    never needs to call Archive.org at request time."""
-    pool_doc = _house_music_col.find_one({"_id": "pool"}, {"data": 1, "_id": 0})
-    pool = (pool_doc or {}).get("data") or []
-    if not pool:
-        return jsonify({"error": "House music pool not seeded yet"}), 503
-    return jsonify(random.choice(pool))
 
 
 @app.route("/api/songs/timeline")
