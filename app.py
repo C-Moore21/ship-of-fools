@@ -911,16 +911,58 @@ def show_sources(show_id):
     _mcache_set(_shows_src_cache, show_id, sources)
     return jsonify(_enrich_and_sort_sources(sources))
 
+def _norm_album_name(name):
+    """Fuzzy-normalize an Archive.org album tag so trivial typos coalesce.
+    Strips all non-alphanumeric characters and lowercases. Example:
+      '1966-05-19 - Avalon Ballroom' → '19660519avalonballroom'
+      '1966-05-19- Avalon Ballroom'  → '19660519avalonballroom'
+    Both collapse to the same key so all tracks land in one set."""
+    import re as _r
+    return _r.sub(r'[^a-z0-9]+', '', (name or '').lower())
+
+def _fix_cached_sets(tracks_doc):
+    """Re-coalesce sets in a cached tracks_doc using fuzzy album matching.
+    Idempotent — re-running on an already-clean doc is a no-op. Handles
+    existing MongoDB cache entries with split-by-typo set structure
+    without requiring a re-seed."""
+    if not tracks_doc or not isinstance(tracks_doc, dict):
+        return tracks_doc
+    sets = tracks_doc.get("sets")
+    if not sets or not isinstance(sets, list) or len(sets) < 2:
+        return tracks_doc  # nothing to coalesce
+    by_norm = {}
+    display = {}
+    for s in sets:
+        norm = _norm_album_name(s.get("name", ""))
+        if norm not in by_norm:
+            by_norm[norm] = []
+            display[norm] = s.get("name", "")
+        by_norm[norm].extend(s.get("tracks", []))
+    # Sort tracks within each merged set by track number
+    for tracks in by_norm.values():
+        tracks.sort(key=lambda t: t.get("track") or 0)
+    # Sort sets by minimum track number (preserves play order)
+    new_sets = sorted(
+        [{"name": display[k], "tracks": v} for k, v in by_norm.items()],
+        key=lambda s: min((t.get("track") or 999 for t in s["tracks"]), default=999)
+    )
+    if len(new_sets) == len(sets):
+        return tracks_doc  # no merging happened, leave doc untouched
+    out = dict(tracks_doc)
+    out["sets"] = new_sets
+    return out
+
 @app.route("/api/sources/<path:identifier>/tracks")
 def source_tracks(identifier):
     cache_key = f"tracks:{identifier}"
     cached = _cache_get(cache_key)
     if cached is not None:
-        return jsonify(cached)
+        return jsonify(_fix_cached_sets(cached))
     mongo_cached = _mcache_get(_tracks_cache_col, identifier)
     if mongo_cached is not None:
-        _cache_set(cache_key, mongo_cached)
-        return jsonify(mongo_cached)
+        fixed = _fix_cached_sets(mongo_cached)
+        _cache_set(cache_key, fixed)
+        return jsonify(fixed)
     try:
         meta = archive_metadata(identifier)
     except (requests.exceptions.Timeout, requests.exceptions.RequestException):
@@ -936,15 +978,22 @@ def source_tracks(identifier):
     files = meta.get("files", [])
     mp3s = [f for f in files if f.get("format") in ("VBR MP3", "MP3", "128Kbps MP3", "64Kbps MP3")]
 
-    discs = {}
+    # Group tracks by FUZZY-normalized album name so Archive.org typos
+    # (e.g. "1966-05-19 - Avalon" vs "1966-05-19- Avalon" — missing space)
+    # don't split tracks into multiple phantom sets.
+    discs = {}            # norm_key -> list of track dicts
+    disc_display = {}     # norm_key -> first-seen display name
     for f in mp3s:
         album = f.get("album") or "Set 1"
-        discs.setdefault(album, [])
+        norm = _norm_album_name(album)
+        if norm not in discs:
+            discs[norm] = []
+            disc_display[norm] = album
         try:
             track_num = int(f.get("track") or 0)
         except (ValueError, TypeError):
             track_num = 0
-        discs[album].append({
+        discs[norm].append({
             "id": f["name"],
             "title": f.get("title") or f["name"],
             "duration": _parse_duration(f.get("length")),
@@ -955,7 +1004,12 @@ def source_tracks(identifier):
     for disc in discs.values():
         disc.sort(key=lambda t: t["track"])
 
-    sets = [{"name": k, "tracks": v} for k, v in sorted(discs.items())]
+    # Sort sets by the minimum track number within each — preserves the
+    # show's actual play order even if album names sort alphabetically wrong.
+    sets = sorted(
+        [{"name": disc_display[k], "tracks": v} for k, v in discs.items()],
+        key=lambda s: min((t["track"] for t in s["tracks"]), default=999)
+    )
     result = {
         "sets": sets,
         "lineage": item_meta.get("source") or item_meta.get("lineage") or "",
