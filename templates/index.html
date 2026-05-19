@@ -533,6 +533,12 @@
       .progress-wrap { order:2; flex:1; }
       .volume-wrap { display:none; }
       .song-detail-grid { grid-template-columns: 1fr !important; }
+      /* Tour run cards — stack name + (date+buttons) on two rows */
+      .tour-card { flex-wrap:wrap; gap:6px; padding:10px 12px; }
+      .tour-card-name { flex:1 1 100%; font-size:14px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .tour-card-count { font-size:10px; flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+      .tour-card-btn { padding:4px 10px; font-size:10px; flex:0 0 auto; }
+      .tour-momentum-wrap { flex:1 1 100%; }
     }
     /* ── Today hero teaser (years panel) ───────────────────────────────── */
     .today-hero-teaser { padding:8px 10px; border-bottom:1px solid var(--border); }
