@@ -2480,6 +2480,7 @@ _startup_t.Thread(target=_startup_map_warm, daemon=True).start()
 # ── Search ────────────────────────────────────────────────────────────────────
 @app.route("/api/search")
 def search_shows():
+    import re as _r
     q = request.args.get("q", "").strip()
     if not q or len(q) < 2:
         return jsonify([])
@@ -2487,9 +2488,37 @@ def search_shows():
     cached = _cache_get(cache_key)
     if cached is not None:
         return jsonify(cached)
+
+    # Detect date-shaped inputs and use the date: field directly. Without this,
+    # Archive.org's Lucene parser splits hyphenated tokens (1969-05-23 becomes
+    # 1969 OR 05 OR 23) and returns unrelated shows that happen to contain
+    # those numbers anywhere.
+    exact_date = None
+    venue_substr = None  # for defensive substring filtering of venue results
+    if _r.match(r'^\d{4}-\d{2}-\d{2}$', q):
+        archive_q = f'collection:{COLLECTION} AND date:"{q}"'
+        exact_date = q
+    elif _r.match(r'^\d{4}-\d{2}$', q):
+        archive_q = f'collection:{COLLECTION} AND date:{q}*'
+    elif _r.match(r'^\d{4}$', q):
+        archive_q = f'collection:{COLLECTION} AND year:{q}'
+    else:
+        # Venue / keyword search — restrict to title + coverage fields so we
+        # don't match arbitrary mentions in descriptions. For multi-word
+        # queries, wrap in quotes to force phrase match (prevents "Madison
+        # Square Garden" from matching anything containing just "Madison" or
+        # "Garden"). Escape internal quotes to prevent Lucene injection.
+        q_clean = q.replace('"', '').strip()
+        if ' ' in q_clean:
+            phrase = f'"{q_clean}"'
+        else:
+            phrase = q_clean
+        archive_q = f'collection:{COLLECTION} AND (title:{phrase} OR coverage:{phrase} OR venue:{phrase})'
+        venue_substr = q_clean.lower()
+
     try:
         data = archive_search({
-            "q": f"collection:{COLLECTION} AND ({q})",
+            "q": archive_q,
             "fl[]": "identifier,title,date,coverage",
             "output": "json",
             "rows": 50,
@@ -2511,15 +2540,30 @@ def search_shows():
         date_str = date_str[:10]
         if not date_str or date_str in seen:
             continue
+        # Defensive client-side filter: when the user typed an exact date,
+        # only show results that match it (catches the rare case where
+        # Archive.org returns extra docs despite the field-qualified query).
+        if exact_date and date_str != exact_date:
+            continue
+        title = doc.get("title", "") or ""
+        coverage = doc.get("coverage", "") or ""
+        if isinstance(coverage, list):
+            coverage = coverage[0] if coverage else ""
+        # Defensive client-side filter for venue/keyword searches: the search
+        # term must actually appear in the title or location, not just match
+        # via Lucene tokenization quirks.
+        if venue_substr:
+            haystack = f"{title} {coverage}".lower()
+            if venue_substr not in haystack:
+                continue
         seen[date_str] = True
-        title = doc.get("title", "")
         venue_name = ""
         if " at " in title and " on " in title:
             venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
         result.append({
             "id": date_str,
             "display_date": date_str,
-            "venue": {"name": venue_name or title[:60], "location": doc.get("coverage", "")},
+            "venue": {"name": venue_name or title[:60], "location": coverage},
         })
     _cache_set(cache_key, result)
     return jsonify(result)
