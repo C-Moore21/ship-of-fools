@@ -33,6 +33,26 @@
     .logo-sub { font-size:11px; color:var(--muted); letter-spacing:3px; text-transform:uppercase; margin-top:2px; }
     .logo-skull-img { width:44px; height:44px; object-fit:contain; flex-shrink:0; filter:drop-shadow(0 0 6px rgba(232,51,42,0.4)); }
     .header-right { margin-left:auto; display:flex; align-items:center; gap:10px; }
+    .header-launchers { display:flex; align-items:center; gap:4px; padding:0 2px; border-left:1px solid var(--border); padding-left:10px; margin-right:4px; }
+    .launcher-btn { width:34px; height:34px; display:flex; align-items:center; justify-content:center; background:transparent; border:1px solid transparent; border-radius:3px; color:var(--muted); cursor:pointer; font-size:15px; transition:all 0.12s; position:relative; padding:0; font-family:inherit; }
+    .launcher-btn:hover { background:var(--surface2); color:var(--text); border-color:var(--border); }
+    .launcher-btn img { width:18px; height:18px; border-radius:50%; display:block; }
+    .launcher-btn.tab-gambler { color:#c8a84b; }
+    .launcher-btn.tab-gambler:hover { color:#e8c86a; }
+    .launcher-btn.tab-gambler.rolling { color:var(--muted); cursor:wait; }
+    .launcher-btn[data-tip]:hover::after {
+      content: attr(data-tip); position:absolute; top:38px; left:50%; transform:translateX(-50%);
+      background:var(--surface2); border:1px solid var(--border); color:var(--text);
+      font-family:'Space Mono',monospace; font-size:10px; letter-spacing:1px; text-transform:uppercase;
+      padding:4px 8px; border-radius:2px; white-space:nowrap; pointer-events:none; z-index:200;
+    }
+    /* Gambler era selector — used inside the Gambler popover now */
+    .gambler-popover { position:fixed; background:var(--surface2); border:1px solid var(--border); border-top:2px solid #c8a84b; padding:10px 12px; border-radius:3px; min-width:180px; box-shadow:0 4px 16px rgba(0,0,0,0.7); z-index:300; display:flex; flex-direction:column; gap:8px; font-family:'Space Mono',monospace; }
+    .gambler-popover-label { font-size:9px; letter-spacing:1.5px; color:var(--muted); text-transform:uppercase; }
+    .gambler-popover select { padding:6px 8px; background:var(--surface); border:1px solid var(--border); color:var(--text); font-family:inherit; font-size:12px; cursor:pointer; border-radius:2px; outline:none; }
+    .gambler-popover select:focus { border-color:#c8a84b; }
+    .gambler-popover .btn-roll { padding:7px 12px; background:#c8a84b; color:var(--bg); border:none; font-family:inherit; font-size:12px; font-weight:700; letter-spacing:1px; cursor:pointer; border-radius:2px; }
+    .gambler-popover .btn-roll:hover { background:#e8c86a; }
     .header-username { font-size:12px; color:var(--muted); }
     .header-username span { color:var(--accent); }
     .btn { padding:5px 14px; border:1px solid var(--border); background:transparent; color:var(--text); font-family:'Space Mono',monospace; font-size:12px; cursor:pointer; border-radius:2px; transition:all 0.12s; letter-spacing:0.5px; }
@@ -495,11 +515,16 @@
     @media (max-width: 700px) {
       html, body { overscroll-behavior-y: none; background: var(--bg); }
       body { height:auto; min-height:100vh; overflow-y:auto; }
-      header { padding:10px 14px; }
+      header { padding:10px 14px; flex-wrap:wrap; row-gap:8px; }
       .logo-text { font-size:20px; }
       .logo-sub { display:none; }
       .logo-skull-img { width:32px; height:32px; }
       .btn { padding:5px 10px; font-size:11px; }
+      .header-launchers { padding-left:6px; margin-right:2px; gap:2px; }
+      .launcher-btn { width:30px; height:30px; font-size:13px; }
+      .launcher-btn img { width:16px; height:16px; }
+      /* Hide "Logged in as <name>" on mobile to save space — Log Out button stays */
+      .header-username { display:none !important; }
       .tabs { overflow-x:auto; scrollbar-width:none; }
       .tabs::-webkit-scrollbar { display:none; }
       .tab { padding:8px 14px; font-size:11px; white-space:nowrap; }
@@ -647,6 +672,13 @@
     </div>
   </div>
   <div class="header-right">
+    <div class="header-launchers">
+      <button class="launcher-btn tab-obs" onclick="openObservatory()" data-tip="Observatory" aria-label="Observatory"><img src="/static/observatory.svg" alt=""></button>
+      <button class="launcher-btn" id="tab-tours" onclick="openToursModal()" data-tip="Tour Runs" aria-label="Tour Runs">⟳</button>
+      <button class="launcher-btn" onclick="openToday()" data-tip="Today in History" aria-label="Today in History">📅</button>
+      <button class="launcher-btn" onclick="openBlindTest()" data-tip="Blind Test" aria-label="Blind Test">🎧</button>
+      <button class="launcher-btn tab-gambler" id="tab-gambler" onclick="rollGambler()" data-tip="Gambler" aria-label="Gambler — random show">🎲</button>
+    </div>
     <div class="header-username" id="header-user" style="display:none">Logged in as <span id="header-username-val"></span></div>
     <button class="btn ghost" id="btn-logout" style="display:none" onclick="doLogout()">Log Out</button>
     <button class="btn primary" id="btn-open-login" onclick="openModal('login')">Log In</button>
@@ -679,17 +711,6 @@
   <button class="tab" id="tab-stats" style="display:none" onclick="openObservatory();obsTabSwitch('mystats')">◈ Stats</button>
   <button class="tab" id="tab-history" style="display:none" onclick="showHistory()">⏱ History</button>
   <button class="tab" id="tab-leaderboard" onclick="showLeaderboard()">⬡ Leaderboard</button>
-  <button class="tab" onclick="openBlindTest()">🎧 Blind Test</button>
-  <button class="tab" id="tab-tours" onclick="openToursModal()">⟳ Tour Runs</button>
-  <button class="tab tab-obs" onclick="openObservatory()"><img src="/static/observatory.svg" width="16" height="16" style="vertical-align:middle;margin-right:5px;border-radius:50%"> Observatory</button>
-  <button class="tab" onclick="openToday()">📅 TIH</button>
-  <button class="tab tab-gambler" id="tab-gambler" onclick="rollGambler()">🎲 Gambler</button><select class="gambler-era" id="gambler-era" onclick="event.stopPropagation()" onchange="event.stopPropagation()">
-    <option value="">All Eras</option>
-    <option value="60s">60s</option>
-    <option value="70s">70s</option>
-    <option value="80s">80s</option>
-    <option value="90s">90s</option>
-  </select>
 </div>
 
 <div class="layout" id="browse-view">
@@ -1114,21 +1135,69 @@ async function openToday() {
 }
 
 // ── THE GAMBLER ───────────────────────────────────────────────────────────
-async function rollGambler() {
+// Click the dice → opens an era-picker popover anchored under the button.
+// Picker has an era dropdown + Roll button. Era persists in localStorage so
+// subsequent rolls remember the user's preference.
+function rollGambler() {
   const btn = document.getElementById('tab-gambler');
   if (btn.classList.contains('rolling')) return;
+  let pop = document.getElementById('gambler-popover');
+  if (pop) { _closeGamblerPopover(); return; }
+  pop = document.createElement('div');
+  pop.id = 'gambler-popover';
+  pop.className = 'gambler-popover';
+  let savedEra = '';
+  try { savedEra = localStorage.getItem('sof_gambler_era') || ''; } catch(e) {}
+  pop.innerHTML = `
+    <div class="gambler-popover-label">🎲 Random show</div>
+    <select id="gambler-era-select">
+      <option value="">All Eras</option>
+      <option value="60s">60s (1965–1969)</option>
+      <option value="70s">70s (1970–1979)</option>
+      <option value="80s">80s (1980–1989)</option>
+      <option value="90s">90s (1990–1995)</option>
+    </select>
+    <button class="btn-roll" onclick="_doRollGambler()">Roll</button>`;
+  document.body.appendChild(pop);
+  pop.querySelector('#gambler-era-select').value = savedEra;
+  // Anchor below the launcher button
+  const rect = btn.getBoundingClientRect();
+  pop.style.top = (rect.bottom + 6) + 'px';
+  // Try to keep it from going off-screen
+  const approxWidth = 200;
+  const left = Math.max(8, Math.min(window.innerWidth - approxWidth - 8, rect.left));
+  pop.style.left = left + 'px';
+  setTimeout(() => document.addEventListener('click', _gamblerOutsideClick), 50);
+}
+
+function _gamblerOutsideClick(e) {
+  const pop = document.getElementById('gambler-popover');
+  const btn = document.getElementById('tab-gambler');
+  if (!pop) return;
+  if (pop.contains(e.target) || (btn && btn.contains(e.target))) return;
+  _closeGamblerPopover();
+}
+
+function _closeGamblerPopover() {
+  const pop = document.getElementById('gambler-popover');
+  if (pop) pop.remove();
+  document.removeEventListener('click', _gamblerOutsideClick);
+}
+
+async function _doRollGambler() {
+  const btn = document.getElementById('tab-gambler');
+  const select = document.getElementById('gambler-era-select');
+  const eraVal = select ? select.value : '';
+  try { localStorage.setItem('sof_gambler_era', eraVal); } catch(e) {}
+  _closeGamblerPopover();
   const eraMap = { '60s': [1965, 1969], '70s': [1970, 1979], '80s': [1980, 1989], '90s': [1990, 1995] };
-  const eraVal = document.getElementById('gambler-era')?.value || '';
   let url = '/api/random-show';
   if (eraVal && eraMap[eraVal]) {
-    // Pick a random year within the era range, then let backend cache that era pool
     const [lo, hi] = eraMap[eraVal];
     const year = lo + Math.floor(Math.random() * (hi - lo + 1));
     url += `?year=${year}`;
   }
-  const origText = btn.textContent;
   btn.classList.add('rolling');
-  btn.textContent = '🎲 Rolling...';
   try {
     const res = await fetch(url);
     if (!res.ok) {
@@ -1159,7 +1228,6 @@ async function rollGambler() {
     alert('Gambler error: ' + e);
   } finally {
     btn.classList.remove('rolling');
-    btn.textContent = origText;
   }
 }
 
