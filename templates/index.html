@@ -525,6 +525,13 @@
       .launcher-btn img { width:16px; height:16px; }
       /* Hide "Logged in as <name>" on mobile to save space — Log Out button stays */
       .header-username { display:none !important; }
+      /* Ambient strip — shorter labels on mobile */
+      .ambient-strip { font-size:10px; }
+      .ambient-chip { padding:0 9px; gap:4px; }
+      .ambient-chip-today .ambient-label { display:none; }
+      .ambient-chip-today .ambient-play { padding:2px 6px; font-size:9px; }
+      .ambient-chip-spinning .ambient-spinning-text { display:none; }
+      .ambient-spinning-popover { right:6px; min-width:200px; }
       .tabs { overflow-x:auto; scrollbar-width:none; }
       .tabs::-webkit-scrollbar { display:none; }
       .tab { padding:8px 14px; font-size:11px; white-space:nowrap; }
@@ -566,6 +573,30 @@
       .tour-momentum-wrap { flex:1 1 100%; }
     }
     /* ── Today hero teaser (years panel) ───────────────────────────────── */
+    /* ── Ambient strip (today's pick + community now-spinning) ─────────── */
+    .ambient-strip { display:flex; align-items:stretch; height:30px; background:var(--surface); border-bottom:1px solid var(--border); font-family:'Space Mono',monospace; font-size:11px; position:relative; z-index:9; }
+    .ambient-chip { display:flex; align-items:center; gap:6px; padding:0 14px; color:var(--muted); cursor:pointer; transition:background 0.12s, color 0.12s; white-space:nowrap; overflow:hidden; }
+    .ambient-chip:hover { color:var(--text); background:var(--surface2); }
+    .ambient-chip-today { flex:1; min-width:0; }
+    .ambient-chip-today .ambient-label { color:var(--muted); }
+    .ambient-chip-today .ambient-venue { color:var(--text); font-weight:700; overflow:hidden; text-overflow:ellipsis; }
+    .ambient-chip-today .ambient-venue:hover { text-decoration:underline; }
+    .ambient-chip-today .ambient-play { background:var(--accent); color:var(--white); border:none; padding:2px 8px; font-family:inherit; font-size:10px; cursor:pointer; border-radius:2px; letter-spacing:0.5px; line-height:1.4; }
+    .ambient-chip-today .ambient-play:hover { background:#ff4a40; }
+    .ambient-chip-today .ambient-more { color:var(--muted); margin-left:auto; padding-left:8px; }
+    .ambient-chip-today .ambient-more:hover { color:var(--accent2); text-decoration:underline; }
+    .ambient-chip-spinning { flex-shrink:0; border-left:1px solid var(--border); position:relative; }
+    .ambient-chip-spinning .ambient-spinning-count { color:var(--accent2-light, #6090ff); font-weight:700; }
+    .ambient-chip-spinning .ambient-caret { font-size:8px; opacity:0.6; }
+    .ambient-spinning-popover { position:absolute; top:32px; right:0; background:var(--surface2); border:1px solid var(--border); border-top:2px solid var(--accent2); min-width:240px; box-shadow:0 4px 16px rgba(0,0,0,0.7); z-index:200; display:none; }
+    .ambient-spinning-popover.open { display:block; }
+    .ambient-spinning-popover-label { padding:8px 12px; border-bottom:1px solid var(--border); font-size:9px; color:var(--muted); letter-spacing:1.5px; text-transform:uppercase; }
+    .ambient-spinning-popover-row { display:flex; justify-content:space-between; align-items:center; padding:6px 12px; cursor:pointer; font-size:11px; color:var(--text); }
+    .ambient-spinning-popover-row:hover { background:var(--surface); }
+    .ambient-spinning-popover-row .ambient-spinning-date { font-family:'Space Mono',monospace; }
+    .ambient-spinning-popover-row .ambient-spinning-ct { color:var(--muted); font-size:10px; }
+    .ambient-loading { color:var(--muted); opacity:0.5; }
+
     .today-hero-teaser { padding:8px 10px; border-bottom:1px solid var(--border); }
     .today-hero-lbl { font-size:9px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; display:flex; align-items:center; justify-content:space-between; margin-bottom:5px; }
     .today-hero-more { font-size:9px; color:var(--accent2); cursor:pointer; background:none; border:none; padding:0; font-family:'Space Mono',monospace; }
@@ -713,10 +744,17 @@
   <button class="tab" id="tab-leaderboard" onclick="showLeaderboard()">⬡ Leaderboard</button>
 </div>
 
+<div class="ambient-strip" id="ambient-strip">
+  <div class="ambient-chip ambient-chip-today" id="ambient-today">
+    <span class="ambient-loading">📅 Loading today…</span>
+  </div>
+  <div class="ambient-chip ambient-chip-spinning" id="ambient-spinning" onclick="toggleSpinningPopover(event)">
+    <span class="ambient-loading">🎧 …</span>
+  </div>
+</div>
+
 <div class="layout" id="browse-view">
   <div class="years-panel" id="years-panel">
-    <div id="today-hero-teaser"></div>
-    <div id="now-spinning-slot"></div>
     <div class="panel-label">Years</div>
     <div id="years-list"><div class="loading">Loading</div></div>
   </div>
@@ -4599,59 +4637,102 @@ function renderLineage(d, body) {
   });
 }
 
-// ── TODAY HERO TEASER ────────────────────────────────────────────────────────
+// ── AMBIENT STRIP — TODAY'S PICK CHIP ────────────────────────────────────────
 async function loadTodayHero() {
-  const slot = document.getElementById('today-hero-teaser');
+  const slot = document.getElementById('ambient-today');
   if (!slot) return;
   try {
     const res = await fetch('/api/today');
-    if (!res.ok) return;
+    if (!res.ok) {
+      slot.innerHTML = `<span class="ambient-label">📅 Today in History →</span>`;
+      slot.onclick = openToday;
+      return;
+    }
     const recordings = await res.json();
-    if (!recordings.length) return;
-    // Group by show date and pick the best recording per show
+    if (!recordings.length) {
+      slot.innerHTML = `<span class="ambient-label">📅 No show on this date · Browse Today in History →</span>`;
+      slot.onclick = openToday;
+      return;
+    }
+    // Dedupe by show date (each unique date is a show; multiple recordings collapse)
     const seen = {};
     const shows = [];
     for (const r of recordings) {
       if (!seen[r.id]) { seen[r.id] = r; shows.push(r); }
     }
     const top = shows[0];
-    const now = new Date();
-    const label = now.toLocaleDateString('en-US', {month:'short', day:'numeric'});
-    const listensStr = top.community_listens > 0 ? `${top.community_listens} listen${top.community_listens !== 1 ? 's' : ''}` : '';
-    slot.innerHTML = `<div class="today-hero-teaser">
-      <div class="today-hero-lbl">
-        <span>📅 ${label}</span>
-        <button class="today-hero-more" onclick="openToday()">+${shows.length} shows →</button>
-      </div>
-      <div class="today-hero-card" onclick="todayGoTo('${escapeHTML(top.id)}')">
-        <div class="today-hero-year">${escapeHTML(top.display_date.slice(0,4))}</div>
-        <div class="today-hero-venue">${escapeHTML(top.venue?.name || '')}</div>
-        <div class="today-hero-foot">
-          <span class="today-hero-listens">${escapeHTML(listensStr)}</span>
-          <button class="today-hero-play" onclick="event.stopPropagation();todayPlay('${escapeHTML(top.id)}','${escapeHTML(top.identifier)}',event)">▶ Play</button>
-        </div>
-      </div>
-    </div>`;
-  } catch(e) { /* silent — hero is decorative */ }
+    const yr = top.display_date.slice(0, 4);
+    const venue = top.venue?.name || '';
+    const otherCount = shows.length - 1;
+    const moreHTML = otherCount > 0
+      ? `<span class="ambient-more" onclick="event.stopPropagation();openToday()">· and ${otherCount} other date${otherCount !== 1 ? 's' : ''} →</span>`
+      : '';
+    slot.innerHTML = `
+      <span class="ambient-label">📅 Today's pick:</span>
+      <span class="ambient-venue" onclick="event.stopPropagation();todayGoTo('${escapeHTML(top.id)}')" title="${escapeHTML(yr)} · ${escapeHTML(venue)}">${escapeHTML(yr)} ${escapeHTML(venue)}</span>
+      <button class="ambient-play" onclick="event.stopPropagation();todayPlay('${escapeHTML(top.id)}','${escapeHTML(top.identifier)}',event)">▶ Play</button>
+      ${moreHTML}`;
+    slot.onclick = null;  // inner elements own clicks
+  } catch(e) { /* silent — strip is decorative */ }
 }
 
 // ── COMMUNITY NOW SPINNING ────────────────────────────────────────────────────
+// ── AMBIENT STRIP — NOW-SPINNING CHIP ────────────────────────────────────────
+let _nowSpinningRows = [];
 async function loadNowSpinning() {
-  const slot = document.getElementById('now-spinning-slot');
+  const slot = document.getElementById('ambient-spinning');
   if (!slot) return;
   try {
     const res = await fetch('/api/community/now-spinning');
-    if (!res.ok) return;
+    if (!res.ok) { _renderSpinningChip(0); return; }
     const rows = await res.json();
-    if (!rows.length) return;
-    slot.innerHTML = `<div class="now-spinning-wrap">
-      <div class="now-spinning-lbl">▶ Community Now Spinning</div>
-      ${rows.map(r => `<div class="now-spinning-row" onclick="tourRunGoTo('${escapeHTML(r.show_date)}')">
-        <span class="now-spinning-date">${escapeHTML(r.show_date)}</span>
-        <span class="now-spinning-ct">${r.count} listen${r.count !== 1 ? 's' : ''}</span>
-      </div>`).join('')}
-    </div>`;
-  } catch(e) {}
+    _nowSpinningRows = Array.isArray(rows) ? rows : [];
+    const totalListeners = _nowSpinningRows.reduce((s, r) => s + (r.count || 0), 0);
+    _renderSpinningChip(totalListeners);
+  } catch(e) { _renderSpinningChip(0); }
+}
+
+function _renderSpinningChip(total) {
+  const slot = document.getElementById('ambient-spinning');
+  if (!slot) return;
+  if (total === 0) {
+    slot.innerHTML = `<span class="ambient-spinning-text">🎧 no one listening</span>`;
+    return;
+  }
+  slot.innerHTML = `
+    <span class="ambient-spinning-count">🎧 ${total}</span>
+    <span class="ambient-spinning-text">listening now</span>
+    <span class="ambient-caret">▾</span>`;
+}
+
+function toggleSpinningPopover(e) {
+  if (e) e.stopPropagation();
+  // Close if open
+  const existing = document.getElementById('ambient-spinning-popover');
+  if (existing) { existing.remove(); document.removeEventListener('click', _spinningOutsideClick); return; }
+  if (!_nowSpinningRows.length) return;
+  const slot = document.getElementById('ambient-spinning');
+  if (!slot) return;
+  const pop = document.createElement('div');
+  pop.id = 'ambient-spinning-popover';
+  pop.className = 'ambient-spinning-popover open';
+  pop.innerHTML = `
+    <div class="ambient-spinning-popover-label">▶ Community Now Spinning</div>
+    ${_nowSpinningRows.map(r => `
+      <div class="ambient-spinning-popover-row" onclick="document.getElementById('ambient-spinning-popover')?.remove();tourRunGoTo('${escapeHTML(r.show_date)}')">
+        <span class="ambient-spinning-date">${escapeHTML(r.show_date)}</span>
+        <span class="ambient-spinning-ct">${r.count} listen${r.count !== 1 ? 's' : ''}</span>
+      </div>`).join('')}`;
+  slot.appendChild(pop);
+  setTimeout(() => document.addEventListener('click', _spinningOutsideClick), 50);
+}
+
+function _spinningOutsideClick(e) {
+  const pop = document.getElementById('ambient-spinning-popover');
+  if (pop && !pop.contains(e.target)) {
+    pop.remove();
+    document.removeEventListener('click', _spinningOutsideClick);
+  }
 }
 
 // ── MOOD ──────────────────────────────────────────────────────────────────────
