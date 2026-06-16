@@ -1102,6 +1102,14 @@ function updateAuthUI() {
   document.getElementById('tab-history').style.display = li ? '' : 'none';
   document.getElementById('header-user').style.display = li ? '' : 'none';
   document.getElementById('header-username-val').textContent = loggedInUser||'';
+  // Lounge: re-check membership on every auth state change. Hides the icon
+  // on logout. Defined later in this file; safe-guarded with typeof check.
+  if (li && typeof loungeCheckAccess === 'function') {
+    loungeCheckAccess();
+  } else {
+    const btn = document.getElementById('tab-lounge');
+    if (btn) btn.style.display = 'none';
+  }
   refreshStarsUI();
 }
 
@@ -5293,8 +5301,7 @@ function _loungeUpdateShareBanner() {
   </div>`;
 }
 
-// Bootstrap on load
-if (loggedInUser) loungeCheckAccess();
+// (loungeCheckAccess is invoked from updateAuthUI() after /api/auth/me resolves)
 
 // ── VISUALIZER ────────────────────────────────────────────────────────────────
 // Connects the MAIN audio elements directly to a Web Audio AnalyserNode for
