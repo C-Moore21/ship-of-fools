@@ -877,8 +877,8 @@
     <span class="lounge-title">💬 The Lounge</span>
     <button class="lounge-close" onclick="toggleLounge()" aria-label="Close">×</button>
   </div>
-  <div id="lounge-share-banner-slot"></div>
   <div class="lounge-body" id="lounge-body"><div class="lounge-empty">Loading…</div></div>
+  <div id="lounge-share-banner-slot"></div>
   <div class="lounge-input-wrap">
     <textarea class="lounge-input" id="lounge-input" rows="1" placeholder="Type a message…" maxlength="1000" onkeydown="loungeOnKey(event)"></textarea>
     <button class="lounge-send" id="lounge-send-btn" onclick="loungeSend()">▶</button>
@@ -5139,6 +5139,7 @@ let _loungeLastTs = null;
 let _loungePollTimer = null;
 let _loungeUnreadTimer = null;
 let _loungePendingRef = null;
+let _loungeSeenIds = new Set(); // dedupe across overlapping poll responses
 
 async function loungeCheckAccess() {
   if (!loggedInUser) return;
@@ -5195,11 +5196,13 @@ async function loungeLoadInitial() {
     const res = await fetch('/api/chat/lounge/messages?limit=100');
     if (!res.ok) { body.innerHTML = '<div class="lounge-empty">Unable to load.</div>'; return; }
     const msgs = await res.json();
+    _loungeSeenIds = new Set();
     if (!msgs.length) {
       body.innerHTML = '<div class="lounge-empty">The lounge is empty. Say hi.</div>';
       _loungeLastTs = null;
     } else {
-      body.innerHTML = msgs.map(loungeMsgHTML).join('');
+      const html = msgs.map(m => { _loungeSeenIds.add(m.id); return loungeMsgHTML(m); }).join('');
+      body.innerHTML = html;
       _loungeLastTs = msgs[msgs.length - 1].ts;
       body.scrollTop = body.scrollHeight;
     }
@@ -5216,12 +5219,17 @@ async function loungePollNew() {
     if (!res.ok) return;
     const msgs = await res.json();
     if (!msgs.length) return;
+    // Dedupe — overlapping send→poll and interval-poll races can return the
+    // same just-sent message in both responses. Skip anything we've already
+    // rendered.
+    const fresh = msgs.filter(m => m.id && !_loungeSeenIds.has(m.id));
+    if (!fresh.length) return;
+    fresh.forEach(m => _loungeSeenIds.add(m.id));
     const body = document.getElementById('lounge-body');
     const wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60;
-    // Clear empty state if present
     if (body.querySelector('.lounge-empty')) body.innerHTML = '';
-    body.insertAdjacentHTML('beforeend', msgs.map(loungeMsgHTML).join(''));
-    _loungeLastTs = msgs[msgs.length - 1].ts;
+    body.insertAdjacentHTML('beforeend', fresh.map(loungeMsgHTML).join(''));
+    _loungeLastTs = fresh[fresh.length - 1].ts;
     if (wasAtBottom) body.scrollTop = body.scrollHeight;
     await loungeMarkRead();
   } catch(e) {}
