@@ -2228,8 +2228,12 @@ function preloadTrack(idx) {
 
 function playTrack(idx) {
   if (idx < 0 || idx >= currentTracks.length) return;
-  // Don't restart a track that's already playing (prevents double-click double-play)
-  if (idx === currentTrackIdx && !audio.paused && audio.currentTime > 0.5) return;
+  // Don't restart a track that's already playing (prevents double-click double-play).
+  // Also require the URL to match — otherwise switching sources and clicking the
+  // same row index would be blocked (idx matches but the underlying track URL is
+  // different).
+  if (idx === currentTrackIdx && !audio.paused && audio.currentTime > 0.5
+      && audio.src === currentTracks[idx].mp3_url) return;
   _gaplessHandoffStarted = false; // new track resets the pre-play handoff
   // Cancel any in-flight crossfade — user-initiated play takes priority
   if (_crossfadeActive) {
