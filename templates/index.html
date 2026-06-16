@@ -4751,10 +4751,15 @@ async function loadNowSpinning() {
   try {
     const res = await fetch('/api/community/now-spinning');
     if (!res.ok) { _renderSpinningChip(0); return; }
-    const rows = await res.json();
-    _nowSpinningRows = Array.isArray(rows) ? rows : [];
-    const totalListeners = _nowSpinningRows.reduce((s, r) => s + (r.count || 0), 0);
-    _renderSpinningChip(totalListeners);
+    const data = await res.json();
+    // New shape: {active: N, rows: [...]}. Old shape was a bare array of rows.
+    if (Array.isArray(data)) {
+      _nowSpinningRows = data;
+      _renderSpinningChip(data.reduce((s, r) => s + (r.count || 0), 0));
+    } else {
+      _nowSpinningRows = Array.isArray(data.rows) ? data.rows : [];
+      _renderSpinningChip(data.active || 0);
+    }
   } catch(e) { _renderSpinningChip(0); }
 }
 

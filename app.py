@@ -1134,20 +1134,40 @@ def set_listen_mood():
 
 @app.route("/api/community/now-spinning")
 def community_now_spinning():
+    """Genuinely-active listeners (not a 7-day rollup). A user counts as
+    'currently listening' if they pinged the listens endpoint in the last
+    5 minutes — listens are auto-recorded ~every 15s while audio plays,
+    so the window catches anyone actively streaming."""
     from datetime import datetime, timezone, timedelta
-    cached = _cache_get("community:now-spinning")
-    if cached is not None:
-        return jsonify(cached)
-    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    # Custom short TTL (~20s) — the global 5-min LRU is too stale for live status
+    _cache_entry = _cache.get("community:now-spinning")
+    if _cache_entry and time.time() - _cache_entry["ts"] < 20:
+        return jsonify(_cache_entry["val"])
+    since = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    # Total distinct users active right now
+    try:
+        active_users = listens_table.distinct(
+            "username",
+            {"ts": {"$gte": since}}
+        )
+        active_count = len(active_users)
+    except Exception:
+        active_count = 0
+    # Top shows being spun, by distinct-user count
     rows = list(listens_table.aggregate([
         {"$match": {"ts": {"$gte": since}, "show_date": {"$exists": True, "$ne": ""}}},
-        {"$group": {"_id": "$show_date", "count": {"$sum": 1}}},
+        # Collapse per (user, show) — one row per pair
+        {"$group": {"_id": {"u": "$username", "s": "$show_date"}}},
+        # Now count distinct users per show
+        {"$group": {"_id": "$_id.s", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 5},
         {"$project": {"show_date": "$_id", "count": 1, "_id": 0}},
     ]))
-    _cache_set("community:now-spinning", rows)
-    return jsonify(rows)
+    result = {"active": active_count, "rows": rows}
+    # Short LRU cache — refresh in-flight requests but don't stay stale long
+    _cache_set("community:now-spinning", result)
+    return jsonify(result)
 
 @app.route("/api/shows/<path:show_date>/setlist-stats", methods=["POST"])
 def show_setlist_stats(show_date):
