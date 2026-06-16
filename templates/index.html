@@ -46,6 +46,45 @@
       font-family:'Space Mono',monospace; font-size:10px; letter-spacing:1px; text-transform:uppercase;
       padding:4px 8px; border-radius:2px; white-space:nowrap; pointer-events:none; z-index:200;
     }
+    /* ── Lounge chat (private to allowlisted users) ──────────────────── */
+    .launcher-lounge { position:relative; }
+    .lounge-badge { position:absolute; top:-3px; right:-3px; background:var(--accent); color:var(--white); font-size:9px; font-weight:700; min-width:14px; height:14px; line-height:14px; padding:0 3px; border-radius:7px; font-family:'Space Mono',monospace; }
+    .lounge-panel { position:fixed; bottom:90px; right:14px; width:380px; max-width:calc(100vw - 28px); height:520px; max-height:calc(100vh - 120px); background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); border-radius:4px; box-shadow:0 8px 30px rgba(0,0,0,0.8); display:none; flex-direction:column; z-index:500; font-family:'Space Mono',monospace; }
+    .lounge-panel.open { display:flex; }
+    .lounge-header { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    .lounge-title { font-size:13px; font-weight:700; color:var(--text); letter-spacing:1px; text-transform:uppercase; }
+    .lounge-close { background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer; line-height:1; padding:0; }
+    .lounge-close:hover { color:var(--text); }
+    .lounge-body { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
+    .lounge-msg { display:flex; flex-direction:column; gap:2px; }
+    .lounge-msg-head { display:flex; align-items:baseline; gap:8px; font-size:11px; }
+    .lounge-msg-user { color:var(--accent); font-weight:700; }
+    .lounge-msg-mine .lounge-msg-user { color:var(--accent2-light, #6090ff); }
+    .lounge-msg-ts { color:var(--muted); font-size:9px; }
+    .lounge-msg-text { color:var(--text); font-size:12px; line-height:1.4; word-wrap:break-word; white-space:pre-wrap; }
+    .lounge-msg-ref { background:var(--surface2); border:1px solid var(--border); border-left:2px solid var(--accent); padding:5px 8px; border-radius:2px; cursor:pointer; font-size:11px; display:flex; flex-direction:column; gap:1px; }
+    .lounge-msg-ref:hover { border-left-color:var(--accent2); }
+    .lounge-msg-ref-lbl { font-size:8px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+    .lounge-msg-ref-text { color:var(--text); font-weight:700; }
+    .lounge-input-wrap { display:flex; gap:6px; padding:10px 12px; border-top:1px solid var(--border); }
+    .lounge-input { flex:1; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:7px 10px; font-family:inherit; font-size:12px; outline:none; border-radius:2px; resize:none; }
+    .lounge-input:focus { border-color:var(--accent2); }
+    .lounge-send { background:var(--accent2); color:var(--white); border:none; padding:7px 12px; font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; border-radius:2px; }
+    .lounge-send:hover { background:#3060d0; }
+    .lounge-send:disabled { opacity:0.4; cursor:not-allowed; }
+    .lounge-share-banner { padding:8px 12px; background:var(--surface2); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; }
+    .lounge-share-banner-text { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .lounge-share-banner button { background:var(--accent); color:var(--white); border:none; padding:4px 10px; font-family:inherit; font-size:10px; cursor:pointer; border-radius:2px; }
+    .lounge-share-banner-cancel { background:transparent !important; color:var(--muted) !important; padding:4px 6px !important; }
+    .lounge-empty { color:var(--muted); font-size:11px; text-align:center; padding:30px 10px; }
+    @media (max-width:700px) {
+      .lounge-panel { right:10px; left:10px; width:auto; max-width:none; bottom:140px; height:calc(100vh - 180px); }
+    }
+    /* Share-to-Lounge button on show panel — visible when chat is open + show is loaded */
+    .share-to-lounge-btn { display:none; background:var(--accent2); color:var(--white); border:none; padding:3px 8px; font-family:'Space Mono',monospace; font-size:10px; cursor:pointer; border-radius:2px; letter-spacing:0.5px; margin-left:6px; }
+    .share-to-lounge-btn:hover { background:#3060d0; }
+    body.lounge-active .share-to-lounge-btn { display:inline-block; }
+
     /* Gambler era selector — used inside the Gambler popover now */
     .gambler-popover { position:fixed; background:var(--surface2); border:1px solid var(--border); border-top:2px solid #c8a84b; padding:10px 12px; border-radius:3px; min-width:180px; box-shadow:0 4px 16px rgba(0,0,0,0.7); z-index:300; display:flex; flex-direction:column; gap:8px; font-family:'Space Mono',monospace; }
     .gambler-popover-label { font-size:9px; letter-spacing:1.5px; color:var(--muted); text-transform:uppercase; }
@@ -709,6 +748,7 @@
       <button class="launcher-btn" onclick="openToday()" data-tip="Today in History" aria-label="Today in History">📅</button>
       <button class="launcher-btn" onclick="openBlindTest()" data-tip="Blind Test" aria-label="Blind Test">🎧</button>
       <button class="launcher-btn tab-gambler" id="tab-gambler" onclick="rollGambler()" data-tip="Gambler" aria-label="Gambler — random show">🎲</button>
+      <button class="launcher-btn launcher-lounge" id="tab-lounge" style="display:none" onclick="toggleLounge()" data-tip="The Lounge" aria-label="The Lounge — private chat">💬<span class="lounge-badge" id="lounge-badge" style="display:none">0</span></button>
     </div>
     <div class="header-username" id="header-user" style="display:none">Logged in as <span id="header-username-val"></span></div>
     <button class="btn ghost" id="btn-logout" style="display:none" onclick="doLogout()">Log Out</button>
@@ -829,6 +869,20 @@
   <button class="viz-toggle" id="viz-toggle" onclick="toggleViz()" title="Visualizer">VIZ</button>
   <audio id="audio-player" x-webkit-airplay="allow"></audio>
   <audio id="audio-preload" preload="auto" muted disableRemotePlayback x-webkit-airplay="deny" style="display:none"></audio>
+</div>
+
+<!-- The Lounge — private chat for allowlisted users -->
+<div class="lounge-panel" id="lounge-panel">
+  <div class="lounge-header">
+    <span class="lounge-title">💬 The Lounge</span>
+    <button class="lounge-close" onclick="toggleLounge()" aria-label="Close">×</button>
+  </div>
+  <div id="lounge-share-banner-slot"></div>
+  <div class="lounge-body" id="lounge-body"><div class="lounge-empty">Loading…</div></div>
+  <div class="lounge-input-wrap">
+    <textarea class="lounge-input" id="lounge-input" rows="1" placeholder="Type a message…" maxlength="1000" onkeydown="loungeOnKey(event)"></textarea>
+    <button class="lounge-send" id="lounge-send-btn" onclick="loungeSend()">▶</button>
+  </div>
 </div>
 
 <div class="modal-overlay" id="auth-modal">
@@ -1904,7 +1958,7 @@ function renderSourceButtons() {
   const parkingLotSection = `<div id="parking-lot-slot"></div>`;
   const _MOODS = ['Relaxed','Road Trip','Late Night','Morning','Party','Deep Dive'];
   const moodPickerHTML = loggedInUser ? `<div class="mood-picker"><div class="mood-picker-lbl">Listening Mood</div>${_MOODS.map(m=>`<button class="mood-btn" id="mood-btn-${m}" onclick="setMood('${m}')">${m}</button>`).join('')}</div>` : '';
-  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text)">${currentShowInfo}</div><div class="source-meta" id="source-meta-line"></div><div id="show-weather"></div><div id="show-release"></div>${showStarsHTML}<div id="rarity-slot"></div></div></div>${parkingLotSection}${moodPickerHTML}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
+  panel.innerHTML = `<div class="mobile-back" onclick="mobBack('shows')">${_IC.back} Shows</div><div class="source-header">${ticketHTML}<div class="source-header-content"><div style="font-size:11px;color:var(--text);display:flex;align-items:center;flex-wrap:wrap;gap:4px;">${currentShowInfo}<button class="share-to-lounge-btn" onclick="loungeShareCurrentShow()">📤 Share to Lounge</button></div><div class="source-meta" id="source-meta-line"></div><div id="show-weather"></div><div id="show-release"></div>${showStarsHTML}<div id="rarity-slot"></div></div></div>${parkingLotSection}${moodPickerHTML}${notesWidget}${selectorHTML}${tourSection}${venueSection}<div id="tracks-container"><div class="loading">Loading tracks</div></div>`;
   // Load parking lot asynchronously — don't block track rendering
   loadParkingLot(currentShowDate);
   loadShowWeather(currentShowDate);
@@ -5064,6 +5118,183 @@ loadYears().then(async () => {
     }
   }
 });
+
+// ── THE LOUNGE (private chat) ────────────────────────────────────────────────
+let _loungeOpen = false;
+let _loungeMember = false;
+let _loungeLastTs = null;
+let _loungePollTimer = null;
+let _loungeUnreadTimer = null;
+let _loungePendingRef = null;
+
+async function loungeCheckAccess() {
+  if (!loggedInUser) return;
+  try {
+    const res = await fetch('/api/chat/lounge/access');
+    if (!res.ok) return;
+    const d = await res.json();
+    _loungeMember = !!d.member;
+    if (_loungeMember) {
+      document.getElementById('tab-lounge').style.display = '';
+      loungePollUnread();
+      _loungeUnreadTimer = setInterval(loungePollUnread, 30000);
+    }
+  } catch(e) {}
+}
+
+async function loungePollUnread() {
+  if (!_loungeMember) return;
+  try {
+    const res = await fetch('/api/chat/lounge/unread');
+    if (!res.ok) return;
+    const d = await res.json();
+    const badge = document.getElementById('lounge-badge');
+    if (d.unread > 0 && !_loungeOpen) {
+      badge.textContent = d.unread > 99 ? '99+' : d.unread;
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(e) {}
+}
+
+function toggleLounge() {
+  _loungeOpen = !_loungeOpen;
+  const panel = document.getElementById('lounge-panel');
+  panel.classList.toggle('open', _loungeOpen);
+  document.body.classList.toggle('lounge-active', _loungeOpen);
+  if (_loungeOpen) {
+    loungeLoadInitial();
+    _loungePollTimer = setInterval(loungePollNew, 4000);
+    document.getElementById('lounge-input').focus();
+  } else {
+    if (_loungePollTimer) clearInterval(_loungePollTimer);
+    _loungePollTimer = null;
+    loungeMarkRead();
+    _loungePendingRef = null;
+    _loungeUpdateShareBanner();
+  }
+}
+
+async function loungeLoadInitial() {
+  const body = document.getElementById('lounge-body');
+  try {
+    const res = await fetch('/api/chat/lounge/messages?limit=100');
+    if (!res.ok) { body.innerHTML = '<div class="lounge-empty">Unable to load.</div>'; return; }
+    const msgs = await res.json();
+    if (!msgs.length) {
+      body.innerHTML = '<div class="lounge-empty">The lounge is empty. Say hi.</div>';
+      _loungeLastTs = null;
+    } else {
+      body.innerHTML = msgs.map(loungeMsgHTML).join('');
+      _loungeLastTs = msgs[msgs.length - 1].ts;
+      body.scrollTop = body.scrollHeight;
+    }
+    await loungeMarkRead();
+    document.getElementById('lounge-badge').style.display = 'none';
+  } catch(e) { body.innerHTML = '<div class="lounge-empty">Connection error.</div>'; }
+}
+
+async function loungePollNew() {
+  if (!_loungeOpen || !_loungeMember) return;
+  if (!_loungeLastTs) { return loungeLoadInitial(); }
+  try {
+    const res = await fetch('/api/chat/lounge/messages?since=' + encodeURIComponent(_loungeLastTs));
+    if (!res.ok) return;
+    const msgs = await res.json();
+    if (!msgs.length) return;
+    const body = document.getElementById('lounge-body');
+    const wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60;
+    // Clear empty state if present
+    if (body.querySelector('.lounge-empty')) body.innerHTML = '';
+    body.insertAdjacentHTML('beforeend', msgs.map(loungeMsgHTML).join(''));
+    _loungeLastTs = msgs[msgs.length - 1].ts;
+    if (wasAtBottom) body.scrollTop = body.scrollHeight;
+    await loungeMarkRead();
+  } catch(e) {}
+}
+
+function loungeMsgHTML(m) {
+  const mine = (m.user === loggedInUser);
+  const ts = m.ts ? new Date(m.ts).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'}) : '';
+  const refHTML = m.ref ? `
+    <div class="lounge-msg-ref" onclick="toggleLounge();tourRunGoTo('${escapeHTML(m.ref.show_date)}')">
+      <span class="lounge-msg-ref-lbl">▶ Shared show</span>
+      <span class="lounge-msg-ref-text">${escapeHTML(m.ref.show_date)}${m.ref.venue ? ' · ' + escapeHTML(m.ref.venue) : ''}</span>
+    </div>` : '';
+  return `<div class="lounge-msg ${mine ? 'lounge-msg-mine' : ''}">
+    <div class="lounge-msg-head">
+      <span class="lounge-msg-user">${escapeHTML(m.user)}</span>
+      <span class="lounge-msg-ts">${ts}</span>
+    </div>
+    ${m.text ? `<div class="lounge-msg-text">${escapeHTML(m.text)}</div>` : ''}
+    ${refHTML}
+  </div>`;
+}
+
+async function loungeMarkRead() {
+  if (!_loungeMember) return;
+  try { await fetch('/api/chat/lounge/read', {method: 'POST'}); } catch(e) {}
+  document.getElementById('lounge-badge').style.display = 'none';
+}
+
+function loungeOnKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    loungeSend();
+  }
+}
+
+async function loungeSend() {
+  const input = document.getElementById('lounge-input');
+  const text = input.value.trim();
+  const ref = _loungePendingRef;
+  if (!text && !ref) return;
+  const btn = document.getElementById('lounge-send-btn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/chat/lounge/send', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text, ref}),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      alert('Send failed: ' + (d.error || res.statusText));
+      return;
+    }
+    input.value = '';
+    _loungePendingRef = null;
+    _loungeUpdateShareBanner();
+    await loungePollNew();
+  } catch(e) { alert('Send failed: ' + e); }
+  finally { btn.disabled = false; }
+}
+
+function loungeShareCurrentShow() {
+  if (!_loungeMember || !currentShowDate) return;
+  if (!_loungeOpen) toggleLounge();
+  _loungePendingRef = {
+    show_date: currentShowDate,
+    venue: (currentShowInfo || '').split('—')[1]?.trim() || '',
+    source_id: currentSourceId || '',
+  };
+  _loungeUpdateShareBanner();
+  document.getElementById('lounge-input').focus();
+}
+
+function _loungeUpdateShareBanner() {
+  const slot = document.getElementById('lounge-share-banner-slot');
+  if (!slot) return;
+  if (!_loungePendingRef) { slot.innerHTML = ''; return; }
+  slot.innerHTML = `<div class="lounge-share-banner">
+    <span class="lounge-share-banner-text">📤 Attaching: ${escapeHTML(_loungePendingRef.show_date)}${_loungePendingRef.venue ? ' · ' + escapeHTML(_loungePendingRef.venue) : ''}</span>
+    <button class="lounge-share-banner-cancel" onclick="_loungePendingRef=null;_loungeUpdateShareBanner()">×</button>
+  </div>`;
+}
+
+// Bootstrap on load
+if (loggedInUser) loungeCheckAccess();
 
 // ── VISUALIZER ────────────────────────────────────────────────────────────────
 // Connects the MAIN audio elements directly to a Web Audio AnalyserNode for

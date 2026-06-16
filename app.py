@@ -352,6 +352,23 @@ _weather_cache_col = _db["weather_cache"]       # _id = show_date, permanent (we
 _segue_col         = _db["segue_cache"]         # _id = "from||to", count of occurrences
 _releases_cache_col = _db["releases_cache"]     # _id = show_date, official Dead releases
 _canonical_songs_col = _db["canonical_songs"]   # _id = norm_song name from deaddisc.com
+_chat_msgs_col       = _db["chat_messages"]     # one doc per chat message
+_chat_meta_col       = _db["chat_meta"]         # allowlist + room config
+_chat_read_col       = _db["chat_read"]         # last-read timestamp per user/room
+
+# Chat indexes — ts for sort/range, room for filter (well under 3-index cap)
+_chat_msgs_col.create_index([("room", 1), ("ts", -1)])
+
+# Seed the lounge allowlist if not present (idempotent). Edit via mongosh
+# to change members:
+#   db.chat_meta.updateOne(
+#     {_id:"lounge_allowlist"},
+#     {$set:{members:["camden","jmac","caleb","zack"]}})
+_chat_meta_col.update_one(
+    {"_id": "lounge_allowlist"},
+    {"$setOnInsert": {"members": ["camden", "jmac", "caleb", "zack"]}},
+    upsert=True,
+)
 
 # Load canonical song set into memory at startup. Authoritative gate for
 # DEBUT / DROUGHT BREAKER badges and the Song Archive timeline. Things like
@@ -3125,6 +3142,126 @@ def blind_daily_guess():
             "show_id":     doc["show_id"],
         },
     })
+
+# ── Lounge chat (allowlisted users only) ─────────────────────────────────────
+_CHAT_RATE_WINDOW_S = 60
+_CHAT_RATE_MAX      = 20
+_CHAT_MAX_TEXT      = 1000
+
+def _lounge_members():
+    doc = _chat_meta_col.find_one({"_id": "lounge_allowlist"}, {"members": 1, "_id": 0})
+    return set((doc or {}).get("members") or [])
+
+def _is_lounge_member(username):
+    if not username: return False
+    return username in _lounge_members()
+
+@app.route("/api/chat/lounge/access")
+@login_required
+def chat_access():
+    return jsonify({"member": _is_lounge_member(current_user())})
+
+@app.route("/api/chat/lounge/messages")
+@login_required
+def chat_messages():
+    u = current_user()
+    if not _is_lounge_member(u):
+        return jsonify({"error": "not in lounge"}), 403
+    from datetime import datetime, timezone
+    since = request.args.get("since")
+    try:
+        limit = max(1, min(200, int(request.args.get("limit", 100))))
+    except (ValueError, TypeError):
+        limit = 100
+    q = {"room": "lounge"}
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            q["ts"] = {"$gt": since_dt}
+        except Exception:
+            pass
+    cur = _chat_msgs_col.find(q).sort("ts", -1).limit(limit)
+    rows = list(cur)
+    rows.reverse()  # oldest-first for display
+    return jsonify([{
+        "id":   str(r.get("_id")),
+        "user": r.get("user", ""),
+        "text": r.get("text", ""),
+        "ts":   (r.get("ts").isoformat() if r.get("ts") else None),
+        "ref":  r.get("ref"),
+    } for r in rows])
+
+@app.route("/api/chat/lounge/send", methods=["POST"])
+@login_required
+def chat_send():
+    from datetime import datetime, timezone, timedelta
+    u = current_user()
+    if not _is_lounge_member(u):
+        return jsonify({"error": "not in lounge"}), 403
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()[:_CHAT_MAX_TEXT]
+    ref  = data.get("ref")
+    if not text and not ref:
+        return jsonify({"error": "empty"}), 400
+    # Rate limit — count user's sends in the last minute
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=_CHAT_RATE_WINDOW_S)
+    recent = _chat_msgs_col.count_documents(
+        {"room": "lounge", "user": u, "ts": {"$gt": cutoff}}
+    )
+    if recent >= _CHAT_RATE_MAX:
+        return jsonify({"error": "rate limited"}), 429
+    # Validate ref shape if present (only allow specific fields)
+    safe_ref = None
+    if isinstance(ref, dict):
+        safe_ref = {}
+        for k in ("show_date", "venue", "location", "source_id"):
+            v = ref.get(k)
+            if isinstance(v, str) and len(v) < 200:
+                safe_ref[k] = v
+        if not safe_ref.get("show_date"): safe_ref = None
+    now = datetime.now(timezone.utc)
+    doc = {"room": "lounge", "user": u, "text": text, "ts": now}
+    if safe_ref: doc["ref"] = safe_ref
+    res = _chat_msgs_col.insert_one(doc)
+    return jsonify({
+        "id":   str(res.inserted_id),
+        "user": u, "text": text,
+        "ts":   now.isoformat(),
+        "ref":  safe_ref,
+    })
+
+@app.route("/api/chat/lounge/read", methods=["POST"])
+@login_required
+def chat_mark_read():
+    from datetime import datetime, timezone
+    u = current_user()
+    if not _is_lounge_member(u):
+        return jsonify({"error": "not in lounge"}), 403
+    _chat_read_col.update_one(
+        {"_id": f"{u}:lounge"},
+        {"$set": {"last_read_ts": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return jsonify({"ok": True})
+
+@app.route("/api/chat/lounge/unread")
+@login_required
+def chat_unread():
+    u = current_user()
+    if not _is_lounge_member(u):
+        return jsonify({"member": False, "unread": 0})
+    rd = _chat_read_col.find_one({"_id": f"{u}:lounge"}, {"last_read_ts": 1})
+    if not rd or not rd.get("last_read_ts"):
+        count = _chat_msgs_col.count_documents(
+            {"room": "lounge", "user": {"$ne": u}}
+        )
+    else:
+        count = _chat_msgs_col.count_documents({
+            "room": "lounge",
+            "user": {"$ne": u},
+            "ts":   {"$gt": rd["last_read_ts"]},
+        })
+    return jsonify({"member": True, "unread": count})
 
 # ── Keep-alive (Render free tier) ────────────────────────────────────────────
 _RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
