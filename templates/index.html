@@ -144,6 +144,7 @@
     .show-location { font-size:11px; color:var(--muted); }
     .show-rating-badge { float:right; font-size:11px; color:var(--accent); margin-top:2px; }
     .show-my-rating { float:right; font-size:12px; color:var(--accent); margin-top:1px; margin-left:6px; }
+    .release-badge { display:inline-block; background:rgba(46,160,67,0.18); color:#4ec76a; border:1px solid rgba(46,160,67,0.45); padding:1px 5px; border-radius:2px; font-size:9px; font-family:'Space Mono',monospace; letter-spacing:0.5px; margin-left:6px; vertical-align:1px; cursor:help; }
     .archive-stars { font-size:10px; color:#c8a84b; letter-spacing:1px; }
     .show-rating-widget { display:flex; align-items:center; gap:5px; margin-top:7px; padding-top:6px; border-top:1px solid var(--border); }
     .show-rating-label { font-size:11px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; flex-shrink:0; }
@@ -1048,6 +1049,44 @@ function repBadge(showId) {
   return '';
 }
 
+const _releaseMap = new Map();
+async function loadReleaseMap() {
+  try {
+    const res = await fetch('/api/releases/all');
+    if (!res.ok) return;
+    const data = await res.json();
+    Object.entries(data).forEach(([d, r]) => _releaseMap.set(d, r));
+    // Once loaded, decorate any show rows already on the page
+    document.querySelectorAll('.show-item[data-date]').forEach(div => {
+      const date = div.dataset.date;
+      if (!_releaseMap.has(date)) return;
+      const dateEl = div.querySelector('.show-date');
+      if (dateEl && !dateEl.querySelector('.release-badge')) {
+        dateEl.insertAdjacentHTML('beforeend', releaseBadge(date));
+      }
+    });
+  } catch(e) {}
+}
+
+function _shortenReleaseName(name) {
+  if (!name) return 'OFFICIAL';
+  let m;
+  if ((m = name.match(/dick'?s picks (?:vol\.?\s*)?(\d+)/i))) return `Dick's ${m[1]}`;
+  if ((m = name.match(/dave'?s picks (?:vol\.?\s*)?(\d+)/i))) return `Dave's ${m[1]}`;
+  if ((m = name.match(/road trips (?:vol\.?\s*)?([\d.]+)/i))) return `Road Trips ${m[1]}`;
+  if ((m = name.match(/download series (?:vol\.?\s*)?(\d+)/i))) return `DLS ${m[1]}`;
+  if ((m = name.match(/30 days of dead\s+(\d{4})/i))) return `30 Days '${m[1].slice(2)}`;
+  return name.length > 20 ? name.slice(0, 19) + '…' : name;
+}
+
+function releaseBadge(date) {
+  const r = _releaseMap.get(date);
+  if (!r) return '';
+  const short = _shortenReleaseName(r.name);
+  const yr = r.year ? ` (${r.year})` : '';
+  return `<span class="release-badge" title="Officially released as ${escapeHTML(r.name)}${escapeHTML(yr)}">◉ ${escapeHTML(short)}</span>`;
+}
+
 let audioA = document.getElementById('audio-player');
 let audioB = document.getElementById('audio-preload');
 let audio = audioA; // active element
@@ -1475,7 +1514,7 @@ function onSearchInput(val) {
       if (!shows.length) { resultsEl.innerHTML = '<div class="search-palette-empty">No results</div>'; return; }
       resultsEl.innerHTML = shows.map(s => `
         <div class="search-result-row" onclick="searchGoTo('${escapeHTML(s.id)}','${escapeHTML(s.display_date)}',${JSON.stringify(s.venue)})">
-          <div class="search-result-date">${escapeHTML(s.display_date)}</div>
+          <div class="search-result-date">${escapeHTML(s.display_date)}${releaseBadge(s.display_date)}</div>
           <div class="search-result-venue">${escapeHTML(s.venue?.name||'')}</div>
           <div class="search-result-loc">${escapeHTML(s.venue?.location||'')}</div>
         </div>`).join('');
@@ -1863,7 +1902,7 @@ async function loadShows(year) {
     div.dataset.venue = JSON.stringify(show.venue || {});
     const myStars = myShowRatings[show.id];
     const badge = myStars ? `<span class="show-my-rating">${starsLabel(myStars)}</span>` : '';
-    div.innerHTML = `${badge}<div class="show-date">${escapeHTML(show.display_date)}${repBadge(show.id)}</div><div class="show-venue">${escapeHTML(show.venue?.name||'Unknown Venue')}</div><div class="show-location">${escapeHTML(show.venue?.location||'')}</div>`;
+    div.innerHTML = `${badge}<div class="show-date">${escapeHTML(show.display_date)}${repBadge(show.id)}${releaseBadge(show.display_date)}</div><div class="show-venue">${escapeHTML(show.venue?.name||'Unknown Venue')}</div><div class="show-location">${escapeHTML(show.venue?.location||'')}</div>`;
     div.onclick = () => { document.querySelectorAll('.show-item').forEach(x=>x.classList.remove('active')); div.classList.add('active'); loadSources(show.id,show.display_date,show.venue); };
     el.appendChild(div);
   });
@@ -5267,6 +5306,7 @@ checkMe();
 loadTodayHero();
 loadNowSpinning();
 renderAmbientResume();
+loadReleaseMap();
 loadYears().then(async () => {
   const params = new URLSearchParams(window.location.search);
   const showId = params.get('show');

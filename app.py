@@ -2015,6 +2015,26 @@ def show_releases(show_date):
     return jsonify(result)
 
 
+@app.route("/api/releases/all")
+def releases_all():
+    """Lightweight map of every released date → primary release {name, year}.
+    Used by the frontend to decorate show rows / search results with a badge
+    without N+1 fetches. ~600-800 dates → small payload."""
+    cache_key = "releases:all"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+    out = {}
+    for doc in _releases_cache_col.find({}, {"_id": 1, "releases": 1}):
+        rels = doc.get("releases") or []
+        if not rels:
+            continue
+        r0 = rels[0]
+        out[doc["_id"]] = {"name": r0.get("name"), "year": r0.get("year")}
+    _cache_set(cache_key, out)
+    return jsonify(out)
+
+
 @app.route("/api/songs/timeline")
 def songs_timeline():
     """Aggregate setlist_cache: every song's debut, last, and total play count."""
