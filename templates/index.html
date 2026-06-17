@@ -180,6 +180,16 @@
     body.viz-open .shows-panel { padding-bottom:260px; }
     .track-panel-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:300px; gap:12px; color:var(--muted); }
     .track-panel-empty .big-skull { font-size:57px; opacity:0.3; }
+    .empty-hero { display:flex; flex-direction:column; align-items:stretch; gap:14px; padding:56px 28px 24px; max-width:440px; margin:0 auto; }
+    .hero-card { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:20px 22px; cursor:pointer; transition:border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
+    .hero-card:hover { border-color:var(--accent); transform:translateY(-1px); box-shadow:0 4px 14px rgba(0,0,0,0.25); }
+    .hero-card-resume:hover { border-color:var(--accent2); }
+    .hero-card-eyebrow { font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); font-family:'Space Mono',monospace; }
+    .hero-card-title { font-family:'Playfair Display',serif; font-size:22px; color:var(--text); margin-top:8px; line-height:1.2; }
+    .hero-card-sub { font-size:12px; color:var(--muted); margin-top:4px; font-family:'Space Mono',monospace; }
+    .hero-card-cta { display:inline-block; margin-top:14px; background:var(--accent); color:#fff; padding:8px 18px; font-family:'Space Mono',monospace; font-size:12px; letter-spacing:1px; border-radius:4px; pointer-events:none; }
+    .hero-card-resume .hero-card-cta { background:var(--accent2); }
+    @media (max-width:700px) { .empty-hero { padding:32px 16px 16px; gap:12px; } .hero-card { padding:16px 18px; } .hero-card-title { font-size:18px; } }
     .source-header { padding:10px 16px 8px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); overflow:hidden; z-index:10; }
     .official-release-badge { display:inline-block; background:rgba(46,160,67,0.18); color:#4ec76a; border:1px solid rgba(46,160,67,0.45); padding:3px 8px; border-radius:3px; font-size:10px; font-family:'Space Mono',monospace; letter-spacing:0.5px; margin:4px 0 2px; }
     .source-header-content { position:relative; z-index:1; }
@@ -219,6 +229,15 @@
     .src-type-MTX { background:var(--accent2); color:var(--white); }
     .src-type-FOB { background:#5a3e8a; color:var(--white); }
     .src-type-AUD { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
+    .source-filter-bar { display:flex; gap:6px; padding:8px 12px 2px; flex-wrap:wrap; }
+    .source-filter-chip { background:transparent; border:1px solid var(--border); color:var(--muted); padding:3px 9px; border-radius:12px; font-family:'Space Mono',monospace; font-size:10px; letter-spacing:0.5px; cursor:pointer; transition:background .12s, border-color .12s, color .12s; display:inline-flex; align-items:center; gap:5px; }
+    .source-filter-chip:hover { color:var(--text); border-color:var(--text); }
+    .source-filter-chip.active { background:var(--surface2); color:var(--text); border-color:var(--text); }
+    .source-filter-chip.src-filter-SBD.active { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+    .source-filter-chip.src-filter-MTX.active { background:var(--accent2); color:var(--white); border-color:var(--accent2); }
+    .source-filter-chip.src-filter-FOB.active { background:#5a3e8a; color:var(--white); border-color:#5a3e8a; }
+    .source-filter-chip .src-filter-count { opacity:0.65; font-size:9px; }
+    .source-grid-row.filter-hide { display:none; }
     .src-type-UNK { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
     .set-label { padding:8px 16px 4px; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--accent2-light); }
     .track-row { display:flex; align-items:center; padding:5px 10px; border-bottom:1px solid rgba(30,42,69,0.8); cursor:pointer; transition:background 0.1s; gap:5px; min-width:max-content; width:100%; }
@@ -346,6 +365,33 @@
     .search-result-date { font-size:13px; color:var(--accent); font-weight:700; flex-shrink:0; }
     .search-result-venue { font-size:12px; color:var(--text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .search-result-loc { font-size:11px; color:var(--muted); flex-shrink:0; }
+    /* Header search button + palette modal */
+    .launcher-search svg { display:block; }
+    .search-modal-overlay { align-items:flex-start; padding-top:80px; }
+    .search-palette { background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); width:640px; max-width:92vw; max-height:70vh; display:flex; flex-direction:column; box-shadow:0 10px 40px rgba(0,0,0,0.6); }
+    .search-palette-input-wrap { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--border); }
+    .search-palette-icon { font-size:14px; opacity:0.6; color:var(--muted); display:flex; }
+    .search-palette-input { flex:1; background:transparent; border:none; color:var(--text); font-family:'Space Mono',monospace; font-size:16px; outline:none; }
+    .search-palette-input::placeholder { color:var(--muted); }
+    .search-palette-hint { font-family:'Space Mono',monospace; font-size:10px; color:var(--muted); letter-spacing:1px; padding:2px 6px; border:1px solid var(--border); border-radius:3px; }
+    .search-palette-results { overflow-y:auto; flex:1; min-height:0; }
+    .search-palette-empty { padding:24px 18px; color:var(--muted); font-size:11px; font-family:'Space Mono',monospace; text-align:center; }
+    @media (max-width:700px) {
+      .search-modal-overlay { padding-top:0; }
+      .search-palette { width:100%; max-width:100%; height:100dvh; max-height:none; border:none; border-top:3px solid var(--accent2); }
+      .search-palette-hint { display:none; }
+      .search-palette-input { font-size:16px; }
+    }
+    /* Ambient resume chip */
+    .ambient-chip-resume { flex-shrink:0; border-left:1px solid var(--border); padding:0 12px; gap:5px; }
+    .ambient-chip-resume .ambient-resume-icon { color:var(--accent2-light, #6090ff); font-weight:700; font-size:13px; }
+    .ambient-chip-resume .ambient-resume-label { color:var(--muted); }
+    .ambient-chip-resume .ambient-resume-date { color:var(--text); font-weight:700; }
+    .ambient-chip-resume .ambient-resume-time { color:var(--muted); font-size:10px; }
+    @media (max-width:700px) {
+      .ambient-chip-resume { padding:0 8px; gap:3px; }
+      .ambient-chip-resume .ambient-resume-label { display:none; }
+    }
     /* ── Notes ── */
     .notes-widget { padding:10px 16px 6px; border-top:1px solid var(--border); }
     .notes-label { font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin-bottom:5px; }
@@ -762,6 +808,7 @@
   </div>
   <div class="header-right">
     <div class="header-launchers">
+      <button class="launcher-btn launcher-search" onclick="openSearchModal()" data-tip="Search (/)" aria-label="Search shows, venues, dates"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg></button>
       <button class="launcher-btn tab-obs" onclick="openObservatory()" data-tip="Observatory" aria-label="Observatory"><img src="/static/observatory.svg" alt=""></button>
       <button class="launcher-btn" id="tab-tours" onclick="openToursModal()" data-tip="Tour Runs" aria-label="Tour Runs">⟳</button>
       <button class="launcher-btn" onclick="openToday()" data-tip="Today in History" aria-label="Today in History">📅</button>
@@ -774,6 +821,17 @@
     <button class="btn primary" id="btn-open-login" onclick="openModal('login')">Log In</button>
   </div>
 </header>
+
+<div class="modal-overlay search-modal-overlay" id="search-modal" onclick="if(event.target===this)closeSearchModal()">
+  <div class="search-palette">
+    <div class="search-palette-input-wrap">
+      <span class="search-palette-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg></span>
+      <input class="search-palette-input" id="search-input" type="text" placeholder="Search shows, venues, dates…" oninput="onSearchInput(this.value)" autocomplete="off">
+      <span class="search-palette-hint">esc</span>
+    </div>
+    <div class="search-palette-results" id="search-results"><div class="search-palette-empty">Type to search shows, venues, or dates (1977, 1977-05-08, Madison Square Garden)</div></div>
+  </div>
+</div>
 
 <div class="modal-overlay" id="today-modal">
   <div class="today-modal">
@@ -807,6 +865,7 @@
   <div class="ambient-chip ambient-chip-today" id="ambient-today">
     <span class="ambient-loading">📅 Loading today…</span>
   </div>
+  <div class="ambient-chip ambient-chip-resume" id="ambient-resume" style="display:none" onclick="heroResume()"></div>
   <div class="ambient-chip ambient-chip-spinning" id="ambient-spinning" onclick="toggleSpinningPopover(event)">
     <span class="ambient-loading">🎧 …</span>
   </div>
@@ -820,10 +879,6 @@
   <div class="panel-divider" id="divider-1"></div>
   <div class="shows-panel" id="shows-panel">
     <div class="mobile-back" onclick="mobBack('years')"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"><polyline points="15,4 7,12 15,20"/></svg> Years</div>
-    <div class="search-wrap">
-      <input class="search-input" id="search-input" type="text" placeholder="Search shows, venues…" oninput="onSearchInput(this.value)" autocomplete="off">
-    </div>
-    <div id="search-results" class="search-results" style="display:none"></div>
     <div class="panel-label" id="shows-label">Shows</div>
     <div id="shows-list"><div style="padding:40px 16px;color:var(--muted);text-align:center;font-size:11px;">← Select a year</div></div>
   </div>
@@ -1172,7 +1227,17 @@ async function submitAuth() {
 
 document.addEventListener('keydown', e => {
   if (e.key==='Enter' && document.getElementById('auth-modal').classList.contains('open')) submitAuth();
-  if (e.key==='Escape') closeModal();
+  if (e.key==='Escape') {
+    if (document.getElementById('search-modal')?.classList.contains('open')) { closeSearchModal(); return; }
+    closeModal();
+    return;
+  }
+  const tag = (e.target && e.target.tagName || '').toUpperCase();
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+  if (e.key === '/' || ((e.metaKey || e.ctrlKey) && e.key && e.key.toLowerCase() === 'k')) {
+    e.preventDefault();
+    openSearchModal();
+  }
 });
 
 // ── TODAY IN HISTORY ──────────────────────────────────────────────────────
@@ -1390,27 +1455,34 @@ async function todayPlay(showId, identifier, e) {
 
 // ── SEARCH ────────────────────────────────────────────────────────────────
 let _searchTimer = null;
+function openSearchModal() {
+  const m = document.getElementById('search-modal');
+  if (!m) return;
+  m.classList.add('open');
+  const input = document.getElementById('search-input');
+  if (input) { setTimeout(() => { input.focus(); input.select(); }, 30); }
+}
+function closeSearchModal() {
+  const m = document.getElementById('search-modal');
+  if (!m) return;
+  m.classList.remove('open');
+}
+
 function onSearchInput(val) {
   const resultsEl = document.getElementById('search-results');
-  const showsList = document.getElementById('shows-list');
-  const showsLabel = document.getElementById('shows-label');
+  if (!resultsEl) return;
   if (!val.trim()) {
-    resultsEl.style.display = 'none';
-    showsList.style.display = '';
-    showsLabel.style.display = '';
+    resultsEl.innerHTML = '<div class="search-palette-empty">Type to search shows, venues, or dates (1977, 1977-05-08, Madison Square Garden)</div>';
     clearTimeout(_searchTimer);
     return;
   }
-  showsList.style.display = 'none';
-  showsLabel.style.display = 'none';
-  resultsEl.style.display = '';
-  resultsEl.innerHTML = '<div class="loading">Searching</div>';
+  resultsEl.innerHTML = '<div class="loading" style="padding:18px;">Searching</div>';
   clearTimeout(_searchTimer);
   _searchTimer = setTimeout(async () => {
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(val)}`);
       const shows = await res.json();
-      if (!shows.length) { resultsEl.innerHTML = '<div class="loading">No results</div>'; return; }
+      if (!shows.length) { resultsEl.innerHTML = '<div class="search-palette-empty">No results</div>'; return; }
       resultsEl.innerHTML = shows.map(s => `
         <div class="search-result-row" onclick="searchGoTo('${escapeHTML(s.id)}','${escapeHTML(s.display_date)}',${JSON.stringify(s.venue)})">
           <div class="search-result-date">${escapeHTML(s.display_date)}</div>
@@ -1418,18 +1490,30 @@ function onSearchInput(val) {
           <div class="search-result-loc">${escapeHTML(s.venue?.location||'')}</div>
         </div>`).join('');
     } catch(e) {
-      resultsEl.innerHTML = `<div style="color:var(--red);padding:10px 16px;font-size:11px;">${escapeHTML(String(e))}</div>`;
+      resultsEl.innerHTML = `<div class="search-palette-empty" style="color:var(--accent);">${escapeHTML(String(e))}</div>`;
     }
   }, 400);
 }
 
-function searchGoTo(showId, date, venue) {
-  document.getElementById('search-input').value = '';
-  document.getElementById('search-results').style.display = 'none';
-  document.getElementById('shows-list').style.display = '';
-  document.getElementById('shows-label').style.display = '';
-  document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
-  loadSources(showId, date, venue);
+async function searchGoTo(showId, date, venue) {
+  closeSearchModal();
+  const input = document.getElementById('search-input');
+  if (input) input.value = '';
+  const resultsEl = document.getElementById('search-results');
+  if (resultsEl) resultsEl.innerHTML = '<div class="search-palette-empty">Type to search shows, venues, or dates (1977, 1977-05-08, Madison Square Garden)</div>';
+  const year = showId.slice(0, 4);
+  document.querySelectorAll('.year-item').forEach(el => {
+    el.classList.toggle('active', el.querySelector('span')?.textContent === year);
+  });
+  showBrowse();
+  await loadShows(year);
+  const showItem = document.getElementById(`show-item-${showId}`);
+  if (showItem) {
+    document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
+    showItem.classList.add('active');
+    showItem.scrollIntoView({ block: 'center' });
+  }
+  await loadSources(showId, date, venue || {});
 }
 
 // ── NOTES ─────────────────────────────────────────────────────────────────
@@ -1938,7 +2022,18 @@ function renderSourceButtons() {
   // Source selector: pill row for ≤3 sources, comparison grid for 4+
   let sourceListHTML;
   if (allSources.length >= 4) {
-    sourceListHTML = `<div class="source-grid" id="source-selector-list">${allSources.map((s,i)=>{
+    _sourceFilter = 'ALL';  // reset per show
+    const typeCounts = {};
+    allSources.forEach(s => { const t = s.source_type || 'UNK'; typeCounts[t] = (typeCounts[t] || 0) + 1; });
+    const TYPE_ORDER = ['SBD','MTX','FOB','AUD','UNK'];
+    const presentTypes = TYPE_ORDER.filter(t => typeCounts[t]);
+    const filterBarHTML = presentTypes.length > 1
+      ? `<div class="source-filter-bar" id="source-filter-bar">
+          <button class="source-filter-chip active" data-filter="ALL" onclick="setSourceFilter('ALL')">All <span class="src-filter-count">${allSources.length}</span></button>
+          ${presentTypes.map(t => `<button class="source-filter-chip src-filter-${t}" data-filter="${t}" onclick="setSourceFilter('${t}')">${t} <span class="src-filter-count">${typeCounts[t]}</span></button>`).join('')}
+        </div>`
+      : '';
+    sourceListHTML = filterBarHTML + `<div class="source-grid" id="source-selector-list">${allSources.map((s,i)=>{
       const r = s.archive_rating;
       const n = s.archive_reviews || 0;
       const ratingStr = r != null ? `${Number(r).toFixed(1)}★` : '—';
@@ -1950,8 +2045,9 @@ function renderSourceButtons() {
         : `<span style="color:var(--muted);font-style:italic;">unknown taper</span>`;
       const idHTML = shortId ? ` <span style="color:var(--muted);font-size:9px;">· ${escapeHTML(shortId)}</span>` : '';
       const recBadge = s.recommended ? `<span class="source-grid-rec-badge">SUGGESTION</span>` : '';
-      return `<div class="source-grid-row ${i===activeSourceIdx?'active':''} ${s.recommended?'recommended':''}" onclick="switchSource(${i})" title="${escapeHTML(s.id||'')}">
-        ${srcTypeBadge(s.source_type||'UNK')}
+      const stype = s.source_type || 'UNK';
+      return `<div class="source-grid-row ${i===activeSourceIdx?'active':''} ${s.recommended?'recommended':''}" data-srctype="${stype}" onclick="switchSource(${i})" title="${escapeHTML(s.id||'')}">
+        ${srcTypeBadge(stype)}
         <span class="source-grid-rating ${lowConf?'low-conf':''}">${ratingStr}</span>
         <span class="source-grid-reviews">${n} rev${lowConf?' ⚠':''}</span>
         <span class="source-grid-title">${taperHTML}${idHTML}${recBadge}</span>
@@ -2181,6 +2277,7 @@ function dismissResume() {
   try { localStorage.removeItem('sof_resume'); } catch(e) {}
   const banner = document.getElementById('resume-banner');
   if (banner) banner.remove();
+  renderAmbientResume();
 }
 
 function toggleSourceList() {
@@ -2189,6 +2286,18 @@ function toggleSourceList() {
   if (!list) return;
   const collapsed = list.classList.toggle('collapsed');
   if (arrow) arrow.innerHTML = collapsed ? _IC.chevR : _IC.chevD;
+}
+
+let _sourceFilter = 'ALL';
+function setSourceFilter(type) {
+  _sourceFilter = type;
+  document.querySelectorAll('#source-filter-bar .source-filter-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.filter === type);
+  });
+  document.querySelectorAll('.source-grid-row').forEach(row => {
+    const matches = type === 'ALL' || row.dataset.srctype === type;
+    row.classList.toggle('filter-hide', !matches);
+  });
 }
 
 let _sourceLoading = false;
@@ -4761,6 +4870,91 @@ async function loadTodayHero() {
   } catch(e) { /* silent — strip is decorative */ }
 }
 
+// ── EMPTY TRACK-PANEL HERO ───────────────────────────────────────────────────
+function _heroLongDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if (!m) return iso || '';
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return `${months[parseInt(m[2],10)-1]} ${parseInt(m[3],10)}, ${m[1]}`;
+}
+
+async function renderEmptyHero() {
+  const panel = document.getElementById('track-panel');
+  if (!panel) return;
+  if (!panel.querySelector('.track-panel-empty')) return;
+
+  let todayHTML = '';
+  try {
+    const res = await fetch('/api/today');
+    if (res.ok) {
+      const recordings = await res.json();
+      const seen = {};
+      const shows = [];
+      for (const r of recordings) {
+        if (!seen[r.id]) { seen[r.id] = r; shows.push(r); }
+      }
+      if (shows.length) {
+        const top = shows[0];
+        const venue = (top.venue && top.venue.name) || '';
+        const dateLabel = _heroLongDate(top.display_date);
+        todayHTML = `
+          <div class="hero-card" onclick="todayPlay('${escapeHTML(top.id)}','${escapeHTML(top.identifier)}',event)">
+            <div class="hero-card-eyebrow">📅 Today's pick</div>
+            <div class="hero-card-title">${escapeHTML(dateLabel)}</div>
+            ${venue ? `<div class="hero-card-sub">${escapeHTML(venue)}</div>` : ''}
+            <div class="hero-card-cta">▶ Play this show</div>
+          </div>`;
+      }
+    }
+  } catch(e) {}
+
+  let resumeHTML = '';
+  try {
+    const saved = JSON.parse(localStorage.getItem('sof_resume') || 'null');
+    if (saved && saved.showId && saved.currentTime > 5) {
+      const dateLabel = _heroLongDate(saved.showId);
+      const timeStr = fmt(saved.currentTime);
+      resumeHTML = `
+        <div class="hero-card hero-card-resume" onclick="heroResume()">
+          <div class="hero-card-eyebrow">▸ Continue listening</div>
+          <div class="hero-card-title">${escapeHTML(dateLabel)}</div>
+          <div class="hero-card-sub">Picks up at ${escapeHTML(timeStr)}</div>
+          <div class="hero-card-cta">▶ Resume</div>
+        </div>`;
+    }
+  } catch(e) {}
+
+  if (!todayHTML && !resumeHTML) return;
+  if (!panel.querySelector('.track-panel-empty')) return;
+  panel.innerHTML = `<div class="empty-hero">${resumeHTML}${todayHTML}</div>`;
+}
+
+async function heroResume() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem('sof_resume') || 'null'); } catch(_) { return; }
+  if (!saved || !saved.showId) return;
+  const showId = saved.showId;
+  const year = showId.slice(0, 4);
+  document.querySelectorAll('.year-item').forEach(el => {
+    el.classList.toggle('active', el.querySelector('span')?.textContent === year);
+  });
+  await loadShows(year);
+  const showItem = document.getElementById(`show-item-${showId}`);
+  if (showItem) {
+    document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
+    showItem.classList.add('active');
+    showItem.scrollIntoView({ block: 'center' });
+  }
+  await loadSources(showId, showId, {});
+  let srcIdx = 0;
+  if (saved.sourceId) {
+    const found = allSources.findIndex(s => String(s.id) === String(saved.sourceId));
+    if (found >= 0) srcIdx = found;
+  }
+  await loadSourceTracks(srcIdx);
+  resumePlayback();
+}
+
 // ── COMMUNITY NOW SPINNING ────────────────────────────────────────────────────
 // ── AMBIENT STRIP — NOW-SPINNING CHIP ────────────────────────────────────────
 let _nowSpinningRows = [];
@@ -4780,6 +4974,23 @@ async function loadNowSpinning() {
       _renderSpinningChip(data.active || 0);
     }
   } catch(e) { _renderSpinningChip(0); }
+}
+
+function renderAmbientResume() {
+  const slot = document.getElementById('ambient-resume');
+  if (!slot) return;
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem('sof_resume') || 'null'); } catch(_) { saved = null; }
+  if (!saved || !saved.showId || !saved.currentTime || saved.currentTime <= 5) {
+    slot.style.display = 'none';
+    slot.innerHTML = '';
+    return;
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(saved.showId);
+  const shortDate = m ? `${parseInt(m[2],10)}/${parseInt(m[3],10)}/${m[1].slice(2)}` : saved.showId;
+  const timeStr = fmt(saved.currentTime);
+  slot.style.display = '';
+  slot.innerHTML = `<span class="ambient-resume-icon">↻</span><span class="ambient-resume-label">Resume</span><span class="ambient-resume-date">${escapeHTML(shortDate)}</span><span class="ambient-resume-time">@ ${escapeHTML(timeStr)}</span>`;
 }
 
 function _renderSpinningChip(total) {
@@ -5124,6 +5335,8 @@ document.getElementById('blindtest-modal').addEventListener('click', e => {
 checkMe();
 loadTodayHero();
 loadNowSpinning();
+renderAmbientResume();
+renderEmptyHero();
 loadYears().then(async () => {
   const params = new URLSearchParams(window.location.search);
   const showId = params.get('show');
