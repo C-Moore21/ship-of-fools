@@ -78,7 +78,26 @@
     .lounge-share-banner-cancel { background:transparent !important; color:var(--muted) !important; padding:4px 6px !important; }
     .lounge-empty { color:var(--muted); font-size:11px; text-align:center; padding:30px 10px; }
     @media (max-width:700px) {
-      .lounge-panel { right:10px; left:10px; width:auto; max-width:none; bottom:140px; height:calc(100vh - 180px); }
+      /* Full-screen takeover on mobile — floating panel with margins gets
+         clipped by player bar and feels cramped. */
+      .lounge-panel { left:0; right:0; top:0; bottom:0; width:100%; max-width:none; height:100dvh; max-height:none; border-radius:0; border:none; border-top:3px solid var(--accent2); z-index:9999; }
+      .lounge-header { padding:14px 16px; }
+      .lounge-title { font-size:14px; }
+      .lounge-close { font-size:28px; padding:0 4px; line-height:1; }
+      .lounge-body { padding:14px 14px; gap:12px; }
+      .lounge-msg-text { font-size:14px; line-height:1.45; }
+      .lounge-msg-head { font-size:12px; }
+      .lounge-msg-ts { font-size:10px; }
+      .lounge-input-wrap { padding:10px 12px; padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px)); gap:8px; }
+      /* 16px font on input prevents iOS auto-zoom when focused */
+      .lounge-input { font-size:16px; padding:10px 12px; min-height:42px; max-height:120px; }
+      .lounge-send { padding:0 18px; font-size:16px; min-width:48px; }
+      .lounge-msg-ref { padding:8px 10px; font-size:12px; }
+      .lounge-msg-ref-text { font-size:13px; }
+      /* Hide ambient strip when chat is open so it doesn't poke through */
+      body.lounge-active .ambient-strip { display:none; }
+      /* Prevent the document scrolling behind the fullscreen panel */
+      body.lounge-active { overflow:hidden; }
     }
     /* Share-to-Lounge button on show panel — visible when chat is open + show is loaded */
     .share-to-lounge-btn { display:none; background:var(--accent2); color:var(--white); border:none; padding:3px 8px; font-family:'Space Mono',monospace; font-size:10px; cursor:pointer; border-radius:2px; letter-spacing:0.5px; margin-left:6px; }
@@ -880,7 +899,7 @@
   <div class="lounge-body" id="lounge-body"><div class="lounge-empty">Loading…</div></div>
   <div id="lounge-share-banner-slot"></div>
   <div class="lounge-input-wrap">
-    <textarea class="lounge-input" id="lounge-input" rows="1" placeholder="Type a message…" maxlength="1000" onkeydown="loungeOnKey(event)"></textarea>
+    <textarea class="lounge-input" id="lounge-input" rows="1" placeholder="Type a message…" maxlength="1000" onkeydown="loungeOnKey(event)" oninput="loungeAutoresize(this)"></textarea>
     <button class="lounge-send" id="lounge-send-btn" onclick="loungeSend()">▶</button>
   </div>
 </div>
@@ -5266,6 +5285,11 @@ function loungeOnKey(e) {
   }
 }
 
+function loungeAutoresize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
 async function loungeSend() {
   const input = document.getElementById('lounge-input');
   const text = input.value.trim();
@@ -5285,6 +5309,7 @@ async function loungeSend() {
       return;
     }
     input.value = '';
+    input.style.height = 'auto';
     _loungePendingRef = null;
     _loungeUpdateShareBanner();
     await loungePollNew();
