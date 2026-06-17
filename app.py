@@ -2000,6 +2000,16 @@ def observatory_heatmap():
     return jsonify({"songs": result, "all_songs": _OBS_SONGS})
 
 
+# Box sets that cherry-pick tracks across many dates (e.g. "June 1976",
+# "30 Trips Around the Sun") get filtered out of badges — when coverage
+# exceeds this threshold, the release likely isn't a full show for any
+# single date. Standalone releases and short-run box sets (Dick's Picks
+# weekend runs, Get Shown The Light's 5-night May '77 stretch) still pass.
+_RELEASE_MAX_COVERAGE = 3
+
+def _filter_full_show_releases(rels):
+    return [r for r in (rels or []) if (r.get("coverage") or 1) <= _RELEASE_MAX_COVERAGE]
+
 @app.route("/api/shows/<path:show_date>/releases")
 def show_releases(show_date):
     import re as _re
@@ -2010,7 +2020,7 @@ def show_releases(show_date):
     if cached is not None:
         return jsonify(cached)
     doc = _releases_cache_col.find_one({"_id": show_date}, {"_id": 0, "ts": 0})
-    result = doc.get("releases", []) if doc else []
+    result = _filter_full_show_releases(doc.get("releases", []) if doc else [])
     _cache_set(cache_key, result)
     return jsonify(result)
 
@@ -2026,7 +2036,7 @@ def releases_all():
         return jsonify(cached)
     out = {}
     for doc in _releases_cache_col.find({}, {"_id": 1, "releases": 1}):
-        rels = doc.get("releases") or []
+        rels = _filter_full_show_releases(doc.get("releases") or [])
         if not rels:
             continue
         r0 = rels[0]
