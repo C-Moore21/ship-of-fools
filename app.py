@@ -1117,21 +1117,6 @@ def record_listen():
         })
     return jsonify({"ok": True})
 
-@app.route("/api/listen/mood", methods=["POST"])
-@login_required
-def set_listen_mood():
-    data = request.get_json(silent=True) or {}
-    session_id = data.get("session_id", "")
-    mood = data.get("mood", "")
-    _VALID_MOODS = {"Relaxed", "Road Trip", "Late Night", "Morning", "Party", "Deep Dive"}
-    if not session_id or mood not in _VALID_MOODS:
-        return jsonify({"error": "invalid"}), 400
-    listens_table.update_one(
-        {"username": current_user(), "session_id": session_id},
-        {"$set": {"mood": mood}}
-    )
-    return jsonify({"ok": True})
-
 @app.route("/api/community/now-spinning")
 def community_now_spinning():
     """Genuinely-active listeners (not a 7-day rollup). A user counts as
@@ -1265,7 +1250,7 @@ def listen_stats():
     if year:
         query["show_date"] = {"$regex": f"^{year}-"}
 
-    rows = list(listens_table.find(query, {"seconds": 1, "show_date": 1, "show_id": 1, "track_id": 1, "track_title": 1, "mood": 1, "ts": 1, "_id": 0}))
+    rows = list(listens_table.find(query, {"seconds": 1, "show_date": 1, "show_id": 1, "track_id": 1, "track_title": 1, "ts": 1, "_id": 0}))
 
     total_seconds = sum(r["seconds"] for r in rows)
 
@@ -1408,10 +1393,6 @@ def listen_stats():
         elif _d < _check:
             break
 
-    from collections import Counter as _Counter
-    mood_counts = _Counter(r["mood"] for r in rows if r.get("mood"))
-    mood_dist = [{"mood": m, "count": c} for m, c in mood_counts.most_common()]
-
     # Listening heatmap: distinct shows per day for the last 365 days
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
     _since = (_dt.now(_tz.utc) - _td(days=364)).isoformat()
@@ -1436,7 +1417,6 @@ def listen_stats():
         "year":          year,
         "by_era":        by_era,
         "streak":        streak,
-        "mood_dist":     mood_dist,
         "cal_data":      cal_data,
     })
 
@@ -3233,11 +3213,14 @@ def chat_messages():
     cur = _chat_msgs_col.find(q).sort("ts", -1).limit(limit)
     rows = list(cur)
     rows.reverse()  # oldest-first for display
+    # PyMongo returns naive datetimes for UTC timestamps — re-attach tzinfo so
+    # the ISO string has +00:00 and JS Date interprets it as UTC (then
+    # toLocaleTimeString converts to the user's local zone).
     return jsonify([{
         "id":   str(r.get("_id")),
         "user": r.get("user", ""),
         "text": r.get("text", ""),
-        "ts":   (r.get("ts").isoformat() if r.get("ts") else None),
+        "ts":   (r.get("ts").replace(tzinfo=timezone.utc).isoformat() if r.get("ts") else None),
         "ref":  r.get("ref"),
     } for r in rows])
 
