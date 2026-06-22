@@ -1978,6 +1978,10 @@ async function loadSources(showId, date, venue) {
   tripDismissPeek();
   clearTimeout(_tripPeekTimer);
   _tripPeekTimer = null;
+  // Manual navigation resets the 3-show counter — Trip Mode should give the
+  // user a fresh run starting from the show they chose. Auto-advances (which
+  // set _tripAdvanceInProgress) preserve the counter so the cap actually fires.
+  if (!_tripAdvanceInProgress) _tripAdvanceCount = 0;
   currentShowInfo = `${date} — ${venue?.name||''}`;
   currentShowDate = date;
   currentShowLocation = venue?.location || '';
@@ -2368,18 +2372,49 @@ let _tripNext = null;             // {date, venue, sourceId, firstTrack:{title,m
 let _tripPeekTimer = null;
 let _tripPeekDismissed = false;   // reset per show
 let _tripLastTrackArmed = false;  // peek scheduled, cache warmed
+let _tripAdvanceCount = 0;        // # of auto-advances since toggle-on (caps at 2 → 3 shows total)
+let _tripAdvanceInProgress = false; // true while tripAdvanceToNextShow's loadSources is firing
+const _TRIP_MAX_ADVANCES = 2;
 try { _tripMode = localStorage.getItem('sof_trip_mode') === '1'; } catch(e) {}
 
 function toggleTripMode() {
   _tripMode = !_tripMode;
+  _tripAdvanceCount = 0;  // fresh session — caller gets a full 3-show run
   try { localStorage.setItem('sof_trip_mode', _tripMode ? '1' : '0'); } catch(e) {}
   _tripPeekDismissed = false;
   tripDismissPeek();
+  tripDismissEndNotice();
   if (_tripMode) {
     tripResolveNext();
   } else {
     _tripNext = null;
     tripUpdateBar();
+  }
+}
+
+function tripDismissEndNotice() {
+  const el = document.getElementById('trip-end-notice');
+  if (el) el.remove();
+}
+
+function tripShowEndNotice() {
+  tripDismissEndNotice();
+  const el = document.createElement('div');
+  el.id = 'trip-end-notice';
+  el.className = 'trip-peek';
+  el.innerHTML = `<span class="trip-peek-text">🚌 Trip Mode ended after 3 shows — keep going?</span>`
+    + `<button class="trip-toggle active" onclick="tripReenable()" style="font-size:10px">Re-enable</button>`
+    + `<button class="trip-peek-dismiss" onclick="tripDismissEndNotice()" title="Dismiss">✕</button>`;
+  document.body.appendChild(el);
+  setTimeout(tripDismissEndNotice, 20000);  // auto-dismiss after 20s
+}
+
+function tripReenable() {
+  tripDismissEndNotice();
+  if (!_tripMode) toggleTripMode();
+  else {
+    _tripAdvanceCount = 0;
+    tripResolveNext();
   }
 }
 
@@ -2507,6 +2542,20 @@ function tripSchedulePeek() {
 async function tripAdvanceToNextShow() {
   if (!_tripMode || !_tripNext || !_tripNext.date) return;
   if (_tripPeekDismissed) return;  // user opted out of this transition
+  // Cap on auto-advances per session — after _TRIP_MAX_ADVANCES auto-jumps
+  // (3 shows total counting the one the user manually started), turn off
+  // and surface a one-tap re-enable notice. Keeps unattended Trip Mode
+  // from running all night.
+  if (_tripAdvanceCount >= _TRIP_MAX_ADVANCES) {
+    _tripMode = false;
+    try { localStorage.setItem('sof_trip_mode', '0'); } catch(e) {}
+    _tripNext = null;
+    _tripAdvanceCount = 0;
+    tripDismissPeek();
+    tripUpdateBar();
+    tripShowEndNotice();
+    return;
+  }
   const dest = _tripNext;
   // Set MediaSession metadata BEFORE play resolves so AirPlay receiver
   // picks it up cleanly.
@@ -2520,30 +2569,35 @@ async function tripAdvanceToNextShow() {
     } catch(e) {}
   }
   tripDismissPeek();
-  // Navigate UI: year highlight, shows list, sources, tracks
-  const showId = dest.date;
-  const year = showId.slice(0, 4);
-  document.querySelectorAll('.year-item').forEach(el => {
-    el.classList.toggle('active', el.querySelector('span')?.textContent === year);
-  });
-  await loadShows(year);
-  const showItem = document.getElementById(`show-item-${showId}`);
-  if (showItem) {
-    document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
-    showItem.classList.add('active');
-    showItem.scrollIntoView({ block: 'center' });
+  _tripAdvanceInProgress = true;
+  try {
+    // Navigate UI: year highlight, shows list, sources, tracks
+    const showId = dest.date;
+    const year = showId.slice(0, 4);
+    document.querySelectorAll('.year-item').forEach(el => {
+      el.classList.toggle('active', el.querySelector('span')?.textContent === year);
+    });
+    await loadShows(year);
+    const showItem = document.getElementById(`show-item-${showId}`);
+    if (showItem) {
+      document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
+      showItem.classList.add('active');
+      showItem.scrollIntoView({ block: 'center' });
+    }
+    await loadSources(showId, showId, dest.venue || {});
+    let useIdx = allSources.findIndex(s => String(s.id) === String(dest.sourceId));
+    if (useIdx < 0) useIdx = 0;
+    await loadSourceTracks(useIdx);
+    if (currentTracks.length > 0) {
+      // playTrack uses the AirPlay-safe src= + play() pattern (no .load() when
+      // AirPlay is active). The bytes for currentTracks[0].mp3_url were warmed
+      // via _warmHttpCache when the previous show's last track started.
+      playTrack(0);
+    }
+  } finally {
+    _tripAdvanceInProgress = false;
   }
-  await loadSources(showId, showId, dest.venue || {});
-  let useIdx = allSources.findIndex(s => String(s.id) === String(dest.sourceId));
-  if (useIdx < 0) useIdx = 0;
-  await loadSourceTracks(useIdx);
-  if (currentTracks.length > 0) {
-    // playTrack uses the AirPlay-safe src= + play() pattern (no .load() when
-    // AirPlay is active). The bytes for currentTracks[0].mp3_url were warmed
-    // via _warmHttpCache when the previous show's last track started.
-    playTrack(0);
-  }
-  // Resolve the NEXT next show for the freshly loaded one
+  _tripAdvanceCount++;
   _tripLastTrackArmed = false;
 }
 
