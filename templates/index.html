@@ -3080,7 +3080,7 @@ function _finalizeCrossfade(nextIdx) {
   if (typeof _syncVizAudio === 'function') _syncVizAudio();
 }
 
-function onPause() { if (this === audio) { document.getElementById('btn-play').innerHTML = _IC.play; if (_vizAudio) _vizAudio.pause(); } }
+function onPause() { if (this === audio) { document.getElementById('btn-play').innerHTML = _IC.play; } }
 function onPlay()  { if (this === audio) { document.getElementById('btn-play').innerHTML = _IC.pause; _retryCount = 0; _syncVizAudio(); } }
 function onCanPlayThrough() { if (this === preload) _ps.ok = true; }
 
