@@ -229,6 +229,20 @@
     .source-filter-chip.src-filter-FOB.active { background:#5a3e8a; color:var(--white); border-color:#5a3e8a; }
     .source-filter-chip .src-filter-count { opacity:0.65; font-size:9px; }
     .source-grid-row.filter-hide { display:none; }
+    /* Trip Mode bar — sits above source-collapse-header */
+    .trip-bar { display:flex; align-items:center; gap:8px; padding:6px 12px; font-family:'Space Mono',monospace; font-size:10px; border-bottom:1px solid var(--border); }
+    .trip-toggle { background:transparent; border:1px solid var(--border); color:var(--muted); padding:3px 9px; border-radius:12px; font-family:inherit; font-size:10px; letter-spacing:0.5px; cursor:pointer; transition:background .12s, border-color .12s, color .12s; display:inline-flex; align-items:center; gap:5px; flex-shrink:0; }
+    .trip-toggle:hover { color:var(--text); border-color:var(--text); }
+    .trip-toggle.active { background:rgba(26,75,191,0.18); color:var(--accent2-light, #6090ff); border-color:var(--accent2); }
+    .trip-dest { color:var(--muted); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .trip-dest strong { color:var(--text); font-weight:700; }
+    /* Trip Mode peek banner — fixed above player */
+    .trip-peek { position:fixed; left:50%; transform:translateX(-50%); bottom:96px; background:var(--surface2); border:1px solid var(--accent2); border-left:3px solid var(--accent2); padding:10px 14px; display:flex; align-items:center; gap:14px; font-family:'Space Mono',monospace; font-size:12px; box-shadow:0 6px 24px rgba(0,0,0,0.5); z-index:150; max-width:90vw; }
+    .trip-peek-text { color:var(--text); }
+    .trip-peek-text strong { color:var(--accent2-light, #6090ff); }
+    .trip-peek-dismiss { background:transparent; border:none; color:var(--muted); font-size:18px; cursor:pointer; padding:0 4px; line-height:1; }
+    .trip-peek-dismiss:hover { color:var(--text); }
+    @media (max-width:700px) { .trip-peek { bottom:104px; font-size:11px; padding:8px 12px; } }
     .src-type-UNK { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
     .set-label { padding:8px 16px 4px; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--accent2-light); }
     .track-row { display:flex; align-items:center; padding:5px 10px; border-bottom:1px solid rgba(30,42,69,0.8); cursor:pointer; transition:background 0.1s; gap:5px; min-width:max-content; width:100%; }
@@ -1955,6 +1969,13 @@ async function loadSources(showId, date, venue) {
   // Resume is cleared by track-ended + explicit Start Over + overwritten by
   // playback ticks — don't nuke it just because the user is browsing another
   // show.
+  // Reset Trip Mode per-show state (peek dismiss, armed flag, resolved next)
+  _tripPeekDismissed = false;
+  _tripLastTrackArmed = false;
+  _tripNext = null;
+  tripDismissPeek();
+  clearTimeout(_tripPeekTimer);
+  _tripPeekTimer = null;
   currentShowInfo = `${date} — ${venue?.name||''}`;
   currentShowDate = date;
   currentShowLocation = venue?.location || '';
@@ -2105,7 +2126,8 @@ function renderSourceButtons() {
       return `<button class="src-btn ${i===activeSourceIdx?'active':''}" onclick="switchSource(${i})" title="${s.recommended?'Suggested · ':''}${(s.archive_rating!=null?Number(s.archive_rating).toFixed(1)+'★ · ':'')}${s.archive_reviews||0} reviews · ${escapeHTML(s.id||'')}">${srcTypeBadge(s.source_type||'UNK')}${archiveStars(s.archive_rating, s.archive_reviews)}${s.recommended?'<span class="source-grid-rec-badge">SUGGESTION</span>':''}<span style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(label)}</span></button>`;
     }).join('')}</div>`;
   }
-  const selectorHTML = `<div class="source-collapse-header" onclick="toggleSourceList()" id="source-collapse-hdr"><span id="source-collapse-label">${escapeHTML(activeLbl)}</span><span id="source-collapse-arrow">${_IC.chevD}</span></div>${sourceListHTML}`;
+  const tripBarHTML = `<div id="trip-bar-slot"></div>`;
+  const selectorHTML = tripBarHTML + `<div class="source-collapse-header" onclick="toggleSourceList()" id="source-collapse-hdr"><span id="source-collapse-label">${escapeHTML(activeLbl)}</span><span id="source-collapse-arrow">${_IC.chevD}</span></div>${sourceListHTML}`;
   const notesWidget = loggedInUser ? `<div class="notes-widget"><div class="notes-label">My Notes</div><textarea class="notes-textarea" id="notes-textarea" placeholder="Your thoughts on this show…" oninput="scheduleNoteSave()"></textarea><div class="notes-saved" id="notes-saved"></div></div>` : '';
   const tourSection = `<div class="tour-section"><div class="tour-header" onclick="toggleTour()"><span>On This Tour</span><span id="tour-arrow">${_IC.chevR}</span></div><div class="tour-list" id="tour-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
   const venueSection = `<div class="venue-section"><div class="venue-header" onclick="toggleVenue()"><span id="venue-header-text">Venue History</span><span id="venue-arrow">${_IC.chevR}</span></div><div class="venue-list" id="venue-list"><div class="loading" style="padding:10px 16px">Loading</div></div></div>`;
@@ -2129,6 +2151,8 @@ function renderSourceButtons() {
   loadParkingLot(currentShowDate);
   loadShowWeather(currentShowDate);
   loadShowReleases(currentShowDate);
+  tripUpdateBar();
+  if (_tripMode) tripResolveNext();
 }
 
 async function loadShowReleases(date) {
@@ -2331,6 +2355,194 @@ function toggleSourceList() {
   if (arrow) arrow.innerHTML = collapsed ? _IC.chevR : _IC.chevD;
 }
 
+// ── TRIP MODE ────────────────────────────────────────────────────────────────
+// When toggled on, after the last track of a show ends, playback auto-advances
+// to the next-night show in the same tour run, preferring the same source
+// type. AirPlay-safe per the audio architecture (no preload AVPlayer for the
+// next show, no .load() on AirPlay-active element, MediaSession metadata set
+// before .play() resolves).
+let _tripMode = false;
+let _tripNext = null;             // {date, venue, sourceId, firstTrack:{title,mp3_url}}
+let _tripPeekTimer = null;
+let _tripPeekDismissed = false;   // reset per show
+let _tripLastTrackArmed = false;  // peek scheduled, cache warmed
+try { _tripMode = localStorage.getItem('sof_trip_mode') === '1'; } catch(e) {}
+
+function toggleTripMode() {
+  _tripMode = !_tripMode;
+  try { localStorage.setItem('sof_trip_mode', _tripMode ? '1' : '0'); } catch(e) {}
+  _tripPeekDismissed = false;
+  tripDismissPeek();
+  if (_tripMode) {
+    tripResolveNext();
+  } else {
+    _tripNext = null;
+    tripUpdateBar();
+  }
+}
+
+function tripUpdateBar() {
+  const slot = document.getElementById('trip-bar-slot');
+  if (!slot) return;
+  if (!_tripMode) {
+    slot.innerHTML = `<div class="trip-bar"><button class="trip-toggle" onclick="toggleTripMode()" title="When on, auto-advances to the next show in this tour run after the encore">🚌 Trip mode</button></div>`;
+    return;
+  }
+  let destHTML = `<span class="trip-dest">resolving next show…</span>`;
+  if (_tripNext === null) {
+    // still resolving — leave the placeholder
+  } else if (_tripNext === false) {
+    destHTML = `<span class="trip-dest">last night of this run · won't auto-advance</span>`;
+  } else {
+    const venueName = _tripNext.venue?.name ? ` @ ${escapeHTML(_tripNext.venue.name)}` : '';
+    destHTML = `<span class="trip-dest">→ <strong>${escapeHTML(_tripNext.date)}</strong>${venueName}</span>`;
+  }
+  slot.innerHTML = `<div class="trip-bar"><button class="trip-toggle active" onclick="toggleTripMode()" title="Click to disable">🚌 TRIP</button>${destHTML}</div>`;
+}
+
+async function tripResolveNext() {
+  _tripNext = null;
+  tripUpdateBar();
+  if (!_tripMode || !currentShowDate) return;
+  const seedDate = currentShowDate;
+  try {
+    const tourRes = await fetch(`/api/shows/${seedDate}/tour`);
+    if (!tourRes.ok) { _tripNext = false; tripUpdateBar(); return; }
+    const tour = await tourRes.json();
+    if (!Array.isArray(tour)) { _tripNext = false; tripUpdateBar(); return; }
+    const later = tour
+      .filter(s => s.id && s.id > seedDate)
+      .sort((a, b) => a.id.localeCompare(b.id));
+    if (!later.length) { if (currentShowDate === seedDate) { _tripNext = false; tripUpdateBar(); } return; }
+    const next = later[0];
+    // Same-run heuristic: within 7 days of current show
+    const dCur = new Date(seedDate);
+    const dNxt = new Date(next.id);
+    if ((dNxt - dCur) / 86400000 > 7) { if (currentShowDate === seedDate) { _tripNext = false; tripUpdateBar(); } return; }
+    const srcRes = await fetch(`/api/shows/${next.id}/sources`);
+    if (!srcRes.ok) { if (currentShowDate === seedDate) { _tripNext = false; tripUpdateBar(); } return; }
+    const sources = await srcRes.json();
+    if (!Array.isArray(sources) || !sources.length) { if (currentShowDate === seedDate) { _tripNext = false; tripUpdateBar(); } return; }
+    const curType = (allSources[activeSourceIdx]?.source_type) || 'UNK';
+    let pickIdx = sources.findIndex(s => s.source_type === curType);
+    if (pickIdx < 0) pickIdx = 0;
+    const pickSrc = sources[pickIdx];
+    let firstTrack = null;
+    try {
+      const tRes = await fetch(`/api/sources/${pickSrc.id}/tracks`);
+      if (tRes.ok) {
+        const tData = await tRes.json();
+        const sets = tData.sets || [];
+        for (const set of sets) {
+          if (set.tracks && set.tracks.length) {
+            const t0 = set.tracks[0];
+            firstTrack = { title: t0.title, mp3_url: t0.mp3_url || t0.flac_url };
+            break;
+          }
+        }
+      }
+    } catch(e) {}
+    if (currentShowDate !== seedDate) return; // user moved on — discard
+    _tripNext = {
+      date: next.id,
+      venue: next.venue || {},
+      sourceId: pickSrc.id,
+      firstTrack: firstTrack,
+    };
+    tripUpdateBar();
+  } catch(e) {
+    if (currentShowDate === seedDate) { _tripNext = false; tripUpdateBar(); }
+  }
+}
+
+function tripDismissPeek() {
+  const el = document.getElementById('trip-peek');
+  if (el) el.remove();
+}
+
+function tripShowPeek() {
+  if (_tripPeekDismissed) return;
+  if (!_tripNext || !_tripNext.date) return;
+  if (document.getElementById('trip-peek')) return;
+  const venueName = _tripNext.venue?.name ? ` @ ${escapeHTML(_tripNext.venue.name)}` : '';
+  const el = document.createElement('div');
+  el.id = 'trip-peek';
+  el.className = 'trip-peek';
+  el.innerHTML = `<span class="trip-peek-text">🚌 Heading to <strong>${escapeHTML(_tripNext.date)}</strong>${venueName} →</span>`
+    + `<button class="trip-peek-dismiss" onclick="tripCancelPeek()" title="Don't auto-advance">✕</button>`;
+  document.body.appendChild(el);
+}
+
+function tripCancelPeek() {
+  // User dismissed peek — cancel auto-advance for THIS transition. Trip mode
+  // stays on for future shows.
+  _tripPeekDismissed = true;
+  tripDismissPeek();
+  clearTimeout(_tripPeekTimer);
+  _tripPeekTimer = null;
+}
+
+function tripSchedulePeek() {
+  clearTimeout(_tripPeekTimer);
+  _tripPeekTimer = null;
+  if (!_tripMode || !_tripNext || !_tripNext.date) return;
+  const sched = () => {
+    if (!audio.duration || !isFinite(audio.duration)) {
+      audio.addEventListener('loadedmetadata', sched, { once: true });
+      return;
+    }
+    const remaining = audio.duration - audio.currentTime;
+    const peekIn = (remaining * 1000) - 8000;
+    if (peekIn <= 0) { tripShowPeek(); return; }
+    _tripPeekTimer = setTimeout(tripShowPeek, peekIn);
+  };
+  sched();
+}
+
+async function tripAdvanceToNextShow() {
+  if (!_tripMode || !_tripNext || !_tripNext.date) return;
+  if (_tripPeekDismissed) return;  // user opted out of this transition
+  const dest = _tripNext;
+  // Set MediaSession metadata BEFORE play resolves so AirPlay receiver
+  // picks it up cleanly.
+  if ('mediaSession' in navigator && dest.firstTrack) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: dest.firstTrack.title || '—',
+        artist: 'Grateful Dead',
+        album: `${dest.date}${dest.venue?.name ? ' — ' + dest.venue.name : ''}`,
+      });
+    } catch(e) {}
+  }
+  tripDismissPeek();
+  // Navigate UI: year highlight, shows list, sources, tracks
+  const showId = dest.date;
+  const year = showId.slice(0, 4);
+  document.querySelectorAll('.year-item').forEach(el => {
+    el.classList.toggle('active', el.querySelector('span')?.textContent === year);
+  });
+  await loadShows(year);
+  const showItem = document.getElementById(`show-item-${showId}`);
+  if (showItem) {
+    document.querySelectorAll('.show-item').forEach(x => x.classList.remove('active'));
+    showItem.classList.add('active');
+    showItem.scrollIntoView({ block: 'center' });
+  }
+  await loadSources(showId, showId, dest.venue || {});
+  let useIdx = allSources.findIndex(s => String(s.id) === String(dest.sourceId));
+  if (useIdx < 0) useIdx = 0;
+  await loadSourceTracks(useIdx);
+  if (currentTracks.length > 0) {
+    // playTrack uses the AirPlay-safe src= + play() pattern (no .load() when
+    // AirPlay is active). The bytes for currentTracks[0].mp3_url were warmed
+    // via _warmHttpCache when the previous show's last track started.
+    playTrack(0);
+  }
+  // Resolve the NEXT next show for the freshly loaded one
+  _tripLastTrackArmed = false;
+}
+
+// ── SOURCE FILTER ────────────────────────────────────────────────────────────
 let _sourceFilter = 'ALL';
 function setSourceFilter(type) {
   _sourceFilter = type;
@@ -2514,6 +2726,15 @@ function playTrack(idx) {
   _preload75Done = false;
   preloadTrack(idx + 1);
   updatePlaybackUI(idx);
+  // Trip Mode: when last track of show starts, warm next show's first track
+  // (HTTP-cache only — no AVPlayer instantiation) and schedule the peek
+  // banner for 8s before track end.
+  if (_tripMode && _tripNext && _tripNext.firstTrack?.mp3_url
+      && idx === currentTracks.length - 1 && !_tripLastTrackArmed) {
+    _tripLastTrackArmed = true;
+    _warmHttpCache(_tripNext.firstTrack.mp3_url);
+    tripSchedulePeek();
+  }
   // Resync the visualizer's mirror-element to whichever <audio> is now active.
   // Required because handoff/splice swaps don't fire a fresh 'play' event
   // (the new element was already playing silently), so onPlay's auto-sync
@@ -2602,6 +2823,15 @@ function onTimeUpdate() {
       }));
     } catch(e) {}
   }
+  // Trip Mode peek drift recheck: AirPlay can throttle/skew timeupdate vs the
+  // scheduled setTimeout. If we're armed, on the last track, and within 8s of
+  // end, ensure the peek is visible.
+  if (_tripMode && _tripLastTrackArmed && _tripNext && _tripNext.date
+      && !_tripPeekDismissed && !document.getElementById('trip-peek')
+      && audio.duration && isFinite(audio.duration)) {
+    const remaining = audio.duration - audio.currentTime;
+    if (remaining > 0 && remaining <= 8) tripShowPeek();
+  }
 }
 
 function updateSliderFill() {
@@ -2688,6 +2918,12 @@ function onEnded() {
   // If this is the last track, just clear the resume position and stop.
   if (nextIdx >= currentTracks.length) {
     try { localStorage.removeItem('sof_resume'); } catch(e) {}
+    // Trip Mode: if a next-night show resolved and the peek wasn't dismissed,
+    // advance to it. tripAdvanceToNextShow is AirPlay-safe — uses playTrack's
+    // src= + .play() pattern, sets MediaSession metadata before play resolves.
+    if (_tripMode && _tripNext && _tripNext.date && !_tripPeekDismissed) {
+      tripAdvanceToNextShow();
+    }
     return;
   }
   // If preload failed on current source but we buffered a fallback, use it seamlessly
