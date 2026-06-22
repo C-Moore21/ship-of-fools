@@ -234,8 +234,10 @@
     .trip-toggle { background:transparent; border:1px solid var(--border); color:var(--muted); padding:3px 9px; border-radius:12px; font-family:inherit; font-size:10px; letter-spacing:0.5px; cursor:pointer; transition:background .12s, border-color .12s, color .12s; display:inline-flex; align-items:center; gap:5px; flex-shrink:0; }
     .trip-toggle:hover { color:var(--text); border-color:var(--text); }
     .trip-toggle.active { background:rgba(26,75,191,0.18); color:var(--accent2-light, #6090ff); border-color:var(--accent2); }
-    .trip-dest { color:var(--muted); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .trip-dest { color:var(--muted); font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
     .trip-dest strong { color:var(--text); font-weight:700; }
+    .trip-hint { font-style:italic; opacity:0.85; }
+    @media (max-width:480px) { .trip-hint { display:none; } }
     /* Trip Mode peek banner — fixed above player */
     .trip-peek { position:fixed; left:50%; transform:translateX(-50%); bottom:96px; background:var(--surface2); border:1px solid var(--accent2); border-left:3px solid var(--accent2); padding:10px 14px; display:flex; align-items:center; gap:14px; font-family:'Space Mono',monospace; font-size:12px; box-shadow:0 6px 24px rgba(0,0,0,0.5); z-index:150; max-width:90vw; }
     .trip-peek-text { color:var(--text); }
@@ -2385,7 +2387,10 @@ function tripUpdateBar() {
   const slot = document.getElementById('trip-bar-slot');
   if (!slot) return;
   if (!_tripMode) {
-    slot.innerHTML = `<div class="trip-bar"><button class="trip-toggle" onclick="toggleTripMode()" title="When on, auto-advances to the next show in this tour run after the encore">🚌 Trip mode</button></div>`;
+    slot.innerHTML = `<div class="trip-bar">`
+      + `<button class="trip-toggle" onclick="toggleTripMode()">🚌 Trip mode</button>`
+      + `<span class="trip-dest trip-hint">keep playing into the next night of this run when the encore ends</span>`
+      + `</div>`;
     return;
   }
   let destHTML = `<span class="trip-dest">resolving next show…</span>`;
