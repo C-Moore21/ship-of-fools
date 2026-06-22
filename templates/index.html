@@ -735,6 +735,7 @@
     .gap-bust  { background:rgba(232,51,42,0.1); color:var(--accent); border:1px solid rgba(232,51,42,0.4); }
     .gap-gap   { background:rgba(26,75,191,0.1); color:var(--accent2); border:1px solid rgba(26,75,191,0.35); }
     .gap-drought { background:rgba(232,51,42,0.22); color:#ff8a82; border:1px solid var(--accent); font-weight:700; letter-spacing:0.5px; }
+    .gap-final { background:rgba(180,140,60,0.18); color:#d4a64a; border:1px solid rgba(180,140,60,0.5); font-weight:700; letter-spacing:0.5px; }
     /* ── Listening Calendar ─────────────────────────────────────────────── */
     .listen-cal-wrap { margin-top:14px; overflow-x:auto; }
     .listen-cal-lbl { font-size:9px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; }
@@ -5041,6 +5042,8 @@ async function loadSetlistStats() {
         const yrs = (info.gap_before/365).toFixed(1);
         const rankLabel = info.drought_rank === 1 ? 'longest ever' : `#${info.drought_rank} longest`;
         badge = `<span class="gap-badge gap-drought" title="${rankLabel} gap for this song · last played ${escapeHTML(info.prev_date||'')}">DROUGHT BREAKER · ${yrs}yr</span>`;
+      } else if (info.next_date == null && info.total >= 5) {
+        badge = `<span class="gap-badge gap-final" title="Last-ever performance of this song">↓ FINAL</span>`;
       } else if (info.gap_before != null && info.gap_before >= 365 && info.total >= 5) {
         const yrs = (info.gap_before/365).toFixed(1);
         badge = `<span class="gap-badge gap-bust" title="Last played ${escapeHTML(info.prev_date||'')} — ${info.gap_before} days gap">↑ ${yrs}yr bust-out</span>`;
