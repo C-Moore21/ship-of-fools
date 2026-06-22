@@ -353,6 +353,7 @@
     .search-results { }
     .search-result-row { display:flex; align-items:center; gap:10px; padding:9px 16px; border-bottom:1px solid var(--border); cursor:pointer; transition:background 0.1s; }
     .search-result-row:hover { background:var(--surface); }
+    .search-result-row.focused { background:var(--surface2); border-left:2px solid var(--accent2); padding-left:14px; }
     .search-result-date { font-size:13px; color:var(--accent); font-weight:700; flex-shrink:0; }
     .search-result-venue { font-size:12px; color:var(--text); flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .search-result-loc { font-size:11px; color:var(--muted); flex-shrink:0; }
@@ -809,7 +810,7 @@
   <div class="search-palette">
     <div class="search-palette-input-wrap">
       <span class="search-palette-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg></span>
-      <input class="search-palette-input" id="search-input" type="text" placeholder="Search shows, venues, dates…" oninput="onSearchInput(this.value)" autocomplete="off">
+      <input class="search-palette-input" id="search-input" type="text" placeholder="Search shows, venues, dates…" oninput="onSearchInput(this.value)" onkeydown="onSearchKeydown(event)" autocomplete="off">
       <span class="search-palette-hint">esc</span>
     </div>
     <div class="search-palette-results" id="search-results"><div class="search-palette-empty">Type to search shows, venues, or dates (1977, 1977-05-08, Madison Square Garden)</div></div>
@@ -831,7 +832,7 @@
     <div class="blindtest-title">🎧 Blind Test</div>
     <div class="blindtest-sub">A new mystery track every day. Guess the date — see how the community did.</div>
     <div id="blindtest-body">
-      <button class="btn" onclick="startBlindTest()" id="blindtest-start-btn">Deal me a mystery track</button>
+      <div class="loading">Loading today's track</div>
     </div>
   </div>
 </div>
@@ -1510,10 +1511,36 @@ function onSearchInput(val) {
           <div class="search-result-venue">${escapeHTML(s.venue?.name||'')}</div>
           <div class="search-result-loc">${escapeHTML(s.venue?.location||'')}</div>
         </div>`).join('');
+      const firstRow = resultsEl.querySelector('.search-result-row');
+      if (firstRow) firstRow.classList.add('focused');
     } catch(e) {
       resultsEl.innerHTML = `<div class="search-palette-empty" style="color:var(--accent);">${escapeHTML(String(e))}</div>`;
     }
   }, 400);
+}
+
+function onSearchKeydown(e) {
+  const resultsEl = document.getElementById('search-results');
+  if (!resultsEl) return;
+  const rows = Array.from(resultsEl.querySelectorAll('.search-result-row'));
+  if (!rows.length) return;
+  let idx = rows.findIndex(r => r.classList.contains('focused'));
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    idx = (idx + 1) % rows.length;
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    idx = (idx <= 0 ? rows.length : idx) - 1;
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (idx < 0) idx = 0;
+    rows[idx].click();
+    return;
+  } else {
+    return;
+  }
+  rows.forEach((r, i) => r.classList.toggle('focused', i === idx));
+  rows[idx].scrollIntoView({ block: 'nearest' });
 }
 
 async function searchGoTo(showId, date, venue) {
@@ -1924,11 +1951,9 @@ async function loadSources(showId, date, venue) {
   }
   allSources = await res.json();
   activeSourceIdx = 0;
-  // Clear resume data if navigating to a different show
-  try {
-    const _savedCheck = JSON.parse(localStorage.getItem('sof_resume') || 'null');
-    if (_savedCheck && _savedCheck.showId !== date) localStorage.removeItem('sof_resume');
-  } catch(e) {}
+  // Resume is cleared by track-ended + explicit Start Over + overwritten by
+  // playback ticks — don't nuke it just because the user is browsing another
+  // show.
   currentShowInfo = `${date} — ${venue?.name||''}`;
   currentShowDate = date;
   currentShowLocation = venue?.location || '';
@@ -2575,19 +2600,6 @@ function onTimeUpdate() {
         currentTime: audio.currentTime
       }));
     } catch(e) {}
-  }
-  // At 75% through the current track, advance preload to N+2 if N+1 is already buffered,
-  // or kick off the fallback source fetch early if N+1 has failed.
-  if (!_preload75Done && audio.duration && (audio.currentTime / audio.duration) >= 0.75) {
-    _preload75Done = true;
-    const nextIdx = currentTrackIdx + 1;
-    if (_ps.ok) {
-      // N+1 is fully buffered — get a head start on N+2
-      preloadTrack(nextIdx + 1);
-    } else if (_ps.failed && _ps.fbSrcIdx < 0) {
-      // N+1 failed and no fallback started yet — start it now with time to spare
-      _preloadFallbackSource(nextIdx);
-    }
   }
 }
 
@@ -3759,7 +3771,7 @@ function buildHeatmap(songs, body) {
       <div style="display:flex;justify-content:space-between;font-size:9px;letter-spacing:0.5px;">
         <span>Low rated ★1</span><span style="text-align:center">Average ★3</span><span style="text-align:right">Legendary ★5</span>
       </div>
-      <div style="margin-top:4px;font-size:10px;color:var(--muted)">Opacity = archive review volume &nbsp;·&nbsp; Click a song name to view scatter plot</div>
+      <div style="margin-top:4px;font-size:10px;color:var(--muted)">Opacity = archive review volume &nbsp;·&nbsp; Click any cell or song name to view scatter plot</div>
     </div>
     <div class="obs-hm-grid-wrap">
       <div class="obs-hm-grid">
@@ -3778,6 +3790,11 @@ function buildHeatmap(songs, body) {
       renderObservatory(_obsSong);
     });
     row.querySelectorAll('.obs-hm-cell[data-year]').forEach(cell => {
+      cell.style.cursor = 'pointer';
+      cell.addEventListener('click', () => {
+        _obsSong = row.dataset.song;
+        renderObservatory(_obsSong);
+      });
       cell.addEventListener('mouseenter', () => {
         const sl = songs.find(s => s.song_id === row.dataset.song)?.label || row.dataset.song;
         tooltip.innerHTML = `<strong style="color:var(--accent)">${escapeHTML(sl)}</strong> · ${cell.dataset.year} · ★${cell.dataset.rating} · ${cell.dataset.reviews} reviews · ${cell.dataset.count} shows`;
