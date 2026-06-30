@@ -923,7 +923,7 @@
   </div>
 </div>
 <div class="player-bar">
-  <div class="player-info">
+  <div class="player-info" id="player-info" onclick="snapToPlayingShow()" style="cursor:pointer" title="Jump back to the playing show">
     <div class="player-track" id="player-track">—</div>
     <div class="player-show" id="player-show"></div>
   </div>
@@ -1191,6 +1191,7 @@ let _pbTrackIdx = -1;
 let _pbShowDate = '';
 let _pbSourceId = '';
 let _pbShowInfo = '';
+let _pbSourceType = '';      // source_type of playing source (for Trip Mode re-resolution)
 let allSources = [], activeSourceIdx = 0;
 let loggedInUser = null;
 let showRatings = {};
@@ -1981,17 +1982,17 @@ async function loadSources(showId, date, venue) {
   // Resume is cleared by track-ended + explicit Start Over + overwritten by
   // playback ticks — don't nuke it just because the user is browsing another
   // show.
-  // Reset Trip Mode per-show state (peek dismiss, armed flag, resolved next)
+  // Reset Trip Mode per-show state (peek dismiss, armed flag, resolved next).
+  // Note: _tripAdvanceCount is intentionally NOT reset here — Trip Mode keeps
+  // running through the playing show's run even when the user browses around.
+  // The counter only resets when a NEW show starts actually playing (handled
+  // inside playTrack).
   _tripPeekDismissed = false;
   _tripLastTrackArmed = false;
   _tripNext = null;
   tripDismissPeek();
   clearTimeout(_tripPeekTimer);
   _tripPeekTimer = null;
-  // Manual navigation resets the 3-show counter — Trip Mode should give the
-  // user a fresh run starting from the show they chose. Auto-advances (which
-  // set _tripAdvanceInProgress) preserve the counter so the cap actually fires.
-  if (!_tripAdvanceInProgress) _tripAdvanceCount = 0;
   currentShowInfo = `${date} — ${venue?.name||''}`;
   currentShowDate = date;
   currentShowLocation = venue?.location || '';
@@ -2371,6 +2372,35 @@ function toggleSourceList() {
   if (arrow) arrow.innerHTML = collapsed ? _IC.chevR : _IC.chevD;
 }
 
+// ── SNAP BACK TO PLAYING SHOW ────────────────────────────────────────────────
+// Click the player bar's track + show line to navigate the view back to the
+// show that's actually playing — like you never clicked away. Restores the
+// playing track's highlight and scrolls it into view. Audio is not touched
+// (no playTrack call), so the session continues uninterrupted.
+async function snapToPlayingShow() {
+  if (!_pbShowDate) return;
+  // Already viewing playing show + source — just scroll the playing track into view
+  if (_pbShowDate === currentShowDate && _pbSourceId === currentSourceId) {
+    const trackRow = document.getElementById(`track-row-${_pbTrackIdx}`);
+    if (trackRow) trackRow.scrollIntoView({ block: 'center' });
+    return;
+  }
+  // Navigate UI to playing show. tourRunGoTo loads year + show + sources.
+  await tourRunGoTo(_pbShowDate);
+  // Switch source to the playing source (if it's not already active)
+  const srcIdx = allSources.findIndex(s => String(s.id) === String(_pbSourceId));
+  if (srcIdx >= 0 && srcIdx !== activeSourceIdx) {
+    await loadSourceTracks(srcIdx);
+  }
+  // Restore the playing track highlight + scroll into view
+  if (_pbTrackIdx >= 0 && _pbTrackIdx < currentTracks.length) {
+    currentTrackIdx = _pbTrackIdx;
+    updatePlaybackUI(_pbTrackIdx);
+    const trackRow = document.getElementById(`track-row-${_pbTrackIdx}`);
+    if (trackRow) trackRow.scrollIntoView({ block: 'center' });
+  }
+}
+
 // ── TRIP MODE ────────────────────────────────────────────────────────────────
 // When toggled on, after the last track of a show ends, playback auto-advances
 // to the next-night show in the same tour run, preferring the same source
@@ -2450,31 +2480,28 @@ function tripUpdateBar() {
   slot.innerHTML = `<div class="trip-bar"><button class="trip-toggle active" onclick="toggleTripMode()" title="Click to disable">🚌 TRIP</button>${destHTML}</div>`;
 }
 
-async function tripResolveNext() {
-  _tripNext = null;
-  tripUpdateBar();
-  if (!_tripMode || !currentShowDate) return;
-  const seedDate = currentShowDate;
+// Pure resolver — no globals touched. Returns {date, venue, sourceId,
+// firstTrack} for the next-night show after seedDate, or null if there is
+// none / outside the 7-day run window / no sources.
+async function _tripResolveFor(seedDate, sourceType) {
   try {
     const tourRes = await fetch(`/api/shows/${seedDate}/tour`);
-    if (!tourRes.ok) { _tripNext = false; tripUpdateBar(); return; }
+    if (!tourRes.ok) return null;
     const tour = await tourRes.json();
-    if (!Array.isArray(tour)) { _tripNext = false; tripUpdateBar(); return; }
+    if (!Array.isArray(tour)) return null;
     const later = tour
       .filter(s => s.id && s.id > seedDate)
       .sort((a, b) => a.id.localeCompare(b.id));
-    if (!later.length) { if (currentShowDate === seedDate) { _tripNext = false; tripUpdateBar(); } return; }
+    if (!later.length) return null;
     const next = later[0];
-    // Same-run heuristic: within 7 days of current show
     const dCur = new Date(seedDate);
     const dNxt = new Date(next.id);
-    if ((dNxt - dCur) / 86400000 > 7) { if (currentShowDate === seedDate) { _tripNext = false; tripUpdateBar(); } return; }
+    if ((dNxt - dCur) / 86400000 > 7) return null;
     const srcRes = await fetch(`/api/shows/${next.id}/sources`);
-    if (!srcRes.ok) { if (currentShowDate === seedDate) { _tripNext = false; tripUpdateBar(); } return; }
+    if (!srcRes.ok) return null;
     const sources = await srcRes.json();
-    if (!Array.isArray(sources) || !sources.length) { if (currentShowDate === seedDate) { _tripNext = false; tripUpdateBar(); } return; }
-    const curType = (allSources[activeSourceIdx]?.source_type) || 'UNK';
-    let pickIdx = sources.findIndex(s => s.source_type === curType);
+    if (!Array.isArray(sources) || !sources.length) return null;
+    let pickIdx = sources.findIndex(s => s.source_type === sourceType);
     if (pickIdx < 0) pickIdx = 0;
     const pickSrc = sources[pickIdx];
     let firstTrack = null;
@@ -2492,17 +2519,27 @@ async function tripResolveNext() {
         }
       }
     } catch(e) {}
-    if (currentShowDate !== seedDate) return; // user moved on — discard
-    _tripNext = {
+    return {
       date: next.id,
       venue: next.venue || {},
       sourceId: pickSrc.id,
       firstTrack: firstTrack,
     };
-    tripUpdateBar();
   } catch(e) {
-    if (currentShowDate === seedDate) { _tripNext = false; tripUpdateBar(); }
+    return null;
   }
+}
+
+async function tripResolveNext() {
+  _tripNext = null;
+  tripUpdateBar();
+  if (!_tripMode || !currentShowDate) return;
+  const seedDate = currentShowDate;
+  const sourceType = (allSources[activeSourceIdx]?.source_type) || 'UNK';
+  const result = await _tripResolveFor(seedDate, sourceType);
+  if (currentShowDate !== seedDate) return; // user moved on — discard
+  _tripNext = result || false;
+  tripUpdateBar();
 }
 
 function tripDismissPeek() {
@@ -2513,6 +2550,10 @@ function tripDismissPeek() {
 function tripShowPeek() {
   if (_tripPeekDismissed) return;
   if (!_tripNext || !_tripNext.date) return;
+  // If the user has navigated away from the playing show, the _tripNext
+  // shown in the bar is for the BROWSED show — not the actual destination
+  // Trip will advance to. Skip the peek rather than show wrong information.
+  if (_pbShowDate && _pbShowDate !== currentShowDate) return;
   if (document.getElementById('trip-peek')) return;
   const venueName = _tripNext.venue?.name ? ` @ ${escapeHTML(_tripNext.venue.name)}` : '';
   const el = document.createElement('div');
@@ -2549,13 +2590,12 @@ function tripSchedulePeek() {
   sched();
 }
 
-async function tripAdvanceToNextShow() {
-  if (!_tripMode || !_tripNext || !_tripNext.date) return;
-  if (_tripPeekDismissed) return;  // user opted out of this transition
-  // Cap on auto-advances per session — after _TRIP_MAX_ADVANCES auto-jumps
-  // (3 shows total counting the one the user manually started), turn off
-  // and surface a one-tap re-enable notice. Keeps unattended Trip Mode
-  // from running all night.
+// Called by onEnded when the playing show's last track finishes. Resolves
+// the next-night for the PLAYING show (not whatever's browsed), handles the
+// 3-show cap, and triggers the advance.
+async function tripMaybeAdvancePlayingShow() {
+  if (!_tripMode) return;
+  if (_tripPeekDismissed) return;
   if (_tripAdvanceCount >= _TRIP_MAX_ADVANCES) {
     _tripMode = false;
     try { localStorage.setItem('sof_trip_mode', '0'); } catch(e) {}
@@ -2566,7 +2606,34 @@ async function tripAdvanceToNextShow() {
     tripShowEndNotice();
     return;
   }
-  const dest = _tripNext;
+  // Use already-resolved _tripNext if user is still on the playing show;
+  // otherwise re-resolve for _pbShowDate so navigation doesn't redirect Trip
+  // through the browsed show's run.
+  let dest = null;
+  if (_pbShowDate && _pbShowDate === currentShowDate && _tripNext && _tripNext.date) {
+    dest = _tripNext;
+  } else if (_pbShowDate) {
+    dest = await _tripResolveFor(_pbShowDate, _pbSourceType || 'UNK');
+  }
+  if (!dest || !dest.date) return; // no next show in run; Trip stays on but stops
+  tripAdvanceToNextShow(dest);
+}
+
+async function tripAdvanceToNextShow(destOverride) {
+  if (!_tripMode) return;
+  if (_tripPeekDismissed) return;
+  if (_tripAdvanceCount >= _TRIP_MAX_ADVANCES) {
+    _tripMode = false;
+    try { localStorage.setItem('sof_trip_mode', '0'); } catch(e) {}
+    _tripNext = null;
+    _tripAdvanceCount = 0;
+    tripDismissPeek();
+    tripUpdateBar();
+    tripShowEndNotice();
+    return;
+  }
+  const dest = destOverride || _tripNext;
+  if (!dest || !dest.date) return;
   // Set MediaSession metadata BEFORE play resolves so AirPlay receiver
   // picks it up cleanly.
   if ('mediaSession' in navigator && dest.firstTrack) {
@@ -2796,14 +2863,22 @@ function playTrack(idx) {
   }
 
   _preload75Done = false;
+  // If audio is starting on a different show than what was playing, the user
+  // has begun a fresh Trip Mode run — reset the 3-show counter. Auto-advances
+  // (which set _tripAdvanceInProgress) skip this reset so the cap actually
+  // fires after 3 shows of an auto-advance chain.
+  if (!_tripAdvanceInProgress && _pbShowDate && _pbShowDate !== currentShowDate) {
+    _tripAdvanceCount = 0;
+  }
   // Snapshot the playback context — onEnded / handoff / crossfade / listen
   // attribution all read from these (not currentTracks/currentTrackIdx) so
   // audio keeps playing the right show even if the user browses to another.
-  _pbTracks    = currentTracks.slice();
-  _pbTrackIdx  = idx;
-  _pbShowDate  = currentShowDate;
-  _pbSourceId  = currentSourceId;
-  _pbShowInfo  = currentShowInfo;
+  _pbTracks     = currentTracks.slice();
+  _pbTrackIdx   = idx;
+  _pbShowDate   = currentShowDate;
+  _pbSourceId   = currentSourceId;
+  _pbShowInfo   = currentShowInfo;
+  _pbSourceType = (allSources[activeSourceIdx]?.source_type) || 'UNK';
   preloadTrack(idx + 1);
   updatePlaybackUI(idx);
   // Trip Mode: when last track of show starts, warm next show's first track
@@ -3006,11 +3081,12 @@ function onEnded() {
   // to Trip Mode for the next-night auto-advance.
   if (nextIdx >= _pbTracks.length) {
     try { localStorage.removeItem('sof_resume'); } catch(e) {}
-    // Trip Mode auto-advance only fires if the user is still viewing the
-    // playing show — navigating away breaks the run intent, and _tripNext is
-    // resolved against the BROWSED show (not the playing one).
-    if (userOnPlayingShow && _tripMode && _tripNext && _tripNext.date && !_tripPeekDismissed) {
-      tripAdvanceToNextShow();
+    // Trip Mode auto-advances regardless of where the user has browsed — it
+    // only stops when the user explicitly toggles it off or hits the 3-show
+    // cap. tripMaybeAdvancePlayingShow re-resolves next-night against the
+    // PLAYING show (_pbShowDate), not whatever's currently in view.
+    if (_tripMode && !_tripPeekDismissed) {
+      tripMaybeAdvancePlayingShow();
     }
     return;
   }
