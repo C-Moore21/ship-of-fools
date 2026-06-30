@@ -1181,6 +1181,16 @@ _bindRemotePlaybackWatcher(audioA);
 _bindRemotePlaybackWatcher(audioB);
 let currentTracks = [], currentTrackIdx = -1, currentShowInfo = '';
 let currentSourceId = '', currentShowDate = '', currentShowLocation = '';
+// PLAYBACK CONTEXT — what's actually on audio.src right now. Snapshotted at
+// every playTrack call so that onEnded/handoff/crossfade/listen-attribution
+// keep working when the user browses to a different show in the UI. View
+// context (currentTracks/currentTrackIdx/etc.) reflects what the user is
+// looking at; _pb* reflects what's actually playing. These can diverge.
+let _pbTracks = [];          // shallow copies of the playing show's tracks
+let _pbTrackIdx = -1;
+let _pbShowDate = '';
+let _pbSourceId = '';
+let _pbShowInfo = '';
 let allSources = [], activeSourceIdx = 0;
 let loggedInUser = null;
 let showRatings = {};
@@ -2712,8 +2722,11 @@ function _warmHttpCache(url) {
 }
 
 function preloadTrack(idx) {
-  if (idx < 0 || idx >= currentTracks.length) return;
-  const url = currentTracks[idx].mp3_url;
+  // Use playback context — preload should target the playing show's tracks,
+  // not whatever show the user is browsing.
+  const tracks = _pbTracks.length ? _pbTracks : currentTracks;
+  if (idx < 0 || idx >= tracks.length) return;
+  const url = tracks[idx].mp3_url;
   if (!url || _ps.idx === idx) return; // already loading/loaded this index
   // While AirPlay/Remote Playback is active, a second <audio> element holding
   // its own AVPlayer breaks routing. Warm the HTTP cache instead — the bytes
@@ -2783,6 +2796,14 @@ function playTrack(idx) {
   }
 
   _preload75Done = false;
+  // Snapshot the playback context — onEnded / handoff / crossfade / listen
+  // attribution all read from these (not currentTracks/currentTrackIdx) so
+  // audio keeps playing the right show even if the user browses to another.
+  _pbTracks    = currentTracks.slice();
+  _pbTrackIdx  = idx;
+  _pbShowDate  = currentShowDate;
+  _pbSourceId  = currentSourceId;
+  _pbShowInfo  = currentShowInfo;
   preloadTrack(idx + 1);
   updatePlaybackUI(idx);
   // Trip Mode: when last track of show starts, warm next show's first track
@@ -2844,10 +2865,12 @@ let _lastUIUpdate = 0;
 function onTimeUpdate() {
   if (this !== audio) return;
   const now = performance.now();
-  // 75% trigger runs every event (needs accurate position)
+  // 75% trigger runs every event (needs accurate position). Use playback
+  // context so we preload the playing show's next-next track, not whatever
+  // the user has navigated to.
   if (!_preload75Done && audio.duration && (audio.currentTime / audio.duration) >= 0.75) {
     _preload75Done = true;
-    const nextIdx = currentTrackIdx + 1;
+    const nextIdx = _pbTrackIdx + 1;
     if (_ps.ok) {
       preloadTrack(nextIdx + 1);
     } else if (_ps.failed && _ps.fbSrcIdx < 0) {
@@ -2871,13 +2894,14 @@ function onTimeUpdate() {
     updateSliderFill();
   }
   updatePositionState();
-  // Save resume position to localStorage
-  if (currentShowDate && currentSourceId && currentTrackIdx >= 0) {
+  // Save resume position to localStorage — keyed to the PLAYING show, not
+  // whatever show the user is currently browsing in the UI.
+  if (_pbShowDate && _pbSourceId && _pbTrackIdx >= 0) {
     try {
       localStorage.setItem('sof_resume', JSON.stringify({
-        showId: currentShowDate,
-        sourceId: currentSourceId,
-        trackIdx: currentTrackIdx,
+        showId: _pbShowDate,
+        sourceId: _pbSourceId,
+        trackIdx: _pbTrackIdx,
         currentTime: audio.currentTime
       }));
     } catch(e) {}
@@ -2973,20 +2997,27 @@ function onEnded() {
   if (this !== audio) return;
   // Crossfade is mid-flight — let it finish the swap; ignore the ended event.
   if (_crossfadeActive) return;
-  const nextIdx = currentTrackIdx + 1;
-  // If this is the last track, just clear the resume position and stop.
-  if (nextIdx >= currentTracks.length) {
+  // Advance via PLAYBACK context (not view context). Survives the user
+  // browsing to a different show in the UI mid-track.
+  if (!_pbTracks.length) return;
+  const nextIdx = _pbTrackIdx + 1;
+  const userOnPlayingShow = (_pbShowDate === currentShowDate && _pbSourceId === currentSourceId);
+  // If this was the last track, clear the resume position and (maybe) hand off
+  // to Trip Mode for the next-night auto-advance.
+  if (nextIdx >= _pbTracks.length) {
     try { localStorage.removeItem('sof_resume'); } catch(e) {}
-    // Trip Mode: if a next-night show resolved and the peek wasn't dismissed,
-    // advance to it. tripAdvanceToNextShow is AirPlay-safe — uses playTrack's
-    // src= + .play() pattern, sets MediaSession metadata before play resolves.
-    if (_tripMode && _tripNext && _tripNext.date && !_tripPeekDismissed) {
+    // Trip Mode auto-advance only fires if the user is still viewing the
+    // playing show — navigating away breaks the run intent, and _tripNext is
+    // resolved against the BROWSED show (not the playing one).
+    if (userOnPlayingShow && _tripMode && _tripNext && _tripNext.date && !_tripPeekDismissed) {
       tripAdvanceToNextShow();
     }
     return;
   }
-  // If preload failed on current source but we buffered a fallback, use it seamlessly
-  if (_ps.failed && _ps.fbSrcIdx >= 0 && _ps.fbTracks) {
+  // If preload failed on current source but a fallback source is buffered,
+  // switch to it. This is an inside-the-playing-show recovery — only valid
+  // when the user is still viewing that show, since it mutates view state.
+  if (userOnPlayingShow && _ps.failed && _ps.fbSrcIdx >= 0 && _ps.fbTracks) {
     const src    = allSources[_ps.fbSrcIdx];
     const tracks = _ps.fbTracks;
     const tIdx   = Math.min(nextIdx, tracks.length - 1);
@@ -3010,12 +3041,58 @@ function onEnded() {
         audio.load();
         audio.play().catch(() => {});
       }
+      // Re-snapshot _pb to the fallback source
+      _pbTracks   = currentTracks.slice();
+      _pbTrackIdx = tIdx;
+      _pbSourceId = currentSourceId;
       updatePlaybackUI(tIdx);
       preloadTrack(tIdx + 1);
       return;
     }
   }
-  playTrack(nextIdx);
+  // Normal advance — direct against _pb context so navigating-away doesn't
+  // jump the audio into the wrong show's tracklist.
+  const nextTrack = _pbTracks[nextIdx];
+  if (!nextTrack || !nextTrack.mp3_url) return;
+  flushListen();
+  _newListenSession();
+  _pbTrackIdx = nextIdx;
+  const isCasting = _airplayActive
+    || (audio.remote && audio.remote.state === 'connected')
+    || audio.webkitCurrentPlaybackTargetIsWireless;
+  // Try gapless splice if preload is hot and casting is off
+  if (!isCasting && preload.src === nextTrack.mp3_url && preload.readyState >= 3) {
+    [audio, preload] = [preload, audio];
+    audio.muted = false;
+    audio.volume = 1;
+    audio.play().catch(() => {});
+    preload.muted = true;
+    preload.volume = 0;
+    try { preload.pause(); } catch(e) {}
+  } else {
+    audio.src = nextTrack.mp3_url;
+    if (!isCasting) audio.load();
+    audio.play().catch(() => {});
+  }
+  // MediaSession metadata for the new track (so the AirPlay receiver and
+  // OS-level controls show the right title).
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: nextTrack.title || '—',
+        artist: 'Grateful Dead',
+        album: _pbShowInfo || '',
+      });
+    } catch(e) {}
+  }
+  _preload75Done = false;
+  // Update view state only when the user is still viewing the playing show.
+  if (userOnPlayingShow) {
+    currentTrackIdx = nextIdx;
+    updatePlaybackUI(nextIdx);
+    preloadTrack(nextIdx + 1);
+  }
+  if (typeof _syncVizAudio === 'function') _syncVizAudio();
 }
 
 // ── Equal-power crossfade between tracks ─────────────────────────────────
@@ -3042,9 +3119,11 @@ const HANDOFF_LEAD_S = 0.6;  // start preload silently 600ms before end so audio
                              // 50-200ms play-start latency that causes the blip.
 function _maybeStartGaplessHandoff() {
   if (_gaplessHandoffStarted) return;
-  const nextIdx = currentTrackIdx + 1;
-  if (nextIdx >= currentTracks.length) return;
-  const t = currentTracks[nextIdx];
+  // Use playback context — handoff must target the playing show's next track,
+  // not whatever show the user is currently browsing.
+  const nextIdx = _pbTrackIdx + 1;
+  if (nextIdx >= _pbTracks.length) return;
+  const t = _pbTracks[nextIdx];
   if (!t || !t.mp3_url) return;
   if (preload.src !== t.mp3_url || preload.readyState < 3) return;
   // Skip on AirPlay / Cast / iOS — running two audio elements at once
@@ -3071,12 +3150,14 @@ function _maybeStartGaplessHandoff() {
 
 function _maybeStartCrossfade() {
   if (_crossfadeActive) return;
-  const nextIdx = currentTrackIdx + 1;
-  if (nextIdx >= currentTracks.length) return;
+  // Use playback context — crossfade targets the playing show's next track,
+  // regardless of what the user is browsing.
+  const nextIdx = _pbTrackIdx + 1;
+  if (nextIdx >= _pbTracks.length) return;
   // Don't crossfade segues — current track flows directly into the next
-  const cur = currentTracks[currentTrackIdx];
+  const cur = _pbTracks[_pbTrackIdx];
   if (_isSegueTrack(cur)) return;
-  const t = currentTracks[nextIdx];
+  const t = _pbTracks[nextIdx];
   if (!t || !t.mp3_url) return;
   // Need preload to be ready and matching the next track URL
   if (preload.src !== t.mp3_url || preload.readyState < 3) return;
@@ -3119,7 +3200,8 @@ function _doCrossfade(nextIdx) {
 
 function _finalizeCrossfade(nextIdx) {
   _newListenSession();
-  currentTrackIdx = nextIdx;
+  // Advance the playback context — audio has actually moved to nextIdx.
+  _pbTrackIdx = nextIdx;
   // Pause + reset the outgoing element
   try { audio.pause(); audio.currentTime = 0; audio.volume = 1; } catch(e) {}
   // Swap roles
@@ -3129,8 +3211,12 @@ function _finalizeCrossfade(nextIdx) {
   _crossfadeActive = false;
   _gaplessHandoffStarted = false;
   _preload75Done = false;
-  preloadTrack(currentTrackIdx + 1);
-  updatePlaybackUI(currentTrackIdx);
+  preloadTrack(nextIdx + 1);
+  // Update view UI only if user is still viewing the playing show.
+  if (_pbShowDate === currentShowDate && _pbSourceId === currentSourceId) {
+    currentTrackIdx = nextIdx;
+    updatePlaybackUI(nextIdx);
+  }
   if (typeof _syncVizAudio === 'function') _syncVizAudio();
 }
 
@@ -3382,7 +3468,9 @@ function listenTick() {
 }
 
 function _listenPayload() {
-  const track = currentTracks[currentTrackIdx];
+  // Use playback context — attribute the listen to the show that's actually
+  // playing, not whatever show the user happens to be browsing in the UI.
+  const track = _pbTracks[_pbTrackIdx];
   if (!track) return null;
   const secs = Math.round(listenSeconds);
   if (secs < 5) return null;
@@ -3390,9 +3478,9 @@ function _listenPayload() {
     session_id:  listenSessionId,
     track_id:    track._track_id || '',
     track_title: track.title || '',
-    show_id:     currentShowDate,
-    show_date:   currentShowDate,
-    source_id:   currentSourceId,
+    show_id:     _pbShowDate,
+    show_date:   _pbShowDate,
+    source_id:   _pbSourceId,
     seconds:     secs,
   };
 }
