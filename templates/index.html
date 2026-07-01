@@ -2822,7 +2822,7 @@ function playTrack(idx) {
   // Cancel any in-flight crossfade — user-initiated play takes priority
   if (_crossfadeActive) {
     _crossfadeActive = false;
-    try { audio.volume = 1; preload.volume = 0; preload.muted = true; preload.pause(); } catch(e) {}
+    try { audio.volume = _userVol(); preload.volume = 0; preload.muted = true; preload.pause(); } catch(e) {}
   }
   flushListen(); // save time on the outgoing track before switching
   _newListenSession(); // fresh session ID for the new track
@@ -2846,7 +2846,7 @@ function playTrack(idx) {
     // for non-segues the overlap is imperceptible.
     [audio, preload] = [preload, audio];
     audio.muted = false;
-    audio.volume = 1; // reset in case a cancelled crossfade left it modified
+    audio.volume = _userVol(); // honor user's slider setting after the splice
     audio.play().catch(() => {});
     preload.muted = true;
     preload.volume = 0;
@@ -3014,6 +3014,15 @@ const volSlider = document.getElementById('vol-slider');
 const volIcon   = document.getElementById('vol-icon');
 let lastVol = 1;
 
+// Read the user's current volume from the slider so track-advance / splice /
+// crossfade paths don't stomp it back to 1.
+function _userVol() {
+  const el = document.getElementById('vol-slider');
+  if (!el) return 1;
+  const v = parseFloat(el.value);
+  return isNaN(v) ? 1 : v;
+}
+
 function updateVolIcon(v) {
   volIcon.innerHTML = v === 0 ? _IC.volMu : v < 0.4 ? _IC.volLo : _IC.volHi;
 }
@@ -3140,7 +3149,7 @@ function onEnded() {
   if (!isCasting && preload.src === nextTrack.mp3_url && preload.readyState >= 3) {
     [audio, preload] = [preload, audio];
     audio.muted = false;
-    audio.volume = 1;
+    audio.volume = _userVol(); // honor user's slider setting
     audio.play().catch(() => {});
     preload.muted = true;
     preload.volume = 0;
@@ -3259,12 +3268,15 @@ function _doCrossfade(nextIdx) {
   } catch(e) { _crossfadeActive = false; return; }
 
   const start = performance.now();
+  // Scale the equal-power crossfade curve by the user's chosen volume so
+  // the fade lands at _userVol() (not blast to 1) on the incoming track.
+  const targetVol = _userVol();
   const tick = (now) => {
     const progress = Math.min((now - start) / FADE_DURATION_MS, 1);
     const outGain = Math.cos(progress * Math.PI / 2);
     const inGain  = Math.sin(progress * Math.PI / 2);
-    try { audio.volume = Math.max(0, Math.min(1, outGain)); } catch(e) {}
-    try { preload.volume = Math.max(0, Math.min(1, inGain)); } catch(e) {}
+    try { audio.volume   = Math.max(0, Math.min(1, outGain * targetVol)); } catch(e) {}
+    try { preload.volume = Math.max(0, Math.min(1, inGain  * targetVol)); } catch(e) {}
     if (progress < 1) {
       requestAnimationFrame(tick);
     } else {
@@ -3278,8 +3290,8 @@ function _finalizeCrossfade(nextIdx) {
   _newListenSession();
   // Advance the playback context — audio has actually moved to nextIdx.
   _pbTrackIdx = nextIdx;
-  // Pause + reset the outgoing element
-  try { audio.pause(); audio.currentTime = 0; audio.volume = 1; } catch(e) {}
+  // Pause + reset the outgoing element (will become preload after swap)
+  try { audio.pause(); audio.currentTime = 0; audio.volume = _userVol(); } catch(e) {}
   // Swap roles
   [audio, preload] = [preload, audio];
   // The new preload (old active) goes back to muted/silent
