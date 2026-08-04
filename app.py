@@ -936,16 +936,24 @@ def _norm_album_name(name):
     import re as _r
     return _r.sub(r'[^a-z0-9]+', '', (name or '').lower())
 
+def _track_sort_key(t, ord_idx=0):
+    """Sort key: numbered tracks first (in number order), then un-numbered
+    tracks in their original file order. Fixes sources where the taper
+    numbered only one set — un-numbered files were sorting to position 0
+    and displacing the numbered ones."""
+    tn = t.get("track") or 0
+    return (1 if tn == 0 else 0, tn, ord_idx)
+
 def _fix_cached_sets(tracks_doc):
-    """Re-coalesce sets in a cached tracks_doc using fuzzy album matching.
+    """Re-coalesce sets in a cached tracks_doc using fuzzy album matching,
+    AND re-sort tracks within each set so un-numbered files land at the end.
     Idempotent — re-running on an already-clean doc is a no-op. Handles
-    existing MongoDB cache entries with split-by-typo set structure
-    without requiring a re-seed."""
+    existing MongoDB cache entries built before the sort fix."""
     if not tracks_doc or not isinstance(tracks_doc, dict):
         return tracks_doc
     sets = tracks_doc.get("sets")
-    if not sets or not isinstance(sets, list) or len(sets) < 2:
-        return tracks_doc  # nothing to coalesce
+    if not sets or not isinstance(sets, list):
+        return tracks_doc
     by_norm = {}
     display = {}
     for s in sets:
@@ -954,16 +962,37 @@ def _fix_cached_sets(tracks_doc):
             by_norm[norm] = []
             display[norm] = s.get("name", "")
         by_norm[norm].extend(s.get("tracks", []))
-    # Sort tracks within each merged set by track number
+    # Re-sort tracks within each merged set using the new key that pushes
+    # un-numbered tracks to the end. Preserve original relative order for
+    # ties via enumerate.
     for tracks in by_norm.values():
-        tracks.sort(key=lambda t: t.get("track") or 0)
-    # Sort sets by minimum track number (preserves play order)
+        indexed = list(enumerate(tracks))
+        indexed.sort(key=lambda pair: _track_sort_key(pair[1], pair[0]))
+        tracks[:] = [t for _, t in indexed]
+    # Sort sets by their FIRST-appearing track number ignoring un-numbered
+    # (since a set can be all-un-numbered — Set 2 of the Willy source is)
+    def _set_sort_val(s):
+        for t in s["tracks"]:
+            tn = t.get("track") or 0
+            if tn > 0:
+                return tn
+        return 999
     new_sets = sorted(
         [{"name": display[k], "tracks": v} for k, v in by_norm.items()],
-        key=lambda s: min((t.get("track") or 999 for t in s["tracks"]), default=999)
+        key=_set_sort_val
     )
+    # If nothing changed structurally AND track order matches, return original
     if len(new_sets) == len(sets):
-        return tracks_doc  # no merging happened, leave doc untouched
+        # Compare track orders per set to see if a re-sort occurred
+        same = True
+        for old, new in zip(sets, new_sets):
+            old_ids = [t.get("id") for t in old.get("tracks", [])]
+            new_ids = [t.get("id") for t in new.get("tracks", [])]
+            if old_ids != new_ids:
+                same = False
+                break
+        if same:
+            return tracks_doc
     out = dict(tracks_doc)
     out["sets"] = new_sets
     return out
@@ -999,7 +1028,7 @@ def source_tracks(identifier):
     # don't split tracks into multiple phantom sets.
     discs = {}            # norm_key -> list of track dicts
     disc_display = {}     # norm_key -> first-seen display name
-    for f in mp3s:
+    for ord_idx, f in enumerate(mp3s):
         album = f.get("album") or "Set 1"
         norm = _norm_album_name(album)
         if norm not in discs:
@@ -1015,10 +1044,18 @@ def source_tracks(identifier):
             "duration": _parse_duration(f.get("length")),
             "mp3_url": f"{ARCHIVE_DOWNLOAD}/{identifier}/{requests.utils.quote(f['name'])}",
             "track": track_num,
+            "_ord": ord_idx,
         })
 
+    # Sort each disc by track number. Files with no track number (track==0)
+    # get pushed to the END and preserve their original file-list order —
+    # some tapers only number one set (e.g. Set 1 gets 1..11, Set 2 all left
+    # blank). Un-numbered files sorting to position 0 would otherwise put
+    # Set 2 before Set 1. Stable sort keeps within-group order.
     for disc in discs.values():
-        disc.sort(key=lambda t: t["track"])
+        disc.sort(key=lambda t: (1 if t["track"] == 0 else 0, t["track"], t.get("_ord", 0)))
+        for t in disc:
+            t.pop("_ord", None)
 
     # Sort sets by the minimum track number within each — preserves the
     # show's actual play order even if album names sort alphabetically wrong.

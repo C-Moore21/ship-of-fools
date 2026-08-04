@@ -3174,7 +3174,14 @@ function onEnded() {
     } catch(e) {}
   }
   _preload75Done = false;
-  // Update view state only when the user is still viewing the playing show.
+  // Player bar text is global (bottom of the app) — always show what's
+  // actually playing, no matter what show the user is browsing.
+  const pbTrackEl = document.getElementById('player-track');
+  const pbShowEl  = document.getElementById('player-show');
+  if (pbTrackEl) pbTrackEl.textContent = `${nextIdx + 1}. ${nextTrack.title || ''}`;
+  if (pbShowEl)  pbShowEl.textContent  = _pbShowInfo || '';
+  // Update view state (in-panel track highlight, in-panel preloader) only
+  // when the user is still viewing the playing show.
   if (userOnPlayingShow) {
     currentTrackIdx = nextIdx;
     updatePlaybackUI(nextIdx);
@@ -3303,7 +3310,15 @@ function _finalizeCrossfade(nextIdx) {
   _gaplessHandoffStarted = false;
   _preload75Done = false;
   preloadTrack(nextIdx + 1);
-  // Update view UI only if user is still viewing the playing show.
+  // Player bar text is global — always show what's playing.
+  const nextTrack = _pbTracks[nextIdx];
+  if (nextTrack) {
+    const pbTrackEl = document.getElementById('player-track');
+    const pbShowEl  = document.getElementById('player-show');
+    if (pbTrackEl) pbTrackEl.textContent = `${nextIdx + 1}. ${nextTrack.title || ''}`;
+    if (pbShowEl)  pbShowEl.textContent  = _pbShowInfo || '';
+  }
+  // Update in-panel view UI only if user is still viewing the playing show.
   if (_pbShowDate === currentShowDate && _pbSourceId === currentSourceId) {
     currentTrackIdx = nextIdx;
     updatePlaybackUI(nextIdx);
