@@ -2379,6 +2379,9 @@ function toggleSourceList() {
 // (no playTrack call), so the session continues uninterrupted.
 async function snapToPlayingShow() {
   if (!_pbShowDate) return;
+  // Always switch to Browse view first — user could be on Leaderboard, Stats,
+  // History, My Rated, etc. and clicking the player bar should get them out.
+  showBrowse();
   // Already viewing playing show + source — just scroll the playing track into view
   if (_pbShowDate === currentShowDate && _pbSourceId === currentSourceId) {
     const trackRow = document.getElementById(`track-row-${_pbTrackIdx}`);
