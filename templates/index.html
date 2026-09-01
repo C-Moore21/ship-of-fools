@@ -6193,6 +6193,8 @@ function loungeMentionUpdate(el) {
   if (!q) return loungeMentionClose();
   const matches = _LOUNGE_MEMBERS.filter(n => n.startsWith(q.frag));
   if (!matches.length) return loungeMentionClose();
+  // Exact single-name match — close so Enter sends the message.
+  if (matches.length === 1 && matches[0] === q.frag) return loungeMentionClose();
   let picker = document.getElementById('lounge-mention-picker');
   if (!picker) {
     picker = document.createElement('div');
