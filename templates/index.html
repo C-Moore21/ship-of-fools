@@ -85,16 +85,30 @@
     .lounge-reaction.mine { background:rgba(26,75,191,0.18); border-color:var(--accent2); }
     .lounge-reaction-count { font-family:'Space Mono',monospace; font-size:10px; color:var(--muted); }
     .lounge-reaction.mine .lounge-reaction-count { color:var(--accent2-light, #6090ff); }
-    .lounge-react-add { background:transparent; border:1px dashed var(--border); border-radius:12px; padding:1px 7px; font-size:11px; cursor:pointer; color:var(--muted); opacity:0; transition:opacity .12s, color .12s, border-color .12s; }
-    .lounge-msg:hover .lounge-react-add { opacity:0.9; }
-    .lounge-react-add:hover { color:var(--text); border-color:var(--text); opacity:1; }
-    .lounge-react-picker { position:absolute; background:var(--surface2); border:1px solid var(--border); border-radius:16px; padding:4px 6px; display:flex; gap:2px; box-shadow:0 4px 14px rgba(0,0,0,0.5); z-index:20; }
+    .lounge-react-add, .lounge-reply-btn { background:transparent; border:1px dashed var(--border); border-radius:12px; padding:1px 7px; font-size:11px; cursor:pointer; color:var(--muted); opacity:0; transition:opacity .12s, color .12s, border-color .12s; }
+    .lounge-msg:hover .lounge-react-add, .lounge-msg:hover .lounge-reply-btn { opacity:0.9; }
+    .lounge-react-add:hover, .lounge-reply-btn:hover { color:var(--text); border-color:var(--text); opacity:1; }
+    .lounge-react-picker { position:fixed; background:var(--surface2); border:1px solid var(--border); border-radius:16px; padding:4px 6px; display:flex; gap:2px; box-shadow:0 4px 14px rgba(0,0,0,0.5); z-index:20; }
     .lounge-react-picker-btn { background:transparent; border:none; font-size:18px; padding:4px 6px; cursor:pointer; border-radius:12px; line-height:1; transition:background .12s; }
     .lounge-react-picker-btn:hover { background:var(--surface); }
+    /* Reply preview pill inside a message that is a reply */
+    .lounge-msg-reply { border-left:3px solid var(--accent2); background:rgba(26,75,191,0.10); padding:4px 8px; margin-bottom:4px; border-radius:0 6px 6px 0; cursor:pointer; font-size:11px; overflow:hidden; }
+    .lounge-msg-reply:hover { background:rgba(26,75,191,0.18); }
+    .lounge-msg-reply-user { color:var(--accent2-light, #6090ff); font-weight:600; margin-right:6px; }
+    .lounge-msg-reply-text { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; max-width:100%; vertical-align:bottom; }
+    /* Brief highlight when scrolled to */
+    .lounge-msg.lounge-flash { animation: loungeFlash 1.4s ease-out; }
+    @keyframes loungeFlash { 0% { background:rgba(26,75,191,0.35); } 100% { background:transparent; } }
+    /* Pending-reply banner above input */
+    .lounge-reply-banner { padding:6px 12px; background:var(--surface2); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; border-left:3px solid var(--accent2); }
+    .lounge-reply-banner-text { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .lounge-reply-banner-user { color:var(--accent2-light, #6090ff); font-weight:600; margin-right:4px; }
+    .lounge-reply-banner button { background:transparent; color:var(--muted); border:none; padding:4px 6px; font-family:inherit; font-size:14px; cursor:pointer; }
     @media (max-width:700px) {
-      .lounge-react-add { opacity:0.7; font-size:13px; padding:2px 9px; }
+      .lounge-react-add, .lounge-reply-btn { opacity:0.7; font-size:13px; padding:2px 9px; }
       .lounge-reaction { font-size:13px; padding:2px 10px; }
       .lounge-react-picker-btn { font-size:22px; padding:6px 10px; }
+      .lounge-msg-reply { font-size:12px; }
     }
     @media (max-width:700px) {
       /* Full-screen takeover on mobile — floating panel with margins gets
@@ -973,6 +987,7 @@
   </div>
   <div class="lounge-body" id="lounge-body"><div class="lounge-empty">Loading…</div></div>
   <div id="lounge-share-banner-slot"></div>
+  <div id="lounge-reply-banner-slot"></div>
   <div class="lounge-input-wrap">
     <textarea class="lounge-input" id="lounge-input" rows="1" placeholder="Type a message…" maxlength="1000" onkeydown="loungeOnKey(event)" oninput="loungeAutoresize(this)"></textarea>
     <button class="lounge-send" id="lounge-send-btn" onclick="loungeSend()">▶</button>
@@ -5817,6 +5832,7 @@ let _loungeLastTs = null;
 let _loungePollTimer = null;
 let _loungeUnreadTimer = null;
 let _loungePendingRef = null;
+let _loungePendingReply = null; // {id, user, text}
 let _loungeSeenIds = new Set(); // dedupe across overlapping poll responses
 
 async function loungeCheckAccess() {
@@ -5865,6 +5881,8 @@ function toggleLounge() {
     loungeMarkRead();
     _loungePendingRef = null;
     _loungeUpdateShareBanner();
+    _loungePendingReply = null;
+    _loungeUpdateReplyBanner();
   }
 }
 
@@ -5976,7 +5994,8 @@ function _loungeReactionsHTML(m) {
     chips.push(`<span class="lounge-reaction ${mine ? 'mine' : ''}" title="${escapeHTML(title)}" onclick="loungeReact('${escapeHTML(m.id)}','${emoji}')">${emoji}<span class="lounge-reaction-count">${users.length}</span></span>`);
   }
   const addBtn = `<button class="lounge-react-add" onclick="loungeOpenReactPicker(event,'${escapeHTML(m.id)}')" title="React">+</button>`;
-  return `<div class="lounge-msg-reactions">${chips.join('')}${addBtn}</div>`;
+  const replyBtn = `<button class="lounge-reply-btn" onclick="loungeStartReply('${escapeHTML(m.id)}')" title="Reply">↪ Reply</button>`;
+  return `<div class="lounge-msg-reactions">${chips.join('')}${addBtn}${replyBtn}</div>`;
 }
 
 function loungeOpenReactPicker(e, msgId) {
@@ -5998,7 +6017,13 @@ function loungeOpenReactPicker(e, msgId) {
   let top = rect.top - ph - 6;
   if (top < 8) top = rect.bottom + 6; // flip below if no room above
   let left = rect.left + rect.width / 2 - pw / 2;
-  left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+  // Clamp horizontally to the chat panel bounds (not viewport) so the picker
+  // doesn't escape when the anchor button sits near the panel's left edge.
+  const panel = document.getElementById('lounge-panel');
+  const pRect = panel ? panel.getBoundingClientRect() : {left:8, right:window.innerWidth-8};
+  const minL = Math.max(8, pRect.left + 6);
+  const maxL = Math.min(window.innerWidth - pw - 8, pRect.right - pw - 6);
+  left = Math.max(minL, Math.min(left, maxL));
   picker.style.top = `${top}px`;
   picker.style.left = `${left}px`;
   // Dismiss on outside click
@@ -6055,15 +6080,60 @@ function loungeMsgHTML(m) {
       <span class="lounge-msg-ref-lbl">▶ Shared show</span>
       <span class="lounge-msg-ref-text">${escapeHTML(m.ref.show_date)}${m.ref.venue ? ' · ' + escapeHTML(m.ref.venue) : ''}</span>
     </div>` : '';
+  const rp = m.reply_preview;
+  const replyHTML = (m.reply_to && rp) ? `
+    <div class="lounge-msg-reply" onclick="loungeScrollToMsg('${escapeHTML(m.reply_to)}')" title="Jump to replied message">
+      <span class="lounge-msg-reply-user">↪ ${escapeHTML(rp.user || '')}</span>
+      <span class="lounge-msg-reply-text">${escapeHTML(rp.text || '')}</span>
+    </div>` : '';
   return `<div class="lounge-msg ${mine ? 'lounge-msg-mine' : ''}" data-msg-id="${escapeHTML(m.id)}">
     <div class="lounge-msg-head">
       <span class="lounge-msg-user">${escapeHTML(m.user)}</span>
       <span class="lounge-msg-ts">${ts}</span>
     </div>
+    ${replyHTML}
     ${m.text ? `<div class="lounge-msg-text">${escapeHTML(m.text)}</div>` : ''}
     ${refHTML}
     ${_loungeReactionsHTML(m)}
   </div>`;
+}
+
+function loungeStartReply(msgId) {
+  const m = _loungeMsgs.get(msgId);
+  if (!m) return;
+  let preview = (m.text || '').trim();
+  if (!preview && m.ref) preview = '▶ ' + (m.ref.show_date || 'shared show');
+  _loungePendingReply = { id: msgId, user: m.user || '', text: preview.slice(0, 140) };
+  _loungeUpdateReplyBanner();
+  const input = document.getElementById('lounge-input');
+  if (input) input.focus();
+}
+
+function loungeCancelReply() {
+  _loungePendingReply = null;
+  _loungeUpdateReplyBanner();
+}
+
+function _loungeUpdateReplyBanner() {
+  const slot = document.getElementById('lounge-reply-banner-slot');
+  if (!slot) return;
+  if (!_loungePendingReply) { slot.innerHTML = ''; return; }
+  const r = _loungePendingReply;
+  slot.innerHTML = `<div class="lounge-reply-banner">
+    <span class="lounge-reply-banner-text">↪ Replying to <span class="lounge-reply-banner-user">${escapeHTML(r.user)}</span>${escapeHTML(r.text)}</span>
+    <button onclick="loungeCancelReply()" title="Cancel reply">×</button>
+  </div>`;
+}
+
+function loungeScrollToMsg(msgId) {
+  const el = document.querySelector(`.lounge-msg[data-msg-id="${CSS.escape(msgId)}"]`);
+  if (!el) return;
+  el.scrollIntoView({behavior:'smooth', block:'center'});
+  el.classList.remove('lounge-flash');
+  // Reflow so the animation restarts if clicked repeatedly
+  void el.offsetWidth;
+  el.classList.add('lounge-flash');
+  setTimeout(() => el.classList.remove('lounge-flash'), 1500);
 }
 
 async function loungeMarkRead() {
@@ -6088,6 +6158,7 @@ async function loungeSend() {
   const input = document.getElementById('lounge-input');
   const text = input.value.trim();
   const ref = _loungePendingRef;
+  const replyTo = _loungePendingReply ? _loungePendingReply.id : null;
   if (!text && !ref) return;
   const btn = document.getElementById('lounge-send-btn');
   btn.disabled = true;
@@ -6095,7 +6166,7 @@ async function loungeSend() {
     const res = await fetch('/api/chat/lounge/send', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text, ref}),
+      body: JSON.stringify({text, ref, reply_to: replyTo}),
     });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
@@ -6106,6 +6177,8 @@ async function loungeSend() {
     input.style.height = 'auto';
     _loungePendingRef = null;
     _loungeUpdateShareBanner();
+    _loungePendingReply = null;
+    _loungeUpdateReplyBanner();
     await loungePollNew();
   } catch(e) { alert('Send failed: ' + e); }
   finally { btn.disabled = false; }

@@ -3271,6 +3271,8 @@ def chat_messages():
         "bumped_at": _iso(r.get("bumped_at") or r.get("ts")),
         "ref":       r.get("ref"),
         "reactions": r.get("reactions") or {},
+        "reply_to":      r.get("reply_to"),
+        "reply_preview": r.get("reply_preview"),
     } for r in rows])
 
 @app.route("/api/chat/lounge/send", methods=["POST"])
@@ -3283,6 +3285,7 @@ def chat_send():
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()[:_CHAT_MAX_TEXT]
     ref  = data.get("ref")
+    reply_to = (data.get("reply_to") or "").strip() or None
     if not text and not ref:
         return jsonify({"error": "empty"}), 400
     # Rate limit — count user's sends in the last minute
@@ -3301,9 +3304,34 @@ def chat_send():
             if isinstance(v, str) and len(v) < 200:
                 safe_ref[k] = v
         if not safe_ref.get("show_date"): safe_ref = None
+    # Validate reply target and snapshot preview (so it survives even if
+    # parent is later out of the loaded window). Must be same room.
+    reply_preview = None
+    if reply_to:
+        try:
+            from bson import ObjectId as _OID
+            parent = _chat_msgs_col.find_one(
+                {"_id": _OID(reply_to), "room": "lounge"},
+                {"user": 1, "text": 1, "ref": 1},
+            )
+        except Exception:
+            parent = None
+        if not parent:
+            reply_to = None
+        else:
+            preview_text = (parent.get("text") or "").strip()
+            if not preview_text and parent.get("ref"):
+                preview_text = "▶ " + (parent["ref"].get("show_date") or "shared show")
+            reply_preview = {
+                "user": parent.get("user", ""),
+                "text": preview_text[:140],
+            }
     now = datetime.now(timezone.utc)
     doc = {"room": "lounge", "user": u, "text": text, "ts": now, "bumped_at": now}
     if safe_ref: doc["ref"] = safe_ref
+    if reply_to:
+        doc["reply_to"] = reply_to
+        doc["reply_preview"] = reply_preview
     res = _chat_msgs_col.insert_one(doc)
     return jsonify({
         "id":        str(res.inserted_id),
@@ -3312,6 +3340,8 @@ def chat_send():
         "bumped_at": now.isoformat(),
         "ref":       safe_ref,
         "reactions": {},
+        "reply_to":      reply_to,
+        "reply_preview": reply_preview,
     })
 
 @app.route("/api/chat/lounge/react", methods=["POST"])
