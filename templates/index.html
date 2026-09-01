@@ -51,12 +51,14 @@
     .lounge-badge { position:absolute; top:-3px; right:-3px; background:var(--accent); color:var(--white); font-size:9px; font-weight:700; min-width:14px; height:14px; line-height:14px; padding:0 3px; border-radius:7px; font-family:'Space Mono',monospace; }
     .lounge-panel { position:fixed; bottom:90px; right:14px; width:380px; max-width:calc(100vw - 28px); height:520px; max-height:calc(100vh - 120px); background:var(--surface); border:1px solid var(--border); border-top:3px solid var(--accent2); border-radius:4px; box-shadow:0 8px 30px rgba(0,0,0,0.8); display:none; flex-direction:column; z-index:500; font-family:'Space Mono',monospace; }
     .lounge-panel.open { display:flex; }
-    .lounge-header { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    .lounge-header { padding:8px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    .lounge-resize-handle { position:absolute; top:0; left:0; width:16px; height:16px; cursor:nwse-resize; z-index:2; background:linear-gradient(135deg, var(--accent2) 0%, var(--accent2) 40%, transparent 42%); border-top-left-radius:3px; opacity:0.55; transition:opacity .12s; }
+    .lounge-resize-handle:hover { opacity:1; }
     .lounge-title { font-size:13px; font-weight:700; color:var(--text); letter-spacing:1px; text-transform:uppercase; }
     .lounge-close { background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer; line-height:1; padding:0; }
     .lounge-close:hover { color:var(--text); }
-    .lounge-body { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
-    .lounge-msg { display:flex; flex-direction:column; gap:2px; }
+    .lounge-body { flex:1; overflow-y:auto; padding:8px 12px; display:flex; flex-direction:column; gap:3px; }
+    .lounge-msg { display:flex; flex-direction:column; gap:1px; padding:2px 0; }
     .lounge-msg-head { display:flex; align-items:baseline; gap:8px; font-size:11px; }
     .lounge-msg-user { color:var(--accent); font-weight:700; }
     .lounge-msg-mine .lounge-msg-user { color:var(--accent2-light, #6090ff); }
@@ -79,7 +81,7 @@
     .lounge-empty { color:var(--muted); font-size:11px; text-align:center; padding:30px 10px; }
     /* Reactions */
     .lounge-msg { position:relative; }
-    .lounge-msg-reactions { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; align-items:center; }
+    .lounge-msg-reactions { display:flex; flex-wrap:wrap; gap:3px; margin-top:2px; align-items:center; }
     .lounge-reaction { background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:1px 8px; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:background .12s, border-color .12s; user-select:none; }
     .lounge-reaction:hover { border-color:var(--text); }
     .lounge-reaction.mine { background:rgba(26,75,191,0.18); border-color:var(--accent2); }
@@ -98,7 +100,7 @@
     .lounge-react-picker-btn { background:transparent; border:none; font-size:18px; padding:4px 6px; cursor:pointer; border-radius:12px; line-height:1; transition:background .12s; }
     .lounge-react-picker-btn:hover { background:var(--surface); }
     /* Reply preview pill inside a message that is a reply */
-    .lounge-msg-reply { border-left:3px solid var(--accent2); background:rgba(26,75,191,0.10); padding:4px 8px; margin-bottom:4px; border-radius:0 6px 6px 0; cursor:pointer; font-size:11px; overflow:hidden; }
+    .lounge-msg-reply { border-left:3px solid var(--accent2); background:rgba(26,75,191,0.10); padding:2px 8px; margin-bottom:1px; border-radius:0 6px 6px 0; cursor:pointer; font-size:11px; overflow:hidden; }
     .lounge-msg-reply:hover { background:rgba(26,75,191,0.18); }
     .lounge-msg-reply-user { color:var(--accent2-light, #6090ff); font-weight:600; margin-right:6px; }
     .lounge-msg-reply-text { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; max-width:100%; vertical-align:bottom; }
@@ -987,6 +989,7 @@
 
 <!-- The Lounge — private chat for allowlisted users -->
 <div class="lounge-panel" id="lounge-panel">
+  <div class="lounge-resize-handle" id="lounge-resize-handle" title="Drag to resize" onpointerdown="loungeResizeStart(event)"></div>
   <div class="lounge-header">
     <span class="lounge-title">💬 The Lounge</span>
     <button class="lounge-close" onclick="toggleLounge()" aria-label="Close">×</button>
@@ -5893,6 +5896,7 @@ function toggleLounge() {
   panel.classList.toggle('open', _loungeOpen);
   document.body.classList.toggle('lounge-active', _loungeOpen);
   if (_loungeOpen) {
+    _loungeApplySavedSize();
     loungeLoadInitial();
     _loungePollTimer = setInterval(loungePollNew, 4000);
     document.getElementById('lounge-input').focus();
@@ -6222,6 +6226,54 @@ function loungeMentionHighlight() {
 function loungeMentionClose() {
   const p = document.getElementById('lounge-mention-picker');
   if (p) p.remove();
+}
+
+// ── Resize (desktop only — mobile is full-screen) ────────────────────────
+let _loungeResizeState = null;
+
+function _loungeApplySavedSize() {
+  if (window.innerWidth <= 700) return;
+  try {
+    const raw = localStorage.getItem('sof_lounge_size');
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    const panel = document.getElementById('lounge-panel');
+    if (!panel || !s || !s.w || !s.h) return;
+    panel.style.width  = s.w + 'px';
+    panel.style.height = s.h + 'px';
+  } catch(e) {}
+}
+
+function loungeResizeStart(e) {
+  if (window.innerWidth <= 700) return; // no manual resize on mobile
+  e.preventDefault();
+  const panel = document.getElementById('lounge-panel');
+  const r = panel.getBoundingClientRect();
+  _loungeResizeState = { startX: e.clientX, startY: e.clientY, startW: r.width, startH: r.height };
+  document.addEventListener('pointermove', _loungeResizeMove);
+  document.addEventListener('pointerup', _loungeResizeEnd, {once: true});
+  document.body.style.userSelect = 'none';
+}
+
+function _loungeResizeMove(e) {
+  if (!_loungeResizeState) return;
+  const s = _loungeResizeState;
+  // Panel is anchored bottom-right — dragging up/left grows it
+  const w = Math.max(280, Math.min(window.innerWidth - 28,  s.startW + (s.startX - e.clientX)));
+  const h = Math.max(320, Math.min(window.innerHeight - 120, s.startH + (s.startY - e.clientY)));
+  const panel = document.getElementById('lounge-panel');
+  panel.style.width  = w + 'px';
+  panel.style.height = h + 'px';
+}
+
+function _loungeResizeEnd() {
+  document.removeEventListener('pointermove', _loungeResizeMove);
+  document.body.style.userSelect = '';
+  if (!_loungeResizeState) return;
+  const panel = document.getElementById('lounge-panel');
+  const r = panel.getBoundingClientRect();
+  try { localStorage.setItem('sof_lounge_size', JSON.stringify({w: Math.round(r.width), h: Math.round(r.height)})); } catch(e) {}
+  _loungeResizeState = null;
 }
 
 function loungeMentionPick(name) {
