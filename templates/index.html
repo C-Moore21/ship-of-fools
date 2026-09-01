@@ -88,7 +88,13 @@
     .lounge-react-add, .lounge-reply-btn { background:transparent; border:1px dashed var(--border); border-radius:12px; padding:1px 7px; font-size:11px; cursor:pointer; color:var(--muted); opacity:0; transition:opacity .12s, color .12s, border-color .12s; }
     .lounge-msg:hover .lounge-react-add, .lounge-msg:hover .lounge-reply-btn { opacity:0.9; }
     .lounge-react-add:hover, .lounge-reply-btn:hover { color:var(--text); border-color:var(--text); opacity:1; }
-    .lounge-react-picker { position:fixed; background:var(--surface2); border:1px solid var(--border); border-radius:16px; padding:4px 6px; display:flex; gap:2px; box-shadow:0 4px 14px rgba(0,0,0,0.5); z-index:20; }
+    .lounge-react-picker { position:fixed; background:var(--surface2); border:1px solid var(--border); border-radius:16px; padding:4px 6px; display:flex; gap:2px; box-shadow:0 4px 14px rgba(0,0,0,0.5); z-index:10001; }
+    /* @mentions */
+    .lounge-mention { background:rgba(26,75,191,0.20); color:var(--accent2-light, #6090ff); border-radius:3px; padding:0 3px; font-weight:600; }
+    .lounge-mention.mine { background:rgba(232,51,42,0.22); color:var(--accent); }
+    .lounge-mention-picker { position:fixed; background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:4px 0; box-shadow:0 4px 14px rgba(0,0,0,0.5); z-index:10001; min-width:140px; max-height:180px; overflow-y:auto; }
+    .lounge-mention-item { padding:6px 12px; font-size:12px; cursor:pointer; font-family:'Space Mono',monospace; color:var(--text); }
+    .lounge-mention-item.active, .lounge-mention-item:hover { background:var(--accent2); color:var(--white); }
     .lounge-react-picker-btn { background:transparent; border:none; font-size:18px; padding:4px 6px; cursor:pointer; border-radius:12px; line-height:1; transition:background .12s; }
     .lounge-react-picker-btn:hover { background:var(--surface); }
     /* Reply preview pill inside a message that is a reply */
@@ -989,7 +995,7 @@
   <div id="lounge-share-banner-slot"></div>
   <div id="lounge-reply-banner-slot"></div>
   <div class="lounge-input-wrap">
-    <textarea class="lounge-input" id="lounge-input" rows="1" placeholder="Type a message…" maxlength="1000" onkeydown="loungeOnKey(event)" oninput="loungeAutoresize(this)"></textarea>
+    <textarea class="lounge-input" id="lounge-input" rows="1" placeholder="Type a message…" maxlength="1000" onkeydown="loungeOnKey(event)" oninput="loungeAutoresize(this);loungeMentionUpdate(this)" onblur="setTimeout(loungeMentionClose,150)"></textarea>
     <button class="lounge-send" id="lounge-send-btn" onclick="loungeSend()">▶</button>
   </div>
 </div>
@@ -5833,6 +5839,21 @@ let _loungePollTimer = null;
 let _loungeUnreadTimer = null;
 let _loungePendingRef = null;
 let _loungePendingReply = null; // {id, user, text}
+const _LOUNGE_MEMBERS = ['camden', 'jmac', 'caleb', 'zack'];
+let _loungeMentionActive = 0;
+
+function _loungeRenderText(text) {
+  // Escape first, then wrap @mentions. Matches @name where name is a lounge
+  // member (case-insensitive). Bounded by word boundary so "@camdens" won't
+  // match; "@camden!" will (punctuation is not a word char).
+  const esc = escapeHTML(text || '');
+  const re = new RegExp('@(' + _LOUNGE_MEMBERS.join('|') + ')\\b', 'gi');
+  return esc.replace(re, (_m, name) => {
+    const lower = name.toLowerCase();
+    const mine = loggedInUser && loggedInUser.toLowerCase() === lower;
+    return `<span class="lounge-mention ${mine ? 'mine' : ''}">@${escapeHTML(name)}</span>`;
+  });
+}
 let _loungeSeenIds = new Set(); // dedupe across overlapping poll responses
 
 async function loungeCheckAccess() {
@@ -6092,7 +6113,7 @@ function loungeMsgHTML(m) {
       <span class="lounge-msg-ts">${ts}</span>
     </div>
     ${replyHTML}
-    ${m.text ? `<div class="lounge-msg-text">${escapeHTML(m.text)}</div>` : ''}
+    ${m.text ? `<div class="lounge-msg-text">${_loungeRenderText(m.text)}</div>` : ''}
     ${refHTML}
     ${_loungeReactionsHTML(m)}
   </div>`;
@@ -6143,10 +6164,77 @@ async function loungeMarkRead() {
 }
 
 function loungeOnKey(e) {
+  const picker = document.getElementById('lounge-mention-picker');
+  if (picker) {
+    const items = picker.querySelectorAll('.lounge-mention-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); _loungeMentionActive = (_loungeMentionActive + 1) % items.length; loungeMentionHighlight(); return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); _loungeMentionActive = (_loungeMentionActive - 1 + items.length) % items.length; loungeMentionHighlight(); return; }
+    if (e.key === 'Escape')    { e.preventDefault(); loungeMentionClose(); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      const item = items[_loungeMentionActive];
+      if (item) { e.preventDefault(); loungeMentionPick(item.dataset.name); return; }
+    }
+  }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     loungeSend();
   }
+}
+
+function _loungeMentionQuery(el) {
+  const pos = el.selectionStart || 0;
+  const upto = el.value.slice(0, pos);
+  const m = upto.match(/(?:^|\s)@([a-zA-Z]*)$/);
+  return m ? { start: pos - m[1].length - 1, frag: m[1].toLowerCase() } : null;
+}
+
+function loungeMentionUpdate(el) {
+  const q = _loungeMentionQuery(el);
+  if (!q) return loungeMentionClose();
+  const matches = _LOUNGE_MEMBERS.filter(n => n.startsWith(q.frag));
+  if (!matches.length) return loungeMentionClose();
+  let picker = document.getElementById('lounge-mention-picker');
+  if (!picker) {
+    picker = document.createElement('div');
+    picker.id = 'lounge-mention-picker';
+    picker.className = 'lounge-mention-picker';
+    document.body.appendChild(picker);
+  }
+  picker.innerHTML = matches.map((n, i) =>
+    `<div class="lounge-mention-item ${i === 0 ? 'active' : ''}" data-name="${n}" onmousedown="event.preventDefault();loungeMentionPick('${n}')">@${n}</div>`
+  ).join('');
+  _loungeMentionActive = 0;
+  const rect = el.getBoundingClientRect();
+  const ph = picker.offsetHeight || 60;
+  picker.style.left = `${rect.left}px`;
+  picker.style.top  = `${Math.max(8, rect.top - ph - 4)}px`;
+}
+
+function loungeMentionHighlight() {
+  const picker = document.getElementById('lounge-mention-picker');
+  if (!picker) return;
+  picker.querySelectorAll('.lounge-mention-item').forEach((it, i) =>
+    it.classList.toggle('active', i === _loungeMentionActive));
+}
+
+function loungeMentionClose() {
+  const p = document.getElementById('lounge-mention-picker');
+  if (p) p.remove();
+}
+
+function loungeMentionPick(name) {
+  const el = document.getElementById('lounge-input');
+  if (!el) return;
+  const q = _loungeMentionQuery(el);
+  if (!q) { loungeMentionClose(); return; }
+  const before = el.value.slice(0, q.start);
+  const after  = el.value.slice(el.selectionStart || 0);
+  const insertion = '@' + name + ' ';
+  el.value = before + insertion + after;
+  const caret = (before + insertion).length;
+  el.setSelectionRange(caret, caret);
+  loungeMentionClose();
+  el.focus();
 }
 
 function loungeAutoresize(el) {
