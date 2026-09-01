@@ -77,6 +77,25 @@
     .lounge-share-banner button { background:var(--accent); color:var(--white); border:none; padding:4px 10px; font-family:inherit; font-size:10px; cursor:pointer; border-radius:2px; }
     .lounge-share-banner-cancel { background:transparent !important; color:var(--muted) !important; padding:4px 6px !important; }
     .lounge-empty { color:var(--muted); font-size:11px; text-align:center; padding:30px 10px; }
+    /* Reactions */
+    .lounge-msg { position:relative; }
+    .lounge-msg-reactions { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; align-items:center; }
+    .lounge-reaction { background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:1px 8px; font-size:11px; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:background .12s, border-color .12s; user-select:none; }
+    .lounge-reaction:hover { border-color:var(--text); }
+    .lounge-reaction.mine { background:rgba(26,75,191,0.18); border-color:var(--accent2); }
+    .lounge-reaction-count { font-family:'Space Mono',monospace; font-size:10px; color:var(--muted); }
+    .lounge-reaction.mine .lounge-reaction-count { color:var(--accent2-light, #6090ff); }
+    .lounge-react-add { background:transparent; border:1px dashed var(--border); border-radius:12px; padding:1px 7px; font-size:11px; cursor:pointer; color:var(--muted); opacity:0; transition:opacity .12s, color .12s, border-color .12s; }
+    .lounge-msg:hover .lounge-react-add { opacity:0.9; }
+    .lounge-react-add:hover { color:var(--text); border-color:var(--text); opacity:1; }
+    .lounge-react-picker { position:absolute; background:var(--surface2); border:1px solid var(--border); border-radius:16px; padding:4px 6px; display:flex; gap:2px; box-shadow:0 4px 14px rgba(0,0,0,0.5); z-index:20; }
+    .lounge-react-picker-btn { background:transparent; border:none; font-size:18px; padding:4px 6px; cursor:pointer; border-radius:12px; line-height:1; transition:background .12s; }
+    .lounge-react-picker-btn:hover { background:var(--surface); }
+    @media (max-width:700px) {
+      .lounge-react-add { opacity:0.7; font-size:13px; padding:2px 9px; }
+      .lounge-reaction { font-size:13px; padding:2px 10px; }
+      .lounge-react-picker-btn { font-size:22px; padding:6px 10px; }
+    }
     @media (max-width:700px) {
       /* Full-screen takeover on mobile — floating panel with margins gets
          clipped by player bar and feels cramped. */
@@ -5856,13 +5875,21 @@ async function loungeLoadInitial() {
     if (!res.ok) { body.innerHTML = '<div class="lounge-empty">Unable to load.</div>'; return; }
     const msgs = await res.json();
     _loungeSeenIds = new Set();
+    _loungeMsgs.clear();
     if (!msgs.length) {
       body.innerHTML = '<div class="lounge-empty">The lounge is empty. Say hi.</div>';
       _loungeLastTs = null;
     } else {
       const html = msgs.map(m => { _loungeSeenIds.add(m.id); return loungeMsgHTML(m); }).join('');
       body.innerHTML = html;
-      _loungeLastTs = msgs[msgs.length - 1].ts;
+      // Track newest bumped_at (fallback ts) so poll's since= advances past
+      // reaction activity too, not just new sends.
+      let latest = null;
+      for (const m of msgs) {
+        const s = m.bumped_at || m.ts;
+        if (s && (!latest || s > latest)) latest = s;
+      }
+      _loungeLastTs = latest;
       body.scrollTop = body.scrollHeight;
     }
     await loungeMarkRead();
@@ -5878,37 +5905,164 @@ async function loungePollNew() {
     if (!res.ok) return;
     const msgs = await res.json();
     if (!msgs.length) return;
-    // Dedupe — overlapping send→poll and interval-poll races can return the
-    // same just-sent message in both responses. Skip anything we've already
-    // rendered.
-    const fresh = msgs.filter(m => m.id && !_loungeSeenIds.has(m.id));
-    if (!fresh.length) return;
-    fresh.forEach(m => _loungeSeenIds.add(m.id));
-    const body = document.getElementById('lounge-body');
-    const wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60;
-    if (body.querySelector('.lounge-empty')) body.innerHTML = '';
-    body.insertAdjacentHTML('beforeend', fresh.map(loungeMsgHTML).join(''));
-    _loungeLastTs = fresh[fresh.length - 1].ts;
-    if (wasAtBottom) body.scrollTop = body.scrollHeight;
-    await loungeMarkRead();
+    // Partition: NEW messages (id we've never seen) vs UPDATED messages
+    // (id already seen — reactions changed). Reactions bump the server-side
+    // bumped_at, which is what we poll on, so a message can come back with
+    // the same id but new reaction data.
+    const toAppend = [];
+    let latestTs = _loungeLastTs;
+    for (const m of msgs) {
+      if (!m.id) continue;
+      const prev = _loungeMsgs.get(m.id);
+      if (!prev) {
+        toAppend.push(m);
+        _loungeSeenIds.add(m.id);
+      } else if (_loungeReactionSig(prev) !== _loungeReactionSig(m)) {
+        // Reactions changed — replace in place, don't scroll or ping unread
+        _loungeMsgs.set(m.id, m);
+        _loungeReplaceMsgDOM(m);
+      }
+      // Track the newest bumped_at so the next poll's since= advances
+      const stamp = m.bumped_at || m.ts;
+      if (stamp && (!latestTs || stamp > latestTs)) latestTs = stamp;
+    }
+    if (toAppend.length) {
+      const body = document.getElementById('lounge-body');
+      const wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 60;
+      if (body.querySelector('.lounge-empty')) body.innerHTML = '';
+      body.insertAdjacentHTML('beforeend', toAppend.map(loungeMsgHTML).join(''));
+      if (wasAtBottom) body.scrollTop = body.scrollHeight;
+      await loungeMarkRead();
+    }
+    _loungeLastTs = latestTs;
   } catch(e) {}
 }
 
+const _LOUNGE_REACTIONS = ['\u{1F44D}', '❤️', '\u{1F44E}', '\u{1F62D}']; // 👍 ❤️ 👎 😭
+const _loungeMsgs = new Map(); // id -> message object (for update detection)
+
+function _fmtLoungeTs(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const timeStr = d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+  if (msgDay.getTime() === today.getTime()) return timeStr;
+  if (msgDay.getTime() === yesterday.getTime()) return `Yesterday ${timeStr}`;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (d.getFullYear() === now.getFullYear()) {
+    return `${months[d.getMonth()]} ${d.getDate()} · ${timeStr}`;
+  }
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} · ${timeStr}`;
+}
+
+function _loungeReactionSig(m) {
+  const r = m.reactions || {};
+  const keys = Object.keys(r).sort();
+  return keys.map(k => `${k}:${(r[k] || []).slice().sort().join(',')}`).join('|');
+}
+
+function _loungeReactionsHTML(m) {
+  const r = m.reactions || {};
+  const chips = [];
+  for (const emoji of _LOUNGE_REACTIONS) {
+    const users = r[emoji] || [];
+    if (!users.length) continue;
+    const mine = loggedInUser && users.includes(loggedInUser);
+    const title = users.join(', ');
+    chips.push(`<span class="lounge-reaction ${mine ? 'mine' : ''}" title="${escapeHTML(title)}" onclick="loungeReact('${escapeHTML(m.id)}','${emoji}')">${emoji}<span class="lounge-reaction-count">${users.length}</span></span>`);
+  }
+  const addBtn = `<button class="lounge-react-add" onclick="loungeOpenReactPicker(event,'${escapeHTML(m.id)}')" title="React">+</button>`;
+  return `<div class="lounge-msg-reactions">${chips.join('')}${addBtn}</div>`;
+}
+
+function loungeOpenReactPicker(e, msgId) {
+  e.stopPropagation();
+  // Close any existing picker first
+  const existing = document.getElementById('lounge-react-picker');
+  if (existing) existing.remove();
+  const anchor = e.currentTarget;
+  const rect = anchor.getBoundingClientRect();
+  const picker = document.createElement('div');
+  picker.id = 'lounge-react-picker';
+  picker.className = 'lounge-react-picker';
+  picker.innerHTML = _LOUNGE_REACTIONS.map(em =>
+    `<button class="lounge-react-picker-btn" onclick="loungeReact('${escapeHTML(msgId)}','${em}');document.getElementById('lounge-react-picker')?.remove()">${em}</button>`
+  ).join('');
+  document.body.appendChild(picker);
+  const pw = picker.offsetWidth || 160;
+  const ph = picker.offsetHeight || 40;
+  let top = rect.top - ph - 6;
+  if (top < 8) top = rect.bottom + 6; // flip below if no room above
+  let left = rect.left + rect.width / 2 - pw / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+  picker.style.top = `${top}px`;
+  picker.style.left = `${left}px`;
+  // Dismiss on outside click
+  setTimeout(() => {
+    const off = (ev) => {
+      if (!picker.contains(ev.target)) { picker.remove(); document.removeEventListener('click', off); }
+    };
+    document.addEventListener('click', off);
+  }, 0);
+}
+
+async function loungeReact(msgId, emoji) {
+  if (!loggedInUser || !_loungeMember) return;
+  // Optimistic update
+  const m = _loungeMsgs.get(msgId);
+  if (m) {
+    m.reactions = m.reactions || {};
+    const arr = m.reactions[emoji] = m.reactions[emoji] || [];
+    const i = arr.indexOf(loggedInUser);
+    if (i >= 0) arr.splice(i, 1);
+    else arr.push(loggedInUser);
+    if (!arr.length) delete m.reactions[emoji];
+    _loungeReplaceMsgDOM(m);
+  }
+  try {
+    const res = await fetch('/api/chat/lounge/react', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({message_id: msgId, emoji}),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const m2 = _loungeMsgs.get(msgId);
+      if (m2 && data.reactions) {
+        m2.reactions = data.reactions;
+        _loungeReplaceMsgDOM(m2);
+      }
+    }
+  } catch(e) {}
+}
+
+function _loungeReplaceMsgDOM(m) {
+  const el = document.querySelector(`.lounge-msg[data-msg-id="${CSS.escape(m.id)}"]`);
+  if (!el) return;
+  el.outerHTML = loungeMsgHTML(m);
+}
+
 function loungeMsgHTML(m) {
+  _loungeMsgs.set(m.id, m);
   const mine = (m.user === loggedInUser);
-  const ts = m.ts ? new Date(m.ts).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'}) : '';
+  const ts = _fmtLoungeTs(m.ts);
   const refHTML = m.ref ? `
     <div class="lounge-msg-ref" onclick="toggleLounge();tourRunGoTo('${escapeHTML(m.ref.show_date)}')">
       <span class="lounge-msg-ref-lbl">▶ Shared show</span>
       <span class="lounge-msg-ref-text">${escapeHTML(m.ref.show_date)}${m.ref.venue ? ' · ' + escapeHTML(m.ref.venue) : ''}</span>
     </div>` : '';
-  return `<div class="lounge-msg ${mine ? 'lounge-msg-mine' : ''}">
+  return `<div class="lounge-msg ${mine ? 'lounge-msg-mine' : ''}" data-msg-id="${escapeHTML(m.id)}">
     <div class="lounge-msg-head">
       <span class="lounge-msg-user">${escapeHTML(m.user)}</span>
       <span class="lounge-msg-ts">${ts}</span>
     </div>
     ${m.text ? `<div class="lounge-msg-text">${escapeHTML(m.text)}</div>` : ''}
     ${refHTML}
+    ${_loungeReactionsHTML(m)}
   </div>`;
 }
 

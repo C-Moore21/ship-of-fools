@@ -3214,6 +3214,7 @@ def blind_daily_guess():
 _CHAT_RATE_WINDOW_S = 60
 _CHAT_RATE_MAX      = 20
 _CHAT_MAX_TEXT      = 1000
+_CHAT_REACTIONS     = {"\U0001F44D", "❤️", "\U0001F44E", "\U0001F62D"}  # 👍 ❤️ 👎 😭
 
 def _lounge_members():
     doc = _chat_meta_col.find_one({"_id": "lounge_allowlist"}, {"members": 1, "_id": 0})
@@ -3244,7 +3245,13 @@ def chat_messages():
     if since:
         try:
             since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
-            q["ts"] = {"$gt": since_dt}
+            # Poll on bumped_at so reactions (which update bumped_at but not
+            # ts) get picked up. Legacy messages without bumped_at fall back
+            # to ts.
+            q["$or"] = [
+                {"bumped_at": {"$gt": since_dt}},
+                {"$and": [{"bumped_at": {"$exists": False}}, {"ts": {"$gt": since_dt}}]},
+            ]
         except Exception:
             pass
     cur = _chat_msgs_col.find(q).sort("ts", -1).limit(limit)
@@ -3253,12 +3260,17 @@ def chat_messages():
     # PyMongo returns naive datetimes for UTC timestamps — re-attach tzinfo so
     # the ISO string has +00:00 and JS Date interprets it as UTC (then
     # toLocaleTimeString converts to the user's local zone).
+    def _iso(dt):
+        if not dt: return None
+        return dt.replace(tzinfo=timezone.utc).isoformat()
     return jsonify([{
-        "id":   str(r.get("_id")),
-        "user": r.get("user", ""),
-        "text": r.get("text", ""),
-        "ts":   (r.get("ts").replace(tzinfo=timezone.utc).isoformat() if r.get("ts") else None),
-        "ref":  r.get("ref"),
+        "id":        str(r.get("_id")),
+        "user":      r.get("user", ""),
+        "text":      r.get("text", ""),
+        "ts":        _iso(r.get("ts")),
+        "bumped_at": _iso(r.get("bumped_at") or r.get("ts")),
+        "ref":       r.get("ref"),
+        "reactions": r.get("reactions") or {},
     } for r in rows])
 
 @app.route("/api/chat/lounge/send", methods=["POST"])
@@ -3290,14 +3302,60 @@ def chat_send():
                 safe_ref[k] = v
         if not safe_ref.get("show_date"): safe_ref = None
     now = datetime.now(timezone.utc)
-    doc = {"room": "lounge", "user": u, "text": text, "ts": now}
+    doc = {"room": "lounge", "user": u, "text": text, "ts": now, "bumped_at": now}
     if safe_ref: doc["ref"] = safe_ref
     res = _chat_msgs_col.insert_one(doc)
     return jsonify({
-        "id":   str(res.inserted_id),
-        "user": u, "text": text,
-        "ts":   now.isoformat(),
-        "ref":  safe_ref,
+        "id":        str(res.inserted_id),
+        "user":      u, "text": text,
+        "ts":        now.isoformat(),
+        "bumped_at": now.isoformat(),
+        "ref":       safe_ref,
+        "reactions": {},
+    })
+
+@app.route("/api/chat/lounge/react", methods=["POST"])
+@login_required
+def chat_react():
+    from datetime import datetime, timezone
+    from bson import ObjectId
+    u = current_user()
+    if not _is_lounge_member(u):
+        return jsonify({"error": "not in lounge"}), 403
+    data = request.get_json(silent=True) or {}
+    mid = data.get("message_id") or ""
+    emoji = data.get("emoji") or ""
+    if emoji not in _CHAT_REACTIONS:
+        return jsonify({"error": "invalid emoji"}), 400
+    try:
+        oid = ObjectId(mid)
+    except Exception:
+        return jsonify({"error": "invalid message_id"}), 400
+    msg = _chat_msgs_col.find_one({"_id": oid, "room": "lounge"}, {"reactions": 1})
+    if not msg:
+        return jsonify({"error": "not found"}), 404
+    existing = ((msg.get("reactions") or {}).get(emoji)) or []
+    now = datetime.now(timezone.utc)
+    if u in existing:
+        # Toggle off — pull the user; if the array is now empty, drop the key
+        _chat_msgs_col.update_one(
+            {"_id": oid},
+            {"$pull": {f"reactions.{emoji}": u}, "$set": {"bumped_at": now}},
+        )
+        # Clean up empty reaction array
+        updated = _chat_msgs_col.find_one({"_id": oid}, {"reactions": 1})
+        if updated and not ((updated.get("reactions") or {}).get(emoji)):
+            _chat_msgs_col.update_one({"_id": oid}, {"$unset": {f"reactions.{emoji}": ""}})
+    else:
+        _chat_msgs_col.update_one(
+            {"_id": oid},
+            {"$addToSet": {f"reactions.{emoji}": u}, "$set": {"bumped_at": now}},
+        )
+    fresh = _chat_msgs_col.find_one({"_id": oid}, {"reactions": 1})
+    return jsonify({
+        "id":        mid,
+        "reactions": (fresh.get("reactions") if fresh else {}) or {},
+        "bumped_at": now.isoformat(),
     })
 
 @app.route("/api/chat/lounge/read", methods=["POST"])
