@@ -668,6 +668,31 @@ def lookup_show_rating():
 def index():
     return render_template("index.html")
 
+@app.route("/beta")
+def beta():
+    # Vite builds into static/beta/ with a manifest.json describing the entry
+    # bundle. We read it at request time so a redeploy picks up new hashes
+    # without a restart. If the bundle hasn't been built, fall back to a
+    # helpful note instead of a 500.
+    import json, os
+    manifest_path = os.path.join(app.static_folder, "beta", ".vite", "manifest.json")
+    entry_js = None
+    entry_css = None
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        entry = manifest.get("src/index.tsx") or next(
+            (v for v in manifest.values() if v.get("isEntry")), None
+        )
+        if entry:
+            entry_js = "/static/beta/" + entry["file"]
+            css_files = entry.get("css") or []
+            if css_files:
+                entry_css = "/static/beta/" + css_files[0]
+    except Exception:
+        pass
+    return render_template("beta.html", entry_js=entry_js, entry_css=entry_css)
+
 @app.route("/api/today")
 def today_in_history():
     from datetime import date

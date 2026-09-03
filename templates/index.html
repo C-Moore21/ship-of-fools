@@ -858,6 +858,7 @@
       <button class="launcher-btn tab-gambler" id="tab-gambler" onclick="rollGambler()" data-tip="Gambler" aria-label="Gambler — random show">🎲</button>
       <button class="launcher-btn launcher-lounge" id="tab-lounge" style="display:none" onclick="toggleLounge()" data-tip="The Lounge" aria-label="The Lounge — private chat">💬<span class="lounge-badge" id="lounge-badge" style="display:none">0</span></button>
     </div>
+    <button class="btn ghost" id="btn-try-beta" onclick="tryBetaMode()" title="Try the new beta UI" style="border-color:var(--accent2);color:var(--accent2-light);">🧪 Try Beta</button>
     <div class="header-username" id="header-user" style="display:none">Logged in as <span id="header-username-val"></span></div>
     <button class="btn ghost" id="btn-logout" style="display:none" onclick="doLogout()">Log Out</button>
     <button class="btn primary" id="btn-open-login" onclick="openModal('login')">Log In</button>
@@ -1826,6 +1827,11 @@ async function showHistory() {
   } catch(e) {
     el.innerHTML = `<div style="color:var(--red);font-size:11px;">${escapeHTML(String(e))}</div>`;
   }
+}
+
+function tryBetaMode() {
+  try { localStorage.setItem('sof_beta', '1'); } catch(e) {}
+  window.location.href = '/beta';
 }
 
 async function doLogout() {

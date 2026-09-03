@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 db.json
 .env
+beta/node_modules/
+beta/dist/

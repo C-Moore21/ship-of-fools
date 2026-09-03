@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ship of Fools — Beta</title>
+  {% if entry_css %}<link rel="stylesheet" href="{{ entry_css }}">{% endif %}
+</head>
+<body>
+  <div id="root"></div>
+  {% if entry_js %}
+    <script type="module" src="{{ entry_js }}"></script>
+  {% else %}
+    <div style="font-family: 'Space Mono', ui-monospace, monospace; padding: 40px; max-width: 640px; margin: 40px auto; color:#dce6f5; background:#0d1220; border:1px solid #1e2a45; border-radius:4px;">
+      <h1 style="font-family:'Playfair Display',serif; color:#f0f4ff; margin:0 0 12px;">Beta bundle not built</h1>
+      <p style="color:#5a6e8a;">Run <code style="color:#6090ff;">cd beta &amp;&amp; npm install &amp;&amp; npm run build</code> to produce <code style="color:#6090ff;">static/beta/</code>, then reload.</p>
+      <p style="margin-top:20px;"><a href="/" style="color:#e8332a;">← Back to classic</a></p>
+    </div>
+  {% endif %}
+</body>
+</html>

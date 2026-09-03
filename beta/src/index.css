@@ -1,0 +1,87 @@
+/* @import url() FONT IMPORTS MUST ALWAYS BE AT THE VERY TOP OF THIS FILE, ABOVE THE TAILWIND IMPORTS — DO NOT DELETE THIS COMMENT */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Space+Mono:wght@400;700&display=swap');
+
+/* CRITICAL: THE FOLLOWING TAILWIND IMPORTS MUST NEVER BE DELETED OR REORDERED — DO NOT DELETE THIS COMMENT */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* END TAILWIND IMPORTS — ALL OTHER CSS MUST GO BELOW THIS LINE */
+
+:root {
+  --bg: #080c14;
+  --surface: #0d1220;
+  --surface2: #141a2e;
+  --border: #1e2a45;
+  --text: #dce6f5;
+  --muted: #5a6e8a;
+  --white: #f0f4ff;
+  --accent: #e8332a;
+  --accent-hover: #ff4a40;
+  --accent2: #1a4bbf;
+  --accent2-light: #2d65e0;
+  --gold: #c8a84b;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: 'Space Mono', ui-monospace, monospace;
+  -webkit-font-smoothing: antialiased;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e2a45;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2a3a5e;
+}
+:focus-visible {
+  outline: 2px solid var(--accent2-light);
+  outline-offset: 2px;
+}
+input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 10px;
+  width: 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  opacity: 0;
+  transition: opacity 0.15s cubic-bezier(0.23, 1, 0.32, 1);
+}
+input[type='range']:hover::-webkit-slider-thumb,
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  opacity: 1;
+}
+input[type='range']::-moz-range-thumb {
+  height: 10px;
+  width: 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
