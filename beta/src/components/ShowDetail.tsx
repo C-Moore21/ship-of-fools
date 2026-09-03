@@ -10,6 +10,15 @@ import {
 import type { Show, Track } from '../types/archive'
 import { Setlist } from './Setlist'
 import { formatDate, formatClock } from '../utils/format'
+import { useSources } from '../hooks/useSofData'
+import type { SourceOption } from '../api/adapters'
+import {
+  NoteEditor,
+  RatingStars,
+  useAuth,
+  useShowNote,
+  useShowRating,
+} from '../auth-and-social'
 
 interface ShowDetailProps {
   show: Show
@@ -20,41 +29,23 @@ interface ShowDetailProps {
   onPlay: (track: Track) => void
   onSelectShow: (show: Show) => void
   onBack: () => void
-}
-
-interface SourceOption {
-  id: string
-  label: string
-  soundboard: boolean
-  rating?: number
-}
-
-/**
- * Placeholder list of alternate sources. Real API will hand back the full
- * candidate list for a given show date; the picker UI stays identical.
- */
-function fakeAlternateSources(show: Show): SourceOption[] {
-  const primary: SourceOption = {
-    id: 'primary',
-    label: show.source,
-    soundboard: show.soundboard,
-    rating: show.avgRating,
-  }
-  return [
-    primary,
-    { id: 'aud-nak', label: 'AUD · Nakamichi 700s', soundboard: false, rating: 4.2 },
-    { id: 'sbd-matrix', label: 'SBD Matrix · Miller Remaster', soundboard: true, rating: 4.7 },
-    { id: 'aud-schoeps', label: 'AUD · Schoeps MK4 (Silberman)', soundboard: false, rating: 4.1 },
-  ]
+  onRequestLogin?: () => void
 }
 
 function SourcePicker({ show }: { show: Show }) {
-  const sources = useMemo(() => fakeAlternateSources(show), [show])
+  const { data, loading, error } = useSources(show.id)
+  const sources: SourceOption[] = useMemo(() => data ?? [], [data])
   const [open, setOpen] = useState(false)
-  const [pickedId, setPickedId] = useState<string>('primary')
+  const [pickedId, setPickedId] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => setPickedId('primary'), [show.id])
+  // Reset pick when show changes; auto-pick the top-rated source when data lands.
+  useEffect(() => setPickedId(null), [show.id])
+  useEffect(() => {
+    if (pickedId != null || sources.length === 0) return
+    const best = [...sources].sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1))[0]
+    setPickedId(best.id)
+  }, [sources, pickedId])
 
   useEffect(() => {
     if (!open) return
@@ -66,28 +57,39 @@ function SourcePicker({ show }: { show: Show }) {
   }, [open])
 
   const active = sources.find((s) => s.id === pickedId) ?? sources[0]
+  const label = error
+    ? 'Sources unavailable'
+    : loading && sources.length === 0
+    ? 'Loading sources…'
+    : active
+    ? active.label
+    : 'No sources found'
+  const dtLabel = loading && sources.length === 0
+    ? 'Source · …'
+    : `Source · ${sources.length} available`
 
   return (
     <div ref={ref} className="relative flex items-start gap-2.5">
       <RadioIcon className="mt-[3px] h-3.5 w-3.5 shrink-0 text-muted" />
       <div className="min-w-0 flex-1">
         <dt className="text-[10px] uppercase tracking-[0.14em] text-muted">
-          Source · {sources.length} available
+          {dtLabel}
         </dt>
         <button
           type="button"
-          onClick={() => setOpen((o) => !o)}
+          onClick={() => sources.length > 0 && setOpen((o) => !o)}
           aria-haspopup="listbox"
           aria-expanded={open}
-          className="mt-0.5 flex w-full items-center gap-1.5 text-left"
+          disabled={sources.length === 0}
+          className="mt-0.5 flex w-full items-center gap-1.5 text-left disabled:cursor-default disabled:opacity-70"
         >
           <span
             className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-              active.soundboard ? 'bg-royal-bright' : 'bg-gold-light'
+              active?.soundboard ? 'bg-royal-bright' : 'bg-gold-light'
             }`}
             aria-hidden="true"
           />
-          <span className="truncate font-mono text-xs text-ink">{active.label}</span>
+          <span className="truncate font-mono text-xs text-ink">{label}</span>
           <ChevronDownIcon
             className={`h-3 w-3 shrink-0 text-muted transition-transform duration-150 ease-archive ${
               open ? 'rotate-180 text-ink' : ''
@@ -149,9 +151,14 @@ export function ShowDetail({
   onPlay,
   onSelectShow,
   onBack,
+  onRequestLogin,
 }: ShowDetailProps) {
   const date = formatDate(show.date)
   const runtime = show.tracks.reduce((sum, t) => sum + t.duration, 0)
+  const auth = useAuth()
+  const loggedIn = !!auth.user
+  const ratingHook = useShowRating(show.id || null, loggedIn, show.venue || '')
+  const noteHook = useShowNote(show.id || null, loggedIn)
 
   // Non-source meta cells (Listens intentionally removed per user request).
   const meta = [
@@ -228,17 +235,29 @@ export function ShowDetail({
           <aside className="space-y-8">
             <section>
               <h3 className="border-b border-line pb-2 text-[10px] uppercase tracking-[0.18em] text-muted">
-                Your note
+                Your Rating
               </h3>
-              <p className="pt-3 text-[13px] leading-relaxed text-ink/85">
-                {show.note ?? 'No note yet — add one while you listen.'}
-              </p>
-              <button
-                type="button"
-                className="mt-3 text-[11px] uppercase tracking-[0.12em] text-royal-bright transition-colors duration-150 ease-archive hover:text-chalk"
-              >
-                {show.note ? 'Edit note' : 'Add note'}
-              </button>
+              <div className="pt-3">
+                <RatingStars
+                  value={ratingHook.stars}
+                  onChange={(v) => ratingHook.setStars(v)}
+                  disabled={!loggedIn}
+                  onRequestLogin={onRequestLogin}
+                />
+                {!loggedIn && (
+                  <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-muted">
+                    Log in to rate
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section>
+              <NoteEditor
+                hook={noteHook}
+                loggedIn={loggedIn}
+                onRequestLogin={onRequestLogin}
+              />
             </section>
 
             <section>

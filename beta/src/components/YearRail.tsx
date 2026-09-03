@@ -1,14 +1,15 @@
 import React from 'react'
-import { years, totalShows } from '../data/years'
+import type { YearEntry } from '../types/archive'
 
 interface YearRailProps {
+  years: YearEntry[]
+  totalShows: number
   selected: number
   onSelect: (year: number) => void
 }
 
-const MAX = Math.max(...years.map((y) => y.shows))
-
-export function YearRail({ selected, onSelect }: YearRailProps) {
+export function YearRail({ years, totalShows, selected, onSelect }: YearRailProps) {
+  const max = Math.max(1, ...years.map((y) => y.shows))
   return (
     <nav
       aria-label="Years"
@@ -36,7 +37,7 @@ export function YearRail({ selected, onSelect }: YearRailProps) {
                 <span className="font-mono text-xs tabular-nums">{entry.year}</span>
                 <span
                   className={`ml-auto h-[3px] rounded-sm ${isSelected ? 'bg-accent' : 'bg-line'}`}
-                  style={{ width: `${8 + (entry.shows / MAX) * 26}px` }}
+                  style={{ width: `${8 + (entry.shows / max) * 26}px` }}
                   aria-hidden="true"
                 />
               </button>

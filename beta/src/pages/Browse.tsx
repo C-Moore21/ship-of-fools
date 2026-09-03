@@ -1,14 +1,19 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { DicesIcon, StarIcon, PlayIcon } from 'lucide-react'
 import { AppHeader } from '../components/AppHeader'
 import { YearRail } from '../components/YearRail'
 import { ShowList } from '../components/ShowList'
 import { ShowDetail } from '../components/ShowDetail'
-import { PlayerBar } from '../components/PlayerBar'
-import { shows } from '../data/shows'
-import { usePlayer } from '../hooks/usePlayer'
+import { PlayerBar } from '../audio/PlayerBar'
+import { useSofAudio, setSnapHandler } from '../audio/useSofAudio'
+import { fetchSourceTracks } from '../audio/engine'
+import type { AudioShow, AudioSource } from '../audio/types'
 import { useScreenInit } from '../useScreenInit.js'
 import { formatDate } from '../utils/format'
+import { totalShows as fallbackTotalShows } from '../data/years'
+import { useShow, useShowsForYear, useSources, useTodaysPick, useYears } from '../hooks/useSofData'
+import { LoungePanel, useLounge } from '../lounge'
+import { LoginModal, useAuth } from '../auth-and-social'
 import type { Show, Track } from '../types/archive'
 
 type VisualizerMode = 'bars' | 'radial' | 'off'
@@ -20,19 +25,22 @@ interface BrowseProps {
   visualizer: VisualizerMode
 }
 
-/**
- * Pick a stable "today's" show — highest-rated available for a preview.
- * Real API will replace this with the same signal the classic UI uses.
- */
-function pickTodaysShow(): Show {
-  return [...shows].sort((a, b) => b.avgRating - a.avgRating)[0]
+const EMPTY_SHOW: Show = {
+  id: '', date: '', venue: '', city: '', era: '', tourRun: '',
+  avgRating: 0, ratingCount: 0, listeners: 0, soundboard: false,
+  source: '', weather: '', tempF: 0, tracks: [],
+}
+
+function showToAudio(s: Show): AudioShow {
+  return {
+    date: s.date,
+    label: `${formatDate(s.date).numeric} · ${s.venue}`,
+    venue: { name: s.venue, city: s.city },
+  }
 }
 
 function TodaysBanner({
-  pick,
-  otherSources,
-  onPlay,
-  onSelect,
+  pick, otherSources, onPlay, onSelect,
 }: {
   pick: Show
   otherSources: number
@@ -45,18 +53,14 @@ function TodaysBanner({
       <span className="hidden shrink-0 rounded-sm border border-gold/40 bg-gold/10 px-2 py-0.5 text-[9px] uppercase tracking-[0.18em] text-gold-light md:inline">
         Today's Recommended Show
       </span>
-      <span className="shrink-0 text-[9px] uppercase tracking-[0.18em] text-gold-light md:hidden">
-        Today
-      </span>
+      <span className="shrink-0 text-[9px] uppercase tracking-[0.18em] text-gold-light md:hidden">Today</span>
       <button
         type="button"
         onClick={() => onSelect(pick)}
         className="flex min-w-0 flex-1 items-baseline gap-3 text-left transition-colors duration-150 ease-archive hover:text-chalk"
         title="Open this show"
       >
-        <span className="shrink-0 font-mono text-[13px] tabular-nums text-chalk">
-          {date.numeric}
-        </span>
+        <span className="shrink-0 font-mono text-[13px] tabular-nums text-chalk">{date.numeric}</span>
         <span className="truncate font-display text-sm text-ink md:text-base">{pick.venue}</span>
         <span className="hidden truncate text-[11px] text-muted lg:inline">{pick.city}</span>
         {otherSources > 0 && (
@@ -81,67 +85,161 @@ function TodaysBanner({
   )
 }
 
-export function Browse({ compact, visualizer }: BrowseProps) {
+function EmptyState({ message, onRoll }: { message: string; onRoll: () => void }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+      <p className="font-display text-2xl text-ink">{message}</p>
+      <button
+        type="button"
+        onClick={onRoll}
+        className="flex items-center gap-2 rounded-sm border border-gold/60 px-4 py-2 text-[11px] uppercase tracking-[0.16em] text-gold transition-colors duration-150 ease-archive hover:border-gold hover:text-gold-light"
+      >
+        <DicesIcon className="h-3.5 w-3.5" />
+        Roll
+      </button>
+    </div>
+  )
+}
+
+export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
   const screenInit = useScreenInit()
-  const initialShow = shows.find((s) => s.id === screenInit.showId) ?? shows[0]
+
+  const { data: years } = useYears()
+  const totalShowsLive = years?.reduce((n, y) => n + y.shows, 0) || fallbackTotalShows
 
   const [year, setYear] = useState<number>(screenInit.year ?? 1977)
-  const [selected, setSelected] = useState<Show>(initialShow)
+  const [selectedId, setSelectedId] = useState<string | null>(screenInit.showId ?? null)
   const [mobilePane, setMobilePane] = useState<'list' | 'detail'>('detail')
-  const player = usePlayer(initialShow)
+  const [loginOpen, setLoginOpen] = useState(false)
 
-  const todaysPick = useMemo(pickTodaysShow, [])
+  const auth = useAuth()
+  const lounge = useLounge({ currentUser: auth.user })
 
-  const yearShows = useMemo(
-    () =>
-      shows
-        .filter((s) => s.date.startsWith(String(year)))
-        .sort((a, b) => a.date.localeCompare(b.date)),
-    [year],
+  const { data: yearShowsRaw, loading: showsLoading } = useShowsForYear(year)
+  const yearShows = useMemo(() => yearShowsRaw ?? [], [yearShowsRaw])
+
+  useEffect(() => {
+    if (yearShows.length === 0) return
+    if (selectedId && yearShows.some((s) => s.id === selectedId)) return
+    setSelectedId(yearShows[0].id)
+  }, [yearShows, selectedId])
+
+  const shallowSelected = useMemo(
+    () => yearShows.find((s) => s.id === selectedId) ?? null,
+    [yearShows, selectedId],
   )
 
+  const { data: hydrated } = useShow(shallowSelected)
+  const selected: Show = hydrated ?? shallowSelected ?? EMPTY_SHOW
+
+  const { data: today } = useTodaysPick()
+
+  // Audio engine — real playback (replaces mock usePlayer)
+  const audio = useSofAudio()
+
+  // Hook up the audio module's "snap back to playing show" so the classic
+  // player-bar behavior (click track/show label -> nav) works here too.
+  useEffect(() => {
+    setSnapHandler((ctx) => {
+      const y = Number(ctx.show.date.slice(0, 4))
+      if (!Number.isNaN(y)) setYear(y)
+      setSelectedId(ctx.show.date)
+      setMobilePane('detail')
+    })
+    return () => setSnapHandler(null)
+  }, [])
+
+  // Fetch the best source for the selected show so we can play from setlist.
+  // useShow already picks & attaches, but for `playShow` we need the raw source
+  // + AudioTrack[]. We re-fetch tracks via the audio module (which has its own
+  // adapter to AudioTrack).
+  const { data: sources } = useSources(selected.id || null)
+  const primarySource: AudioSource | null = useMemo(() => {
+    if (!sources || sources.length === 0) return null
+    const best = [...sources].sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1))[0]
+    return { id: best.id, source_type: best.soundboard ? 'SBD' : 'AUD', title: best.label }
+  }, [sources])
+
   const tourShows = useMemo(
-    () =>
-      shows.filter((s) => s.tourRun === selected.tourRun && s.id !== selected.id).slice(0, 6),
-    [selected],
+    () => yearShows.filter((s) => s.id !== selected.id).slice(0, 6),
+    [yearShows, selected.id],
   )
 
   const selectShow = (show: Show) => {
-    setSelected(show)
+    setSelectedId(show.id)
     setMobilePane('detail')
   }
 
   const rollGambler = () => {
-    const pick = shows[Math.floor(Math.random() * shows.length)]
-    setYear(Number(pick.date.slice(0, 4)))
+    if (yearShows.length === 0) return
+    const pick = yearShows[Math.floor(Math.random() * yearShows.length)]
     selectShow(pick)
-    player.play(pick, pick.tracks[0])
   }
 
-  const playShow = (s: Show) => {
-    setYear(Number(s.date.slice(0, 4)))
+  async function startPlayback(show: Show, source: AudioSource, trackIdx: number) {
+    try {
+      const tracks = await fetchSourceTracks(source.id)
+      if (tracks.length === 0) return
+      const safeIdx = Math.max(0, Math.min(trackIdx, tracks.length - 1))
+      audio.playShow(showToAudio(show), source, tracks, safeIdx)
+    } catch (e) {
+      console.error('playback failed:', e)
+    }
+  }
+
+  const playShow = async (s: Show) => {
+    const y = Number(s.date.slice(0, 4))
+    if (!Number.isNaN(y)) setYear(y)
     selectShow(s)
-    player.play(s, s.tracks[0])
+    // Pull the best source for the show we're jumping into.
+    try {
+      const res = await fetch(`/api/shows/${s.id}/sources`, { credentials: 'include' })
+      const data = await res.json()
+      const raw = (data.sources || data || [])[0]
+      if (!raw) return
+      const src: AudioSource = {
+        id: raw.identifier || raw.id,
+        source_type: raw.source_type,
+        title: raw.title,
+      }
+      await startPlayback(s, src, 0)
+    } catch (e) {
+      console.error('play show failed:', e)
+    }
   }
 
-  const playTrack = (track: Track) => player.play(selected, track)
+  const playTrack = (track: Track) => {
+    if (!primarySource) return
+    const idx = selected.tracks.findIndex((t) => t.id === track.id)
+    startPlayback(selected, primarySource, Math.max(0, idx))
+  }
 
   const exitBeta = () => {
-    try {
-      localStorage.removeItem('sof_beta')
-    } catch {}
+    try { localStorage.removeItem('sof_beta') } catch {}
     window.location.href = '/'
   }
 
   return (
     <div className="flex h-full w-full flex-col bg-bg">
-      <AppHeader unread={3} onGambler={rollGambler} onExitBeta={exitBeta} />
-      <TodaysBanner
-        pick={todaysPick}
-        otherSources={3}
-        onPlay={playShow}
-        onSelect={selectShow}
+      <AppHeader
+        user={auth.user}
+        onLoginClick={() => setLoginOpen(true)}
+        onLogoutClick={() => auth.logout()}
+        onLoungeClick={() => lounge.toggle()}
+        loungeUnread={lounge.unread}
+        loungeVisible={lounge.member}
+        onGambler={rollGambler}
+        onExitBeta={exitBeta}
       />
+
+      {today && (
+        <TodaysBanner
+          pick={today.show}
+          otherSources={today.otherSources}
+          onPlay={playShow}
+          onSelect={selectShow}
+        />
+      )}
 
       <nav
         aria-label="Sections"
@@ -153,9 +251,7 @@ export function Browse({ compact, visualizer }: BrowseProps) {
             type="button"
             aria-current={i === 0 ? 'page' : undefined}
             className={`h-full border-b-2 px-3 text-[11px] uppercase tracking-[0.14em] transition-colors duration-150 ease-archive ${
-              i === 0
-                ? 'border-accent text-chalk'
-                : 'border-transparent text-muted hover:text-ink'
+              i === 0 ? 'border-accent text-chalk' : 'border-transparent text-muted hover:text-ink'
             }`}
           >
             {tab}
@@ -165,7 +261,12 @@ export function Browse({ compact, visualizer }: BrowseProps) {
 
       <div className="flex min-h-0 flex-1">
         <div className="hidden md:flex">
-          <YearRail selected={year} onSelect={setYear} />
+          <YearRail
+            years={years ?? []}
+            totalShows={totalShowsLive}
+            selected={year}
+            onSelect={setYear}
+          />
         </div>
 
         <div className={`${mobilePane === 'list' ? 'flex' : 'hidden'} w-full md:flex md:w-auto`}>
@@ -173,54 +274,57 @@ export function Browse({ compact, visualizer }: BrowseProps) {
             year={year}
             shows={yearShows}
             selectedId={selected.id}
-            playingShowId={player.show?.id}
+            playingShowId={audio.show?.date}
             compact={compact}
             onSelect={selectShow}
           />
         </div>
 
         <div className={`${mobilePane === 'detail' ? 'flex' : 'hidden'} min-w-0 flex-1 md:flex`}>
-          {yearShows.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-              <p className="font-display text-2xl text-ink">Nothing cached for {year} yet</p>
-              <p className="max-w-sm text-[13px] leading-relaxed text-muted">
-                This year hasn't been pulled from the archive on this device. Roll the Gambler
-                for a show that's ready to play.
-              </p>
-              <button
-                type="button"
-                onClick={rollGambler}
-                className="flex items-center gap-2 rounded-sm border border-gold/60 px-4 py-2 text-[11px] uppercase tracking-[0.16em] text-gold transition-colors duration-150 ease-archive hover:border-gold hover:text-gold-light"
-              >
-                <DicesIcon className="h-3.5 w-3.5" />
-                Roll
-              </button>
+          {showsLoading && yearShows.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center text-[12px] uppercase tracking-[0.18em] text-muted">
+              Loading {year}…
+            </div>
+          ) : yearShows.length === 0 ? (
+            <EmptyState message={`Nothing cached for ${year} yet`} onRoll={rollGambler} />
+          ) : !selected.id ? (
+            <div className="flex flex-1 items-center justify-center text-[12px] uppercase tracking-[0.18em] text-muted">
+              Pick a show
             </div>
           ) : (
             <ShowDetail
               show={selected}
               tourShows={tourShows}
-              currentTrackId={player.track?.id}
-              isPlaying={player.isPlaying}
+              currentTrackId={audio.track?.id}
+              isPlaying={audio.playing && audio.show?.date === selected.id}
               compact={compact}
               onPlay={playTrack}
               onSelectShow={selectShow}
               onBack={() => setMobilePane('list')}
+              onRequestLogin={() => setLoginOpen(true)}
             />
           )}
         </div>
       </div>
 
-      <PlayerBar
-        show={player.show}
-        track={player.track}
-        isPlaying={player.isPlaying}
-        elapsed={player.elapsed}
-        visualizer={visualizer}
-        onToggle={player.toggle}
-        onPrev={player.prev}
-        onNext={player.next}
-        onSeek={player.seek}
+      <PlayerBar />
+
+      <LoungePanel
+        currentUser={auth.user}
+        controller={lounge}
+        onOpenShow={(date) => {
+          const y = Number(date.slice(0, 4))
+          if (!Number.isNaN(y)) setYear(y)
+          setSelectedId(date)
+          setMobilePane('detail')
+          if (lounge.open) lounge.toggle()
+        }}
+      />
+
+      <LoginModal
+        open={loginOpen}
+        onClose={() => setLoginOpen(false)}
+        auth={auth}
       />
     </div>
   )
