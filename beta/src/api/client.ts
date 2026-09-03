@@ -122,3 +122,44 @@ export function getTracks(sourceId: string): Promise<RawTracksDoc> {
 export function getTodaysPick(): Promise<RawTodayPick[]> {
   return jsonFetch<RawTodayPick[]>('/api/today')
 }
+
+// Per-song gap/debut/drought stats. Server keys by NORMALIZED song title;
+// `raw` gives us back the original so we can match to a track by title.
+export interface RawSongStat {
+  raw: string
+  prev_date: string | null
+  next_date: string | null
+  gap_before: number | null
+  perf_num: number
+  total: number
+  is_debut: boolean
+  drought_rank: number | null
+}
+
+export interface SetlistStatsResp {
+  rarity_score: number
+  rarity_label: string
+  songs: Record<string, RawSongStat>
+}
+
+export function getSetlistStats(showDate: string, songs: string[]): Promise<SetlistStatsResp> {
+  return fetch(`/api/shows/${encodeURIComponent(showDate)}/setlist-stats`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ songs }),
+  }).then(async (r) => {
+    if (!r.ok) throw new Error(`setlist-stats ${r.status}`)
+    return r.json()
+  })
+}
+
+export interface RawWeather {
+  weather?: string
+  temp_f?: number
+  tempF?: number
+}
+
+export function getWeather(showDate: string): Promise<RawWeather> {
+  return jsonFetch<RawWeather>(`/api/shows/${encodeURIComponent(showDate)}/weather`)
+}

@@ -15,14 +15,17 @@ import {
   adaptSource,
   adaptTracks,
   adaptYears,
+  applySetlistStats,
   hydrateShow,
   type SourceOption,
 } from '../api/adapters'
 import {
+  getSetlistStats,
   getShowsForYear,
   getSources,
   getTodaysPick,
   getTracks,
+  getWeather,
   getYears,
   type RawSource,
   type RawTodayPick,
@@ -160,16 +163,43 @@ export function useShow(base: Show | null): AsyncState<Show> {
   const key = base ? `show:${base.id}` : null
   return useAsync(key, async () => {
     if (!base) throw new Error('no base show')
-    const rawSources = await cachedSources(base.id)
+    const [rawSources, weather] = await Promise.all([
+      cachedSources(base.id),
+      // Weather is optional — network hiccup shouldn't kill the whole load.
+      getWeather(base.id).catch(() => ({} as { weather?: string; temp_f?: number })),
+    ])
     if (rawSources.length === 0) {
-      return { ...base, tracks: [] }
+      return {
+        ...base,
+        tracks: [],
+        weather: weather.weather ?? '',
+        tempF: (weather as any).temp_f ?? (weather as any).tempF ?? 0,
+      }
     }
     const best =
       [...rawSources].sort(
         (a, b) => (b.archive_rating ?? -1) - (a.archive_rating ?? -1),
       )[0] ?? rawSources[0]
     const tracks = await cachedTracks(best.id)
-    return hydrateShow(base, rawSources, best, tracks)
+    // Setlist stats give real rarity + Debut/Bust/Gap/Drought badges.
+    // Fetched in the background so the setlist appears immediately; when the
+    // POST resolves we merge the badges in.
+    let enrichedTracks = tracks
+    try {
+      const stats = await getSetlistStats(
+        base.id,
+        tracks.map((t) => t.title),
+      )
+      enrichedTracks = applySetlistStats(tracks, stats)
+    } catch {
+      // Non-fatal — tracks still render with default rarity.
+    }
+    const hydrated = hydrateShow(base, rawSources, best, enrichedTracks)
+    return {
+      ...hydrated,
+      weather: weather.weather ?? '',
+      tempF: (weather as any).temp_f ?? (weather as any).tempF ?? 0,
+    }
   })
 }
 

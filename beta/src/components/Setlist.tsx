@@ -99,7 +99,9 @@ function SetlistImpl({ show, currentTrackId, isPlaying, compact, onPlay }: Setli
                       }
 
                       <span className="hidden w-[104px] shrink-0 justify-end md:flex">
-                        <RarityMark rarity={track.rarity} />
+                        {track.rarity !== 'common' && track.rarity !== 'solid' && (
+                          <RarityMark rarity={track.rarity} />
+                        )}
                       </span>
 
                       <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted">

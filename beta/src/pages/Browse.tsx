@@ -46,13 +46,14 @@ function showToAudio(s: Show): AudioShow {
 }
 
 function TodaysBanner({
-  pick, otherSources, otherDates, onPlay, onSelect,
+  pick, otherSources, otherDates, onPlay, onSelect, onOpenAllDates,
 }: {
   pick: Show
   otherSources: number
   otherDates: number
   onPlay: (s: Show) => void
   onSelect: (s: Show) => void
+  onOpenAllDates: () => void
 }) {
   const date = formatDate(pick.date)
   return (
@@ -70,17 +71,22 @@ function TodaysBanner({
         <span className="shrink-0 font-mono text-[13px] tabular-nums text-chalk">{date.numeric}</span>
         <span className="truncate font-display text-sm text-ink md:text-base">{pick.venue}</span>
         <span className="hidden truncate text-[11px] text-muted lg:inline">{pick.city}</span>
-        {otherDates > 0 && (
-          <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.14em] text-royal-bright md:inline">
-            + {otherDates} other date{otherDates === 1 ? '' : 's'}
-          </span>
-        )}
-        {otherSources > 0 && (
-          <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.14em] text-muted lg:inline">
-            · {otherSources} src
-          </span>
-        )}
       </button>
+      {otherDates > 0 && (
+        <button
+          type="button"
+          onClick={onOpenAllDates}
+          className="hidden shrink-0 rounded-sm border border-royal-bright/40 bg-royal-bright/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-royal-bright transition-colors duration-150 ease-archive hover:border-royal-bright hover:bg-royal-bright/20 md:inline-flex"
+          title="Open Today in History"
+        >
+          + {otherDates} other date{otherDates === 1 ? '' : 's'}
+        </button>
+      )}
+      {otherSources > 0 && (
+        <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.14em] text-muted lg:inline">
+          · {otherSources} src
+        </span>
+      )}
       {pick.avgRating > 0 && (
         <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums text-gold">
           <StarIcon className="h-3 w-3 fill-current" />
@@ -280,6 +286,7 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
           otherDates={today.otherDates}
           onPlay={playShow}
           onSelect={selectShow}
+          onOpenAllDates={() => setTodayOpen(true)}
         />
       )}
 

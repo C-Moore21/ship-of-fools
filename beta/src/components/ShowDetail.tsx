@@ -162,7 +162,13 @@ export function ShowDetail({
 
   // Non-source meta cells (Listens intentionally removed per user request).
   const meta = [
-    { Icon: CloudIcon, label: 'Show day', value: `${show.weather} · ${show.tempF}°F` },
+    ...(show.weather || show.tempF
+      ? [{
+          Icon: CloudIcon,
+          label: 'Show day',
+          value: [show.weather, show.tempF ? `${show.tempF}°F` : null].filter(Boolean).join(' · '),
+        }]
+      : []),
     { Icon: HeadphonesIcon, label: 'Runtime', value: formatClock(runtime) },
   ]
 

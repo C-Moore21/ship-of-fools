@@ -6,8 +6,8 @@
  * defaults so the visual components render without special-casing.
  */
 
-import type { Rarity, Show, Track, YearEntry } from '../types/archive'
-import type { RawShow, RawSource, RawTrack, RawTrackSet, RawYear } from './client'
+import type { GapLabel, Rarity, Show, Track, YearEntry } from '../types/archive'
+import type { RawShow, RawSource, RawTrack, RawTrackSet, RawYear, SetlistStatsResp, RawSongStat } from './client'
 
 /** GD-era mapping used for the year rail badges and detail header. */
 export function eraForYear(year: number): string {
@@ -94,6 +94,47 @@ export function normalizeSetName(name: string, orderIndex: number): Track['set']
  */
 function defaultRarity(): Rarity {
   return 'common'
+}
+
+/** Map a song's total-play count → rarity tier (roughly matches classic UI). */
+function rarityFromPlayCount(total: number): Rarity {
+  if (total < 20) return 'legendary'
+  if (total < 50) return 'special'
+  if (total < 200) return 'rare'
+  if (total < 500) return 'solid'
+  return 'common'
+}
+
+/** Pick the most-notable gap label for a track, or null if none applies. */
+function gapLabelFor(s: RawSongStat): { label: GapLabel; shows: number } | null {
+  if (s.is_debut) return { label: 'Debut', shows: 0 }
+  const g = s.gap_before ?? 0
+  // Drought-breaker: longest-ever gap for this song
+  if (s.drought_rank === 1 && g >= 60) return { label: 'Bust', shows: g }
+  if (g >= 365) return { label: 'Drought', shows: g }
+  if (g >= 60) return { label: 'Gap', shows: g }
+  return null
+}
+
+/** Merge server-side setlist stats onto adapted tracks. Non-destructive to
+ *  tracks that don't match (title normalization on the server side means
+ *  some tracks — tuning, silence — never come back). */
+export function applySetlistStats(tracks: Track[], stats: SetlistStatsResp): Track[] {
+  // Server returns song_data keyed by normalized name; each entry has `.raw`
+  // which is the *first* raw title that normalized to that key. Build the
+  // reverse lookup by raw title.
+  const byRaw = new Map<string, RawSongStat>()
+  for (const s of Object.values(stats.songs || {})) {
+    if (s.raw) byRaw.set(s.raw.trim().toLowerCase(), s)
+  }
+  return tracks.map((t) => {
+    // Match on the base title (segue arrows already stripped in adaptTracks).
+    const hit = byRaw.get(t.title.trim().toLowerCase())
+    if (!hit) return t
+    const rarity = rarityFromPlayCount(hit.total)
+    const gap = gapLabelFor(hit)
+    return { ...t, rarity, gap: gap ?? undefined }
+  })
 }
 
 export function adaptTracks(sets: RawTrackSet[]): Track[] {
