@@ -238,14 +238,23 @@ export interface SourceOption {
  */
 function shortenIdentifier(id: string): string {
   const parts = id.split('.')
-  // Drop the leading "gd<date>" segment
   const rest = parts[0]?.match(/^gd\d/) ? parts.slice(1) : parts
   const boilerplate = new Set([
     'sbeok', 'shnf', 'shn', 'flac', 'flac16', 'flac24', 'flac96',
     'aud', 'sbd', 'mtx', 'fob', 'matrix', 'soundboard', 'audience',
-    'mp3', 'sirmick', 'miller', 'unknown', 'unk',
+    'mp3', 'unknown', 'unk', 't-flac16', 't-flac24',
   ])
+  // Prefer the first alphabetic token (usually the taper name — hicks,
+  // seamons, foster, etc.) over pure-numeric version tokens.
   const meaningful = rest.filter((p) => !boilerplate.has(p.toLowerCase()))
+  const alpha = meaningful.find((p) => /^[a-z][a-z_-]{2,}$/i.test(p))
+  if (alpha) {
+    // Pair the taper with the next segment if it's a version number (short id).
+    const idx = meaningful.indexOf(alpha)
+    const next = meaningful[idx + 1]
+    if (next && /^\d{2,}$/.test(next)) return `${alpha}.${next}`
+    return alpha
+  }
   return meaningful.slice(0, 2).join('.') || id
 }
 
@@ -270,6 +279,7 @@ export function hydrateShow(
   sources: RawSource[],
   chosen: RawSource | undefined,
   tracks: Track[],
+  credits?: { taper?: string; transferer?: string; lineage?: string },
 ): Show {
   const chosenType = (chosen?.source_type || '').toUpperCase()
   return {
@@ -279,5 +289,8 @@ export function hydrateShow(
     soundboard: chosenType.includes('SBD') || chosenType.includes('MATRIX'),
     avgRating: chosen?.archive_rating ?? base.avgRating,
     ratingCount: chosen?.archive_reviews ?? base.ratingCount,
+    taper: credits?.taper || undefined,
+    transferer: credits?.transferer || undefined,
+    lineage: credits?.lineage || undefined,
   }
 }

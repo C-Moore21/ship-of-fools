@@ -32,6 +32,8 @@ import {
   type RawReleaseInfo,
   type RawSource,
   type RawTodayPick,
+  type RawWeather,
+  type SetlistStatsResp,
 } from '../api/client'
 import type { Show, YearEntry } from '../types/archive'
 
@@ -80,6 +82,8 @@ let yearsCache: Promise<YearEntry[]> | null = null
 const showsByYear: Map<number, Promise<Show[]>> = new Map()
 const sourcesByDate: Map<string, Promise<RawSource[]>> = new Map()
 const tracksBySource: Map<string, Promise<ReturnType<typeof adaptTracks>>> = new Map()
+const weatherByDate: Map<string, Promise<RawWeather>> = new Map()
+const setlistStatsByDate: Map<string, Promise<SetlistStatsResp>> = new Map()
 let todaysPickCache: Promise<RawTodayPick[]> | null = null
 
 function cachedYears(): Promise<YearEntry[]> {
@@ -118,17 +122,69 @@ function cachedSources(date: string): Promise<RawSource[]> {
   return p
 }
 
-function cachedTracks(sourceId: string) {
+interface TracksBundle {
+  tracks: ReturnType<typeof adaptTracks>
+  taper?: string
+  transferer?: string
+  lineage?: string
+}
+
+function cachedTracks(sourceId: string): Promise<TracksBundle> {
   const existing = tracksBySource.get(sourceId)
-  if (existing) return existing
-  const p = getTracks(sourceId)
-    .then((doc) => adaptTracks(doc.sets || []))
+  if (existing) return existing as Promise<TracksBundle>
+  const p: Promise<TracksBundle> = getTracks(sourceId)
+    .then((doc) => ({
+      tracks: adaptTracks(doc.sets || []),
+      taper: doc.taper || undefined,
+      transferer: doc.transferer || undefined,
+      lineage: doc.lineage || undefined,
+    }))
     .catch((e) => {
       tracksBySource.delete(sourceId)
       throw e
     })
-  tracksBySource.set(sourceId, p)
+  tracksBySource.set(sourceId, p as any)
   return p
+}
+
+function cachedWeather(date: string): Promise<RawWeather> {
+  const existing = weatherByDate.get(date)
+  if (existing) return existing
+  // Weather is optional — swallow errors as empty so cache still short-circuits
+  // and callers don't have to retry.
+  const p = getWeather(date).catch(() => ({} as RawWeather))
+  weatherByDate.set(date, p)
+  return p
+}
+
+function cachedSetlistStats(
+  date: string,
+  songs: string[],
+): Promise<SetlistStatsResp> {
+  const existing = setlistStatsByDate.get(date)
+  if (existing) return existing
+  const p = getSetlistStats(date, songs).catch((e) => {
+    setlistStatsByDate.delete(date)
+    throw e
+  })
+  setlistStatsByDate.set(date, p)
+  return p
+}
+
+/**
+ * Fire-and-forget prefetch helpers — safe to call from onMouseEnter etc.
+ * They hydrate the module-level caches so the next hook call resolves instantly.
+ * Errors are swallowed so a hover never surfaces a rejection.
+ */
+export function prefetchShowsForYear(year: number): void {
+  cachedShows(year).catch(() => {})
+}
+export function prefetchShow(date: string): void {
+  // Sources + weather covers the two round-trips that fire when a show is
+  // selected. Tracks + setlist-stats still wait for the click because they
+  // depend on which source is chosen.
+  cachedSources(date).catch(() => {})
+  cachedWeather(date).catch(() => {})
 }
 
 function cachedTodaysPick(): Promise<RawTodayPick[]> {
@@ -168,8 +224,7 @@ export function useShow(base: Show | null): AsyncState<Show> {
     if (!base) throw new Error('no base show')
     const [rawSources, weather] = await Promise.all([
       cachedSources(base.id),
-      // Weather is optional — network hiccup shouldn't kill the whole load.
-      getWeather(base.id).catch(() => ({} as { weather?: string; temp_f?: number })),
+      cachedWeather(base.id),
     ])
     if (rawSources.length === 0) {
       return {
@@ -183,21 +238,25 @@ export function useShow(base: Show | null): AsyncState<Show> {
       [...rawSources].sort(
         (a, b) => (b.archive_rating ?? -1) - (a.archive_rating ?? -1),
       )[0] ?? rawSources[0]
-    const tracks = await cachedTracks(best.id)
+    const bundle = await cachedTracks(best.id)
     // Setlist stats give real rarity + Debut/Bust/Gap/Drought badges.
     // Fetched in the background so the setlist appears immediately; when the
     // POST resolves we merge the badges in.
-    let enrichedTracks = tracks
+    let enrichedTracks = bundle.tracks
     try {
-      const stats = await getSetlistStats(
+      const stats = await cachedSetlistStats(
         base.id,
-        tracks.map((t) => t.title),
+        bundle.tracks.map((t) => t.title),
       )
-      enrichedTracks = applySetlistStats(tracks, stats)
+      enrichedTracks = applySetlistStats(bundle.tracks, stats)
     } catch {
       // Non-fatal — tracks still render with default rarity.
     }
-    const hydrated = hydrateShow(base, rawSources, best, enrichedTracks)
+    const hydrated = hydrateShow(base, rawSources, best, enrichedTracks, {
+      taper: bundle.taper,
+      transferer: bundle.transferer,
+      lineage: bundle.lineage,
+    })
     return {
       ...hydrated,
       weather: weather.weather ?? '',

@@ -14,6 +14,9 @@ export function Stealie({ className = 'h-8 w-8' }: StealieProps) {
       src="/static/stealie.png"
       alt="Ship of Fools"
       className={className}
+      width={64}
+      height={64}
+      decoding="async"
       draggable={false}
     />
   )

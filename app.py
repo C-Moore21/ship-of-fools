@@ -307,6 +307,54 @@ if not app.debug and not os.environ.get("SECRET_KEY"):
     raise RuntimeError("SECRET_KEY environment variable must be set in production")
 app.config["PERMANENT_SESSION_LIFETIME"] = __import__("datetime").timedelta(days=30)
 
+# ── Response gzip ─────────────────────────────────────────────────────────────
+# Flask/Werkzeug doesn't gzip by default and Render's edge doesn't compress
+# arbitrary /api/* JSON either. JSON compresses ~5-8x, which is the single
+# biggest wire-time win for endpoints like /api/years/<year>/shows,
+# /api/releases/all, /api/listens/history, and /api/shows/map. Skip small
+# payloads (no point) and anything already encoded or streaming.
+import gzip as _gzip
+from io import BytesIO as _BytesIO
+_GZIP_MIN_BYTES = 1024
+_GZIP_MIME_PREFIXES = ("application/json", "text/", "application/javascript")
+
+@app.after_request
+def _gzip_response(response):
+    try:
+        accept = request.headers.get("Accept-Encoding", "")
+        if "gzip" not in accept.lower():
+            return response
+        # Never touch already-encoded, streamed, partial, or error responses.
+        if response.status_code < 200 or response.status_code >= 300:
+            return response
+        if response.direct_passthrough:
+            return response
+        if response.headers.get("Content-Encoding"):
+            return response
+        ctype = (response.mimetype or "").lower()
+        if not any(ctype.startswith(p) for p in _GZIP_MIME_PREFIXES):
+            return response
+        data = response.get_data()
+        if len(data) < _GZIP_MIN_BYTES:
+            return response
+        buf = _BytesIO()
+        with _gzip.GzipFile(fileobj=buf, mode="wb", compresslevel=6, mtime=0) as gz:
+            gz.write(data)
+        gz_data = buf.getvalue()
+        response.set_data(gz_data)
+        response.headers["Content-Encoding"] = "gzip"
+        response.headers["Content-Length"] = str(len(gz_data))
+        vary = response.headers.get("Vary")
+        if vary:
+            if "accept-encoding" not in vary.lower():
+                response.headers["Vary"] = vary + ", Accept-Encoding"
+        else:
+            response.headers["Vary"] = "Accept-Encoding"
+    except Exception:
+        # Gzip is best-effort — never break a response over compression trouble.
+        pass
+    return response
+
 # ── Database ──────────────────────────────────────────────────────────────────
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/ship_of_fools")
 _mongo = MongoClient(MONGO_URI, maxPoolSize=10)
@@ -321,6 +369,11 @@ notes_table      = _db["notes"]
 users_table.create_index("username", unique=True)
 ratings_table.create_index([("username", 1), ("track_id", 1)], unique=True)
 show_ratings_table.create_index([("username", 1), ("show_id", 1)], unique=True)
+# Community rating lookups ($match on show_id in community_show_rating and
+# _community_stats_for_year's ^year- prefix regex) previously scanned the
+# whole collection — the (username, show_id) index can't serve a show_id-only
+# match. Well under the M0 3-index cap here (this collection has only 2).
+show_ratings_table.create_index([("show_id", 1)])
 listens_table.create_index([("username", 1), ("show_date", 1)])
 # Index on ts so community_now_spinning()'s $match {"ts": {"$gte": ...}} is a
 # range scan instead of a full collection scan.  The (username, session_id)

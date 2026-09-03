@@ -1,5 +1,8 @@
-/* @import url() FONT IMPORTS MUST ALWAYS BE AT THE VERY TOP OF THIS FILE, ABOVE THE TAILWIND IMPORTS — DO NOT DELETE THIS COMMENT */
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Space+Mono:wght@400;700&display=swap');
+/* Google Fonts are loaded via <link rel="preconnect"> + <link rel="stylesheet"> in
+   the HTML <head> (beta/index.html for dev, templates/beta.html for prod). Loading
+   them here as an @import forces a render-blocking waterfall: CSS bundle downloads,
+   then the browser discovers the @import, then fetches Google's CSS, then fetches
+   the font files. Doing it in <head> lets all three requests fan out in parallel. */
 
 /* CRITICAL: THE FOLLOWING TAILWIND IMPORTS MUST NEVER BE DELETED OR REORDERED — DO NOT DELETE THIS COMMENT */
 @import 'tailwindcss/base';

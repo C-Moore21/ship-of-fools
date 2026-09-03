@@ -172,7 +172,14 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
   const screenInit = readScreenInit()
 
   const { data: years } = useYears()
-  const totalShowsLive = years?.reduce((n, y) => n + y.shows, 0) || fallbackTotalShows
+  // Memoized: this reduce runs on every Browse render otherwise (once per
+  // audio play/pause/trackchange), and it's passed to the memoized YearRail —
+  // a fresh number identity is fine but the reduce over 31 items is pure
+  // waste when years hasn't changed.
+  const totalShowsLive = useMemo(
+    () => years?.reduce((n, y) => n + y.shows, 0) || fallbackTotalShows,
+    [years],
+  )
 
   const [year, setYear] = useState<number>(screenInit.year ?? 1977)
   const [selectedId, setSelectedId] = useState<string | null>(screenInit.showId ?? null)

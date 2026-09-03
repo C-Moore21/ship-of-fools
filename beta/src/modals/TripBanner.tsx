@@ -38,7 +38,7 @@ export function TripBanner() {
 
   return (
     <div
-      className="pointer-events-auto fixed inset-x-0 bottom-[84px] z-[150] mx-auto flex max-w-[92vw] items-center gap-3 rounded-sm border border-royal bg-surface2/95 px-3 py-2 shadow-2xl backdrop-blur-sm md:bottom-[92px] md:max-w-[520px]"
+      className="pointer-events-auto fixed inset-x-0 bottom-[84px] z-[150] mx-auto flex max-w-[92vw] items-center gap-3 rounded-sm border border-royal bg-surface2 px-3 py-2 shadow-2xl md:bottom-[92px] md:max-w-[520px]"
       role="status"
       aria-live="polite"
     >

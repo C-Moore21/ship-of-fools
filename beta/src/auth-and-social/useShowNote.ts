@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getMyNote, saveNote } from './api';
 
+// Per-show note cache. Notes are per-user; caller must invalidate on logout
+// (there's no useMyListens-style rekey because notes are single-doc GETs).
+const noteCache = new Map<string, string>();
+const inflightNote = new Map<string, Promise<string>>();
+
+export function invalidateShowNoteCache(): void {
+  noteCache.clear();
+  inflightNote.clear();
+}
+
 export type NoteStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export interface UseShowNote {
@@ -28,13 +38,28 @@ export function useShowNote(
 
   useEffect(() => {
     showRef.current = showDate;
-    setNoteState('');
+    const cached = showDate ? noteCache.get(showDate) : undefined;
+    setNoteState(cached ?? '');
+    pendingRef.current = cached ?? '';
     setStatus('idle');
     setError(null);
     if (!showDate || !loggedIn) return;
+    if (cached !== undefined) return; // Hit — no request.
     let cancelled = false;
     setLoading(true);
-    getMyNote(showDate)
+    let p = inflightNote.get(showDate);
+    if (!p) {
+      p = getMyNote(showDate).then((v) => {
+        noteCache.set(showDate, v);
+        inflightNote.delete(showDate);
+        return v;
+      }).catch((e) => {
+        inflightNote.delete(showDate);
+        throw e;
+      });
+      inflightNote.set(showDate, p);
+    }
+    p
       .then((v) => {
         if (!cancelled) {
           setNoteState(v);
@@ -60,6 +85,8 @@ export function useShowNote(
     setError(null);
     try {
       await saveNote(d, text);
+      // Stale-while-revalidate: reflect the just-saved text in the cache.
+      noteCache.set(d, text);
       setStatus('saved');
       window.setTimeout(() => {
         setStatus((s) => (s === 'saved' ? 'idle' : s));

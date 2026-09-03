@@ -2,7 +2,7 @@ import React from 'react';
 import { CheckIcon, DiscAlbumIcon, RadioIcon, StarIcon } from 'lucide-react';
 import type { Show } from '../types/archive';
 import { formatDate } from '../utils/format';
-import type { ReleaseInfo, ReleaseMap } from '../hooks/useSofData';
+import { prefetchShow, type ReleaseInfo, type ReleaseMap } from '../hooks/useSofData';
 
 interface ShowListProps {
   year: number;
@@ -57,8 +57,10 @@ function ShowListImpl({
               <button
                 type="button"
                 onClick={() => onSelect(show)}
+                onMouseEnter={() => prefetchShow(show.id)}
+                onFocus={() => prefetchShow(show.id)}
                 aria-current={isSelected ? 'true' : undefined}
-                className={`flex w-full items-start gap-3 border-b border-line/60 border-l-2 text-left transition-colors duration-150 ease-archive ${
+                className={`flex w-full items-start gap-3 border-b border-line/60 border-l-2 text-left transition-colors duration-100 ease-archive ${
                 compact ? 'px-4 py-2' : 'px-4 py-3'} ${
 
                 isSelected ?

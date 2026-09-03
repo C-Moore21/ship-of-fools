@@ -39,6 +39,12 @@ interface ShowDetailProps {
 function SourcePicker({ show }: { show: Show }) {
   const { data, loading, error } = useSources(show.id)
   const sources: SourceOption[] = useMemo(() => data ?? [], [data])
+  // Sort once per sources-change instead of spreading + sorting every render
+  // AND every auto-pick effect re-entry.
+  const sortedByRating = useMemo(
+    () => [...sources].sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1)),
+    [sources],
+  )
   const [open, setOpen] = useState(false)
   const [pickedId, setPickedId] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -46,10 +52,9 @@ function SourcePicker({ show }: { show: Show }) {
   // Reset pick when show changes; auto-pick the top-rated source when data lands.
   useEffect(() => setPickedId(null), [show.id])
   useEffect(() => {
-    if (pickedId != null || sources.length === 0) return
-    const best = [...sources].sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1))[0]
-    setPickedId(best.id)
-  }, [sources, pickedId])
+    if (pickedId != null || sortedByRating.length === 0) return
+    setPickedId(sortedByRating[0].id)
+  }, [sortedByRating, pickedId])
 
   useEffect(() => {
     if (!open) return
@@ -160,24 +165,32 @@ function ShowDetailImpl({
   canShareToLounge = false,
   sourceId,
 }: ShowDetailProps) {
-  const date = formatDate(show.date)
-  const runtime = show.tracks.reduce((sum, t) => sum + t.duration, 0)
+  const date = useMemo(() => formatDate(show.date), [show.date])
+  const runtime = useMemo(
+    () => show.tracks.reduce((sum, t) => sum + t.duration, 0),
+    [show.tracks],
+  )
   const auth = useAuth()
   const loggedIn = !!auth.user
   const ratingHook = useShowRating(show.id || null, loggedIn, show.venue || '')
   const noteHook = useShowNote(show.id || null, loggedIn)
 
   // Non-source meta cells (Listens intentionally removed per user request).
-  const meta = [
-    ...(show.weather || show.tempF
-      ? [{
-          Icon: CloudIcon,
-          label: 'Show day',
-          value: [show.weather, show.tempF ? `${show.tempF}°F` : null].filter(Boolean).join(' · '),
-        }]
-      : []),
-    { Icon: HeadphonesIcon, label: 'Runtime', value: formatClock(runtime) },
-  ]
+  // Memoized so the .map below doesn't re-render its Icon components on every
+  // parent re-render (currentTrackId/isPlaying flips would otherwise churn it).
+  const meta = useMemo(
+    () => [
+      ...(show.weather || show.tempF
+        ? [{
+            Icon: CloudIcon,
+            label: 'Show day',
+            value: [show.weather, show.tempF ? `${show.tempF}°F` : null].filter(Boolean).join(' · '),
+          }]
+        : []),
+      { Icon: HeadphonesIcon, label: 'Runtime', value: formatClock(runtime) },
+    ],
+    [show.weather, show.tempF, runtime],
+  )
 
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-bg">
@@ -251,6 +264,29 @@ function ShowDetailImpl({
             </div>
           ))}
         </dl>
+
+        {(show.taper || show.transferer || show.lineage) && (
+          <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[11px] text-muted">
+            {show.taper && (
+              <span>
+                <span className="uppercase tracking-[0.14em] text-muted/70">Taper</span>{' '}
+                <span className="font-mono text-ink">{show.taper}</span>
+              </span>
+            )}
+            {show.transferer && (
+              <span>
+                <span className="uppercase tracking-[0.14em] text-muted/70">Transferer</span>{' '}
+                <span className="font-mono text-ink">{show.transferer}</span>
+              </span>
+            )}
+            {show.lineage && (
+              <span className="min-w-0 flex-1 truncate" title={show.lineage}>
+                <span className="uppercase tracking-[0.14em] text-muted/70">Lineage</span>{' '}
+                <span className="font-mono text-ink">{show.lineage}</span>
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="mt-8 grid gap-10 xl:grid-cols-[minmax(0,1fr)_240px]">
           <Setlist

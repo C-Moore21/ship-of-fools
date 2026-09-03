@@ -1,5 +1,6 @@
 import React from 'react'
 import type { YearEntry } from '../types/archive'
+import { prefetchShowsForYear } from '../hooks/useSofData'
 
 interface YearRailProps {
   years: YearEntry[]
@@ -31,8 +32,10 @@ function YearRailImpl({ years, totalShows, selected, onSelect }: YearRailProps) 
               <button
                 type="button"
                 onClick={() => onSelect(entry.year)}
+                onMouseEnter={() => prefetchShowsForYear(entry.year)}
+                onFocus={() => prefetchShowsForYear(entry.year)}
                 aria-current={isSelected ? 'true' : undefined}
-                className={`flex w-full items-center gap-2 border-l-2 px-3 py-[5px] text-left transition-colors duration-150 ease-archive ${
+                className={`flex w-full items-center gap-2 border-l-2 px-3 py-[5px] text-left transition-colors duration-100 ease-archive ${
                   isSelected
                     ? 'border-accent bg-surface2 text-chalk'
                     : 'border-transparent text-muted hover:bg-surface2/60 hover:text-ink'

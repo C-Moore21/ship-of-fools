@@ -5,8 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loungeApi, type LoungeMessage, type LoungeRef } from './api';
 import { reactionSig } from './utils';
 
-const POLL_OPEN_MS = 4000;   // fast poll while panel is open
-const POLL_UNREAD_MS = 30000; // slow badge poll when closed
+const POLL_OPEN_MS = 4000;    // fast poll while panel is open
+const POLL_UNREAD_MS = 30000; // slow badge poll when closed & tab visible
+const POLL_HIDDEN_MS = 120000; // even slower when the tab is backgrounded
 
 export interface PendingReply {
   id: string;
@@ -83,10 +84,23 @@ export function useLounge({ currentUser, onOpen }: UseLoungeOptions): UseLoungeR
   useEffect(() => {
     if (!member) return;
     pollUnread();
-    unreadTimerRef.current = window.setInterval(pollUnread, POLL_UNREAD_MS);
+    const install = () => {
+      if (unreadTimerRef.current) window.clearInterval(unreadTimerRef.current);
+      const ms = document.hidden ? POLL_HIDDEN_MS : POLL_UNREAD_MS;
+      unreadTimerRef.current = window.setInterval(pollUnread, ms);
+    };
+    install();
+    // Re-tune the interval when the user tabs away / back so a backgrounded
+    // page isn't hammering /api/lounge/unread every 30s for hours.
+    const onVis = () => {
+      install();
+      if (!document.hidden) pollUnread();
+    };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       if (unreadTimerRef.current) window.clearInterval(unreadTimerRef.current);
       unreadTimerRef.current = null;
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, [member, pollUnread]);
 

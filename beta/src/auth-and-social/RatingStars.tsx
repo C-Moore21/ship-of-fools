@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Star } from 'lucide-react';
 
 interface Props {
@@ -16,7 +16,7 @@ interface Props {
  * right half -> full). Matches classic UI: clicking the same value clears it
  * (parent's setStars handles the toggle).
  */
-export function RatingStars({
+function RatingStarsImpl({
   value,
   onChange,
   disabled = false,
@@ -98,4 +98,9 @@ export function RatingStars({
   );
 }
 
+// Memoized: RatingStars is rendered per-row in the setlist (25+ instances) —
+// re-rendering all of them whenever the ratings map identity changes is pure
+// waste. Parents must pass a stable onChange (see Setlist TrackRow) for the
+// memo to actually skip work.
+export const RatingStars = React.memo(RatingStarsImpl);
 export default RatingStars;

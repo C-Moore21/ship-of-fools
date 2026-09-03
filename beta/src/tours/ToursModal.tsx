@@ -188,7 +188,7 @@ function RunDetail({
           <div>
             <div className="h-2 overflow-hidden rounded-full bg-line">
               <div
-                className="h-full bg-accent transition-all"
+                className="h-full bg-accent transition-[width] duration-150 ease-archive"
                 style={{ width: `${summary.pct}%` }}
               />
             </div>

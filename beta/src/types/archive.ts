@@ -37,6 +37,10 @@ export interface Show {
   tempF: number;
   note?: string;
   tracks: Track[];
+  // Taper credits — populated by useShow from the tracks endpoint.
+  taper?: string;
+  transferer?: string;
+  lineage?: string;
 }
 
 export interface YearEntry {

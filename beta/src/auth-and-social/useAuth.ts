@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getMe, login as apiLogin, logout as apiLogout, register as apiRegister } from './api';
+import { invalidateShowRatingCache } from './useShowRating';
+import { invalidateShowNoteCache } from './useShowNote';
 
 export interface UseAuth {
   user: string | null;
@@ -49,6 +51,10 @@ export function useAuth(): UseAuth {
 
   const logout = useCallback(async () => {
     await apiLogout();
+    // Drop per-user caches so the next login doesn't see the previous user's
+    // ratings/notes.
+    invalidateShowRatingCache();
+    invalidateShowNoteCache();
     setUser(null);
   }, []);
 
