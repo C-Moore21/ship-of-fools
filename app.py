@@ -663,6 +663,32 @@ def lookup_show_rating():
     row = show_ratings_table.find_one({"username": username, "show_id": show_id}, {"_id": 0})
     return jsonify({"stars": row["stars"] if row else 0})
 
+@app.route("/api/show-ratings/community")
+def community_show_rating():
+    """Community-wide average rating for a single show.
+    Returns {show_id, avg, count}. avg is a float rounded to 2dp; both are 0
+    when nobody has rated the show yet (endpoint still 200s, not 404, so the
+    beta client can render a neutral state)."""
+    show_id = request.args.get("show_id", "").strip()
+    if not show_id:
+        return jsonify({"error": "show_id required"}), 400
+    cache_key = f"show-rating-community:{show_id}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+    agg = list(show_ratings_table.aggregate([
+        {"$match": {"show_id": show_id}},
+        {"$group": {"_id": None, "avg": {"$avg": "$stars"}, "count": {"$sum": 1}}},
+    ]))
+    if agg:
+        avg = round(float(agg[0]["avg"] or 0), 2)
+        count = int(agg[0]["count"] or 0)
+    else:
+        avg, count = 0.0, 0
+    result = {"show_id": show_id, "avg": avg, "count": count}
+    _cache_set(cache_key, result)
+    return jsonify(result)
+
 # ── Archive.org proxy routes ──────────────────────────────────────────────────
 @app.route("/")
 def index():
@@ -776,16 +802,64 @@ def years():
     # Grateful Dead active years
     return jsonify([{"year": str(y), "show_count": None} for y in range(1995, 1964, -1)])
 
+def _community_stats_for_year(year):
+    """Per-show community stats for a whole year in two aggregates.
+    Returns {show_date: {listens, avg, count}}. Cached ~5min (default TTL)
+    since listens/ratings tick during play but don't need to be live-live."""
+    cache_key = f"community-year:{year}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    prefix = f"^{year}-"
+    out = {}
+    # Listens: count docs per show_date
+    try:
+        for row in listens_table.aggregate([
+            {"$match": {"show_date": {"$regex": prefix}}},
+            {"$group": {"_id": "$show_date", "count": {"$sum": 1}}},
+        ]):
+            out.setdefault(row["_id"], {"listens": 0, "avg": 0.0, "count": 0})["listens"] = int(row["count"])
+    except Exception:
+        pass
+    # Show ratings: avg + count per show_id (show_id is the yyyy-mm-dd date)
+    try:
+        for row in show_ratings_table.aggregate([
+            {"$match": {"show_id": {"$regex": prefix}}},
+            {"$group": {"_id": "$show_id", "avg": {"$avg": "$stars"}, "count": {"$sum": 1}}},
+        ]):
+            d = out.setdefault(row["_id"], {"listens": 0, "avg": 0.0, "count": 0})
+            d["avg"] = round(float(row["avg"] or 0), 2)
+            d["count"] = int(row["count"] or 0)
+    except Exception:
+        pass
+    _cache_set(cache_key, out)
+    return out
+
+def _enrich_shows_with_community(year, shows_list):
+    """Merge per-year community stats into a shows list (in-place-safe copy)."""
+    if not shows_list:
+        return shows_list or []
+    stats = _community_stats_for_year(year)
+    out = []
+    for s in shows_list:
+        s2 = dict(s) if isinstance(s, dict) else s
+        stat = stats.get(s2.get("id") or "") or {}
+        s2["community_listens"] = stat.get("listens", 0)
+        s2["community_avg"]     = stat.get("avg", 0.0)
+        s2["community_count"]   = stat.get("count", 0)
+        out.append(s2)
+    return out
+
 @app.route("/api/years/<year>/shows")
 def shows(year):
     cache_key = f"shows:{year}"
     cached = _cache_get(cache_key)
     if cached is not None:
-        return jsonify(cached)
+        return jsonify(_enrich_shows_with_community(year, cached))
     mongo_cached = _mcache_get(_shows_year_cache, year)
     if mongo_cached is not None:
         _cache_set(cache_key, mongo_cached)
-        return jsonify(mongo_cached)
+        return jsonify(_enrich_shows_with_community(year, mongo_cached))
     try:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND year:{year}",
@@ -798,7 +872,7 @@ def shows(year):
         stale = _mcache_get(_shows_year_cache, year)
         if stale is not None:
             _cache_set(cache_key, stale)
-            return jsonify(stale)
+            return jsonify(_enrich_shows_with_community(year, stale))
         return jsonify({"error": "Archive.org unavailable"}), 502
     except Exception as e:
         return jsonify({"error": "Unexpected error"}), 500
@@ -829,7 +903,7 @@ def shows(year):
         })
     _cache_set(cache_key, result)
     _mcache_set(_shows_year_cache, year, result)
-    return jsonify(result)
+    return jsonify(_enrich_shows_with_community(year, result))
 
 _SOURCE_TYPE_ORDER = {"SBD": 0, "MTX": 1, "FOB": 2, "AUD": 3, "UNK": 4}
 
@@ -1469,17 +1543,49 @@ def listen_stats():
             _day_shows.setdefault(day, set()).add(show)
     cal_data = [{"date": k, "count": len(v)} for k, v in sorted(_day_shows.items())]
 
+    # Favorite year: most seconds by year (from listens rows already fetched)
+    _yr_seconds = defaultdict(int)
+    for r in rows:
+        _yr = (r.get("show_date") or r.get("show_id") or "")[:4]
+        if _yr.isdigit():
+            _yr_seconds[_yr] += int(r.get("seconds") or 0)
+    favorite_year = max(_yr_seconds.items(), key=lambda kv: kv[1])[0] if _yr_seconds else ""
+
+    # Favorite venue: join top show_ids against show_ratings_table (only source
+    # of venue strings we already store). Best-effort; empty when no match.
+    favorite_venue = ""
+    if top_shows:
+        try:
+            top_ids = [s["show_date"] for s in top_shows if s.get("show_date")]
+            venue_map = {}
+            for r in show_ratings_table.find(
+                {"show_id": {"$in": top_ids}, "venue": {"$exists": True, "$ne": ""}},
+                {"show_id": 1, "venue": 1, "_id": 0},
+            ):
+                venue_map.setdefault(r["show_id"], r.get("venue") or "")
+            for s in top_shows:
+                v = venue_map.get(s.get("show_date"))
+                if v:
+                    favorite_venue = v
+                    break
+        except Exception:
+            favorite_venue = ""
+
     return jsonify({
-        "total_seconds": total_seconds,
-        "total_listens": len(rows),
-        "top_shows":     top_shows,
-        "top_tracks":    top_tracks,
-        "top_songs":     top_songs,
-        "years":         all_years,
-        "year":          year,
-        "by_era":        by_era,
-        "streak":        streak,
-        "cal_data":      cal_data,
+        "total_seconds":  total_seconds,
+        "total_listens":  len(rows),
+        "top_shows":      top_shows,
+        "top_tracks":     top_tracks,
+        "top_songs":      top_songs,
+        "years":          all_years,
+        "year":           year,
+        "by_era":         by_era,
+        "eras":           by_era,   # alias — task-spec name
+        "streak":         streak,
+        "streak_days":    streak,   # alias — task-spec name
+        "cal_data":       cal_data,
+        "favorite_year":  favorite_year,
+        "favorite_venue": favorite_venue,
     })
 
 # ── Leaderboard ───────────────────────────────────────────────────────────────
@@ -2565,6 +2671,121 @@ def show_weather(show_date):
     }
     _mcache_set(_weather_cache_col, show_date, result)
     return jsonify(result)
+
+
+@app.route("/api/shows/<show_date>")
+def show_detail(show_date):
+    """One-shot show detail: identity + venue + weather + community aggregates
+    + sources list. Every field is best-effort — a subsystem error yields null
+    for that field rather than a whole-endpoint failure. Cached ~5min so beta's
+    ShowDetail doesn't fan out to 4 endpoints on every open."""
+    import re as _re
+    if not _re.match(r'^\d{4}-\d{2}-\d{2}$', show_date):
+        return jsonify({"error": "invalid show_date"}), 400
+    cache_key = f"show-detail:{show_date}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        # Sources still get scored/sorted on read so a re-score is applied
+        merged = dict(cached)
+        merged["sources"] = _enrich_and_sort_sources(cached.get("sources") or [])
+        return jsonify(merged)
+
+    # Sources — reuse the same cache the /sources endpoint uses so we don't
+    # double-fetch Archive.org.
+    sources = _cache_get(f"sources:{show_date}") or _mcache_get(_shows_src_cache, show_date)
+    if sources is None:
+        try:
+            data = archive_search({
+                "q": f"collection:{COLLECTION} AND date:{show_date}*",
+                "fl[]": "identifier,title,avg_rating,num_reviews",
+                "output": "json",
+                "rows": 100,
+            })
+            docs = data.get("response", {}).get("docs", [])
+            sources = []
+            for doc in docs:
+                identifier = doc["identifier"]
+                stype = _parse_source_type(identifier)
+                sources.append({
+                    "id": identifier,
+                    "title": doc.get("title", identifier),
+                    "source_type": stype,
+                    "archive_rating": doc.get("avg_rating"),
+                    "archive_reviews": doc.get("num_reviews", 0),
+                    "sets": None,
+                })
+            _cache_set(f"sources:{show_date}", sources)
+            _mcache_set(_shows_src_cache, show_date, sources)
+        except Exception:
+            sources = []
+
+    # Venue: cheapest source is the first source title ("… at VENUE on DATE").
+    venue_name, venue_location = "", ""
+    for s in sources or []:
+        title = s.get("title") or ""
+        if " at " in title and " on " in title:
+            venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
+            break
+    # Fall back to show_ratings_table.venue if we already stored one.
+    try:
+        for r in show_ratings_table.find(
+            {"show_id": show_date, "venue": {"$exists": True, "$ne": ""}},
+            {"venue": 1, "_id": 0},
+        ).limit(1):
+            if not venue_name:
+                venue_name = r.get("venue") or ""
+    except Exception:
+        pass
+
+    # Weather (best-effort, cached in _weather_cache_col)
+    weather = None
+    tempF = None
+    try:
+        w_cached = _mcache_get(_weather_cache_col, show_date)
+        if w_cached is not None:
+            weather = w_cached
+            tempF = w_cached.get("temp_max_f")
+    except Exception:
+        weather = None
+
+    # Community aggregates
+    community_listens = 0
+    community_avg = 0.0
+    community_count = 0
+    try:
+        for row in listens_table.aggregate([
+            {"$match": {"show_date": show_date}},
+            {"$group": {"_id": None, "count": {"$sum": 1}}},
+        ]):
+            community_listens = int(row.get("count") or 0)
+    except Exception:
+        pass
+    try:
+        for row in show_ratings_table.aggregate([
+            {"$match": {"show_id": show_date}},
+            {"$group": {"_id": None, "avg": {"$avg": "$stars"}, "count": {"$sum": 1}}},
+        ]):
+            community_avg = round(float(row.get("avg") or 0), 2)
+            community_count = int(row.get("count") or 0)
+    except Exception:
+        pass
+
+    result = {
+        "id":                show_date,
+        "display_date":      show_date,
+        "venue":             {"name": venue_name, "location": venue_location},
+        "weather":           weather,
+        "tempF":             tempF,
+        "community_avg":     community_avg,
+        "community_count":   community_count,
+        "community_listens": community_listens,
+        "sources":           sources or [],
+    }
+    _cache_set(cache_key, result)
+    # Re-apply source ordering on the returned copy
+    out = dict(result)
+    out["sources"] = _enrich_and_sort_sources(result["sources"])
+    return jsonify(out)
 
 
 # Note: Observatory background refresh removed — Archive.org permanently blocks

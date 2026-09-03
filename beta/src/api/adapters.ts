@@ -62,9 +62,11 @@ export function adaptShallowShow(raw: RawShow): Show {
     city: raw.venue?.location ?? '',
     era,
     tourRun: `${era} · ${year}`,
-    avgRating: raw.avg_rating ?? 0,
-    ratingCount: 0,
-    listeners: 0,
+    // Prefer community avg (populated by /api/years/<year>/shows enrichment)
+    // over Archive.org avg (usually null on the shallow list).
+    avgRating: raw.community_avg ?? raw.avg_rating ?? 0,
+    ratingCount: raw.community_count ?? 0,
+    listeners: raw.community_listens ?? 0,
     soundboard: false,
     source: '',
     weather: '',

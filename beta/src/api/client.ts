@@ -23,6 +23,10 @@ export interface RawShow {
   display_date: string
   venue: RawVenue
   avg_rating: number | null
+  // Enriched by /api/years/<year>/shows — see app.py _enrich_shows_with_community
+  community_avg?: number
+  community_count?: number
+  community_listens?: number
 }
 
 export interface RawTodayPick extends RawShow {
