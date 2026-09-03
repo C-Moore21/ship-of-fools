@@ -198,22 +198,28 @@ export function ShowDetail({
             </p>
           </div>
 
-          <div className="shrink-0 text-right">
-            <p className="font-display text-4xl font-black leading-none text-gold">
-              {show.avgRating.toFixed(1)}
-            </p>
-            <div className="mt-1.5 flex justify-end gap-0.5">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <StarIcon
-                  key={n}
-                  className={`h-3.5 w-3.5 ${
-                    n <= Math.round(show.avgRating) ? 'fill-gold text-gold' : 'text-line'
-                  }`}
-                />
-              ))}
+          {show.avgRating > 0 ? (
+            <div className="shrink-0 text-right">
+              <p className="font-display text-4xl font-black leading-none text-gold">
+                {show.avgRating.toFixed(1)}
+              </p>
+              <div className="mt-1.5 flex justify-end gap-0.5">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <StarIcon
+                    key={n}
+                    className={`h-3.5 w-3.5 ${
+                      n <= Math.round(show.avgRating) ? 'fill-gold text-gold' : 'text-line'
+                    }`}
+                  />
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-muted">{show.ratingCount} ratings</p>
             </div>
-            <p className="mt-1 text-[11px] text-muted">{show.ratingCount} ratings</p>
-          </div>
+          ) : (
+            <div className="shrink-0 text-right text-[10px] uppercase tracking-[0.14em] text-muted">
+              Not yet rated
+            </div>
+          )}
         </header>
 
         <dl className="grid grid-cols-1 gap-x-6 gap-y-4 border-b border-line py-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -282,9 +288,13 @@ export function ShowDetail({
                         {formatDate(other.date).numeric}
                       </span>
                       <span className="truncate text-[12px] text-ink/80">{other.city}</span>
-                      <span className="ml-auto font-mono text-[11px] text-gold">
-                        {other.avgRating.toFixed(1)}
-                      </span>
+                      {other.avgRating > 0 ? (
+                        <span className="ml-auto font-mono text-[11px] text-gold">
+                          {other.avgRating.toFixed(1)}
+                        </span>
+                      ) : (
+                        <span className="ml-auto font-mono text-[10px] text-muted/60">—</span>
+                      )}
                     </button>
                   </li>
                 ))}

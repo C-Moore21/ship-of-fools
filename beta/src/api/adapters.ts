@@ -75,13 +75,27 @@ export function adaptShallowShow(raw: RawShow): Show {
   }
 }
 
-/** "Set 1"/"Set I"/"set one" → I, "Set 2" → II, "Encore" → E, fallback I. */
+/**
+ * Normalize an Archive.org album/set name into Set I / II / E.
+ *
+ * The album tag varies wildly across shows: "Set 1", "Set I", "Set One",
+ * "Encore", or sometimes just the show title ("Grateful Dead Live at ..."). We
+ * only want to treat a name as encore/set-2/etc when it's ACTUALLY labeled
+ * that way — a title containing "Live" (which most do) must not fire the
+ * encore branch. So: look for the set/encore keyword as a whole word, and
+ * require digits to stand alone (not as part of a date like "1987").
+ */
 export function normalizeSetName(name: string, orderIndex: number): Track['set'] {
   const n = (name || '').toLowerCase().trim()
-  if (/(encore|e\b|^e$)/.test(n)) return 'E'
-  if (/(2|ii\b|two|second)/.test(n)) return 'II'
-  if (/(1|i\b|one|first)/.test(n)) return 'I'
-  // If the show only tagged one bucket, keep first bucket in Set I, second in II, else Encore.
+  if (n === '' || n === 'set 1' || n === 'set i' || n === 'set one') return 'I'
+  if (n === 'set 2' || n === 'set ii' || n === 'set two') return 'II'
+  if (n === 'encore' || n === 'e') return 'E'
+  // Prefixed forms: "set 3", "second set", "encore 1", etc.
+  if (/\bencore\b/.test(n)) return 'E'
+  if (/\bset\s*(?:2|ii|two|second)\b/.test(n) || /\b(?:second|two)\s+set\b/.test(n)) return 'II'
+  if (/\bset\s*(?:1|i|one|first)\b/.test(n) || /\b(?:first|one)\s+set\b/.test(n)) return 'I'
+  // Album tag doesn't mention set/encore at all (usually the show title).
+  // Fall back to disc order: first bucket = Set I, second = II, else Encore.
   if (orderIndex === 0) return 'I'
   if (orderIndex === 1) return 'II'
   return 'E'
