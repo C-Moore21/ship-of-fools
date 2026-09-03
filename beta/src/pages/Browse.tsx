@@ -28,7 +28,17 @@ function pickTodaysShow(): Show {
   return [...shows].sort((a, b) => b.avgRating - a.avgRating)[0]
 }
 
-function TodaysBanner({ pick, onPlay }: { pick: Show; onPlay: (s: Show) => void }) {
+function TodaysBanner({
+  pick,
+  otherSources,
+  onPlay,
+  onSelect,
+}: {
+  pick: Show
+  otherSources: number
+  onPlay: (s: Show) => void
+  onSelect: (s: Show) => void
+}) {
   const date = formatDate(pick.date)
   return (
     <div className="flex shrink-0 items-center gap-4 border-b border-line bg-surface2 px-4 py-2.5 md:px-6">
@@ -38,15 +48,23 @@ function TodaysBanner({ pick, onPlay }: { pick: Show; onPlay: (s: Show) => void 
       <span className="shrink-0 text-[9px] uppercase tracking-[0.18em] text-gold-light md:hidden">
         Today
       </span>
-      <div className="flex min-w-0 flex-1 items-baseline gap-3">
+      <button
+        type="button"
+        onClick={() => onSelect(pick)}
+        className="flex min-w-0 flex-1 items-baseline gap-3 text-left transition-colors duration-150 ease-archive hover:text-chalk"
+        title="Open this show"
+      >
         <span className="shrink-0 font-mono text-[13px] tabular-nums text-chalk">
           {date.numeric}
         </span>
-        <span className="truncate font-display text-sm text-ink md:text-base">
-          {pick.venue}
-        </span>
+        <span className="truncate font-display text-sm text-ink md:text-base">{pick.venue}</span>
         <span className="hidden truncate text-[11px] text-muted lg:inline">{pick.city}</span>
-      </div>
+        {otherSources > 0 && (
+          <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.14em] text-royal-bright md:inline">
+            + {otherSources} other source{otherSources === 1 ? '' : 's'}
+          </span>
+        )}
+      </button>
       <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums text-gold">
         <StarIcon className="h-3 w-3 fill-current" />
         {pick.avgRating.toFixed(1)}
@@ -118,7 +136,12 @@ export function Browse({ compact, visualizer }: BrowseProps) {
   return (
     <div className="flex h-full w-full flex-col bg-bg">
       <AppHeader unread={3} onGambler={rollGambler} onExitBeta={exitBeta} />
-      <TodaysBanner pick={todaysPick} onPlay={playShow} />
+      <TodaysBanner
+        pick={todaysPick}
+        otherSources={3}
+        onPlay={playShow}
+        onSelect={selectShow}
+      />
 
       <nav
         aria-label="Sections"
