@@ -152,8 +152,18 @@ export function applySetlistStats(tracks: Track[], stats: SetlistStatsResp): Tra
 }
 
 export function adaptTracks(sets: RawTrackSet[]): Track[] {
+  // If Archive.org grouped everything under one album (as happens when the
+  // taper only tagged one album), fall back to detecting set breaks from the
+  // tracklist itself: a short "Tuning"/"Crowd"/"Space" that isn't the first
+  // track is almost always a set marker. Split into up to 3 buckets
+  // (Set I / II / Encore) using that signal.
+  const effectiveSets: RawTrackSet[] =
+    sets.length === 1 && sets[0].tracks.length >= 15
+      ? splitByBreakMarkers(sets[0])
+      : sets
+
   const out: Track[] = []
-  sets.forEach((s, setIdx) => {
+  effectiveSets.forEach((s, setIdx) => {
     const setLabel = normalizeSetName(s.name, setIdx)
     let position = 0
     for (const raw of s.tracks) {
@@ -175,6 +185,38 @@ export function adaptTracks(sets: RawTrackSet[]): Track[] {
   return out
 }
 
+/**
+ * Heuristic set splitter for single-album shows. Break markers: short (<60s)
+ * "Tuning" or "Crowd" tracks that are not the first track. If we find one,
+ * split there. If we find two, first split = Set I/II boundary, second =
+ * Encore boundary. Never produces more than 3 sets.
+ */
+function splitByBreakMarkers(bucket: RawTrackSet): RawTrackSet[] {
+  const isBreak = (t: RawTrack, idx: number): boolean => {
+    if (idx === 0) return false
+    const title = (t.title || '').toLowerCase()
+    if (!/tuning|crowd|silence|band intro/i.test(title)) return false
+    return (t.duration || 0) < 60
+  }
+  const breakIndices: number[] = []
+  bucket.tracks.forEach((t, i) => { if (isBreak(t, i)) breakIndices.push(i) })
+  if (breakIndices.length === 0) return [bucket]
+
+  // First break → Set II boundary; second break → Encore boundary.
+  const cuts = breakIndices.slice(0, 2)
+  const chunks: RawTrack[][] = []
+  let prev = 0
+  for (const cut of cuts) {
+    chunks.push(bucket.tracks.slice(prev, cut))
+    prev = cut
+  }
+  chunks.push(bucket.tracks.slice(prev))
+  const labels = ['Set 1', 'Set 2', 'Encore']
+  return chunks
+    .filter((c) => c.length > 0)
+    .map((tracks, i) => ({ name: labels[i] || `Set ${i + 1}`, tracks }))
+}
+
 export interface SourceOption {
   id: string
   label: string
@@ -182,12 +224,34 @@ export interface SourceOption {
   rating?: number
 }
 
+/**
+ * Extract the meaningful tail of an Archive.org identifier, e.g.
+ *   gd77-05-08.sbd.hicks.4982.sbeok.shnf  →  hicks.4982
+ * The date prefix, source-type token, and boilerplate suffixes (sbeok, shnf,
+ * flac16/24, etc) get stripped so what's left is the taper name + version.
+ */
+function shortenIdentifier(id: string): string {
+  const parts = id.split('.')
+  // Drop the leading "gd<date>" segment
+  const rest = parts[0]?.match(/^gd\d/) ? parts.slice(1) : parts
+  const boilerplate = new Set([
+    'sbeok', 'shnf', 'shn', 'flac', 'flac16', 'flac24', 'flac96',
+    'aud', 'sbd', 'mtx', 'fob', 'matrix', 'soundboard', 'audience',
+    'mp3', 'sirmick', 'miller', 'unknown', 'unk',
+  ])
+  const meaningful = rest.filter((p) => !boilerplate.has(p.toLowerCase()))
+  return meaningful.slice(0, 2).join('.') || id
+}
+
 export function adaptSource(raw: RawSource): SourceOption {
-  const st = (raw.source_type || '').toUpperCase()
+  const st = (raw.source_type || '').toUpperCase() || 'UNK'
+  const tail = shortenIdentifier(raw.id)
+  const reviews = raw.archive_reviews ?? 0
+  const label = reviews > 0 ? `${st} · ${tail} · ${reviews} rev` : `${st} · ${tail}`
   return {
     id: raw.id,
-    label: raw.title || raw.id,
-    soundboard: st.includes('SBD') || st.includes('MATRIX'),
+    label,
+    soundboard: st.includes('SBD') || st.includes('MATRIX') || st === 'MTX',
     rating: raw.archive_rating ?? undefined,
   }
 }
