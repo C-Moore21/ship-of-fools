@@ -22,7 +22,8 @@ export interface RawShow {
   id: string
   display_date: string
   venue: RawVenue
-  avg_rating: number | null
+  avg_rating: number | null           // Archive.org's public rating (best recording per date)
+  num_reviews?: number                 // Archive.org's public review count
   // Enriched by /api/years/<year>/shows — see app.py _enrich_shows_with_community
   community_avg?: number
   community_count?: number

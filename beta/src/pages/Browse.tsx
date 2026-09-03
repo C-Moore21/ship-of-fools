@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { DicesIcon, StarIcon, PlayIcon } from 'lucide-react'
 import { AppHeader } from '../components/AppHeader'
 import { YearRail } from '../components/YearRail'
@@ -8,17 +8,60 @@ import { PlayerBar } from '../audio/PlayerBar'
 import { useSofAudio, setSnapHandler } from '../audio/useSofAudio'
 import { fetchSourceTracks } from '../audio/engine'
 import type { AudioShow, AudioSource } from '../audio/types'
-import { useScreenInit } from '../useScreenInit.js'
 import { formatDate } from '../utils/format'
 import { totalShows as fallbackTotalShows } from '../data/years'
 import { useShow, useShowsForYear, useSources, useTodaysPick, useYears } from '../hooks/useSofData'
 import { LoungePanel, useLounge } from '../lounge'
 import { LoginModal, useAuth } from '../auth-and-social'
-import { ObservatoryModal } from '../observatory'
-import { SearchPalette } from '../search'
-import { TodayInHistoryModal, BlindTestModal, TripBanner } from '../modals'
-import { RatedPanel, StatsPanel, HistoryPanel, LeaderboardPanel } from '../sections'
+import { TripBanner } from '../modals'
 import type { Show, Track } from '../types/archive'
+
+// Lazy-loaded: none of these are needed for first paint. Modals only mount
+// when their `open` prop flips true; section panels only mount when their tab
+// is active. Chunk loads on first click of the corresponding UI affordance.
+const ObservatoryModal = lazy(() =>
+  import('../observatory/ObservatoryModal').then((m) => ({ default: m.default })),
+)
+const SearchPalette = lazy(() =>
+  import('../search/SearchPalette').then((m) => ({ default: m.SearchPalette })),
+)
+const TodayInHistoryModal = lazy(() =>
+  import('../modals/TodayInHistoryModal').then((m) => ({ default: m.TodayInHistoryModal })),
+)
+const BlindTestModal = lazy(() =>
+  import('../modals/BlindTestModal').then((m) => ({ default: m.BlindTestModal })),
+)
+const RatedPanel = lazy(() =>
+  import('../sections/RatedPanel').then((m) => ({ default: m.RatedPanel })),
+)
+const StatsPanel = lazy(() =>
+  import('../sections/StatsPanel').then((m) => ({ default: m.StatsPanel })),
+)
+const HistoryPanel = lazy(() =>
+  import('../sections/HistoryPanel').then((m) => ({ default: m.HistoryPanel })),
+)
+const LeaderboardPanel = lazy(() =>
+  import('../sections/LeaderboardPanel').then((m) => ({ default: m.LeaderboardPanel })),
+)
+
+// Tiny fallback: keeps the panel/modal slot from collapsing during chunk fetch.
+const PanelFallback = () => (
+  <div className="flex flex-1 items-center justify-center text-[11px] uppercase tracking-[0.18em] text-muted">
+    Loading…
+  </div>
+)
+
+// Magic Patterns template used to seed initial year/show via ?mp_screen=...
+// The manifest was 24 lines of hard-coded 1977 dates; inline the URL read so
+// we can drop the manifest + useScreenInit hook entirely.
+function readScreenInit(): { year?: number; showId?: string } {
+  if (typeof window === 'undefined') return {}
+  const id = new URLSearchParams(window.location.search).get('mp_screen')
+  if (!id) return {}
+  // Manifest removed with the useScreenInit hook; deep-link via ?year=&show=
+  // if you need it back.
+  return {}
+}
 
 type TabId = 'Browse' | 'Rated' | 'Stats' | 'History' | 'Leaderboard'
 
@@ -122,7 +165,7 @@ function EmptyState({ message, onRoll }: { message: string; onRoll: () => void }
 }
 
 export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
-  const screenInit = useScreenInit()
+  const screenInit = readScreenInit()
 
   const { data: years } = useYears()
   const totalShowsLive = years?.reduce((n, y) => n + y.shows, 0) || fallbackTotalShows
@@ -366,6 +409,17 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
               onSelectShow={selectShow}
               onBack={() => setMobilePane('list')}
               onRequestLogin={() => setLoginOpen(true)}
+              canShareToLounge={lounge.member}
+              onShareToLounge={async (s) => {
+                await lounge.send('', {
+                  ref: {
+                    show_date: s.id,
+                    venue: s.venue,
+                    location: s.city,
+                  },
+                })
+                if (!lounge.open) lounge.toggle()
+              }}
             />
           )}
         </div>

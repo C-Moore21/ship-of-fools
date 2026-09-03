@@ -30,6 +30,8 @@ interface ShowDetailProps {
   onSelectShow: (show: Show) => void
   onBack: () => void
   onRequestLogin?: () => void
+  onShareToLounge?: (show: Show) => void
+  canShareToLounge?: boolean
 }
 
 function SourcePicker({ show }: { show: Show }) {
@@ -152,6 +154,8 @@ export function ShowDetail({
   onSelectShow,
   onBack,
   onRequestLogin,
+  onShareToLounge,
+  canShareToLounge = false,
 }: ShowDetailProps) {
   const date = formatDate(show.date)
   const runtime = show.tracks.reduce((sum, t) => sum + t.duration, 0)
@@ -196,6 +200,16 @@ export function ShowDetail({
             <p className="text-sm text-muted">
               {show.city} · {date.long}
             </p>
+            {canShareToLounge && onShareToLounge && (
+              <button
+                type="button"
+                onClick={() => onShareToLounge(show)}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-sm border border-royal-bright/50 bg-royal-bright/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-royal-bright transition-colors duration-150 ease-archive hover:border-royal-bright hover:bg-royal-bright/20 hover:text-chalk"
+                title="Share this show to the Lounge"
+              >
+                💬 Share to Lounge
+              </button>
+            )}
           </div>
 
           {show.avgRating > 0 ? (

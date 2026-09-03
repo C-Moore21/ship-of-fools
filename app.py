@@ -852,24 +852,30 @@ def _enrich_shows_with_community(year, shows_list):
 
 @app.route("/api/years/<year>/shows")
 def shows(year):
-    cache_key = f"shows:{year}"
+    # Cache key includes a version — bump when the schema shape changes so
+    # old cache entries don't leak stale fields (e.g. missing avg_rating).
+    _shows_key = f"shows-v2:{year}"
+    cache_key = _shows_key
     cached = _cache_get(cache_key)
     if cached is not None:
         return jsonify(_enrich_shows_with_community(year, cached))
-    mongo_cached = _mcache_get(_shows_year_cache, year)
+    mongo_cached = _mcache_get(_shows_year_cache, _shows_key)
     if mongo_cached is not None:
         _cache_set(cache_key, mongo_cached)
         return jsonify(_enrich_shows_with_community(year, mongo_cached))
     try:
         data = archive_search({
             "q": f"collection:{COLLECTION} AND year:{year}",
-            "fl[]": "identifier,title,date,coverage",
+            # Include Archive.org's per-recording avg_rating + num_reviews so
+            # we can surface a rating for every show, not just the ones our
+            # 4 users have rated locally. Same request, no extra cost.
+            "fl[]": "identifier,title,date,coverage,avg_rating,num_reviews",
             "output": "json",
             "rows": 1000,
             "sort[]": "date asc",
         })
     except (requests.exceptions.Timeout, requests.exceptions.RequestException):
-        stale = _mcache_get(_shows_year_cache, year)
+        stale = _mcache_get(_shows_year_cache, _shows_key) or _mcache_get(_shows_year_cache, year)
         if stale is not None:
             _cache_set(cache_key, stale)
             return jsonify(_enrich_shows_with_community(year, stale))
@@ -878,31 +884,52 @@ def shows(year):
         return jsonify({"error": "Unexpected error"}), 500
     docs = data.get("response", {}).get("docs", [])
 
-    seen = {}
-    result = []
+    # Multiple recordings per date — pick the highest-rated as this show's
+    # representative rating so the browse list has something meaningful.
+    per_date = {}
     for doc in docs:
         date = doc.get("date") or ""
         if isinstance(date, list):
             date = date[0] if date else ""
         date = date[:10]
-        if not date or date in seen:
+        if not date:
             continue
-        seen[date] = True
+        try:
+            rating = float(doc.get("avg_rating") or 0)
+        except (ValueError, TypeError):
+            rating = 0.0
+        try:
+            reviews = int(doc.get("num_reviews") or 0)
+        except (ValueError, TypeError):
+            reviews = 0
+        existing = per_date.get(date)
+        # Score = rating weighted by log(reviews+1) so a 5.0 with 1 review
+        # doesn't outrank a 4.7 with 40 reviews.
+        import math as _m
+        score = rating * _m.log(reviews + 2)
+        if existing and existing["_score"] >= score:
+            continue
         title = doc.get("title", "")
         venue_name = ""
         if " at " in title and " on " in title:
             venue_name = title.split(" at ", 1)[1].split(" on ")[0].strip()
-        result.append({
+        per_date[date] = {
             "id": date,
             "display_date": date,
             "venue": {
                 "name": venue_name or title[:60],
                 "location": doc.get("coverage", ""),
             },
-            "avg_rating": None,
-        })
+            "avg_rating": rating if rating > 0 else None,
+            "num_reviews": reviews,
+            "_score": score,
+        }
+
+    result = sorted(per_date.values(), key=lambda r: r["display_date"])
+    for r in result:
+        r.pop("_score", None)
     _cache_set(cache_key, result)
-    _mcache_set(_shows_year_cache, year, result)
+    _mcache_set(_shows_year_cache, _shows_key, result)
     return jsonify(_enrich_shows_with_community(year, result))
 
 _SOURCE_TYPE_ORDER = {"SBD": 0, "MTX": 1, "FOB": 2, "AUD": 3, "UNK": 4}
