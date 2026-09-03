@@ -8,7 +8,7 @@ interface YearRailProps {
   onSelect: (year: number) => void
 }
 
-export function YearRail({ years, totalShows, selected, onSelect }: YearRailProps) {
+function YearRailImpl({ years, totalShows, selected, onSelect }: YearRailProps) {
   const max = Math.max(1, ...years.map((y) => y.shows))
   return (
     <nav
@@ -52,3 +52,6 @@ export function YearRail({ years, totalShows, selected, onSelect }: YearRailProp
     </nav>
   )
 }
+
+export const YearRail = React.memo(YearRailImpl)
+

@@ -12,7 +12,7 @@ interface ShowListProps {
   onSelect: (show: Show) => void;
 }
 
-export function ShowList({
+function ShowListImpl({
   year,
   shows,
   selectedId,
@@ -99,3 +99,5 @@ export function ShowList({
     </section>);
 
 }
+
+export const ShowList = React.memo(ShowListImpl);

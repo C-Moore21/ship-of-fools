@@ -18,7 +18,7 @@ interface SetlistProps {
   onPlay: (track: Track) => void;
 }
 
-export function Setlist({ show, currentTrackId, isPlaying, compact, onPlay }: SetlistProps) {
+function SetlistImpl({ show, currentTrackId, isPlaying, compact, onPlay }: SetlistProps) {
   const sets: Track['set'][] = ['I', 'II', 'E'];
 
   return (
@@ -116,3 +116,5 @@ export function Setlist({ show, currentTrackId, isPlaying, compact, onPlay }: Se
     </div>);
 
 }
+
+export const Setlist = React.memo(SetlistImpl);

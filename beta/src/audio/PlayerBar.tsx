@@ -6,15 +6,13 @@
 import React from 'react';
 import { PauseIcon, PlayIcon, SkipBackIcon, SkipForwardIcon, Volume2Icon, VolumeXIcon } from 'lucide-react';
 import { formatDuration } from '../utils/format';
-import { useSofAudio } from './useSofAudio';
+import { useSofAudio, useSofAudioTime } from './useSofAudio';
 
 export function PlayerBar() {
   const {
     show,
     track,
     playing,
-    elapsed,
-    duration,
     volume,
     toggle,
     next,
@@ -28,6 +26,7 @@ export function PlayerBar() {
     toggleTrip,
     airplayActive,
   } = useSofAudio();
+  const { elapsed, duration } = useSofAudioTime();
 
   const hasTrack = !!track;
   const effectiveDuration = duration || track?.duration || 0;

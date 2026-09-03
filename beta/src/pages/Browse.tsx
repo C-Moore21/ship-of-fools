@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { DicesIcon, StarIcon, PlayIcon } from 'lucide-react'
 import { AppHeader } from '../components/AppHeader'
 import { YearRail } from '../components/YearRail'
@@ -201,16 +201,16 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
     [yearShows, selected.id],
   )
 
-  const selectShow = (show: Show) => {
+  const selectShow = useCallback((show: Show) => {
     setSelectedId(show.id)
     setMobilePane('detail')
-  }
+  }, [])
 
-  const rollGambler = () => {
+  const rollGambler = useCallback(() => {
     if (yearShows.length === 0) return
     const pick = yearShows[Math.floor(Math.random() * yearShows.length)]
     selectShow(pick)
-  }
+  }, [yearShows, selectShow])
 
   async function startPlayback(show: Show, source: AudioSource, trackIdx: number) {
     try {
@@ -244,11 +244,12 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
     }
   }
 
-  const playTrack = (track: Track) => {
+  const playTrack = useCallback((track: Track) => {
     if (!primarySource) return
     const idx = selected.tracks.findIndex((t) => t.id === track.id)
     startPlayback(selected, primarySource, Math.max(0, idx))
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primarySource, selected])
 
   const exitBeta = () => {
     try { localStorage.removeItem('sof_beta') } catch {}

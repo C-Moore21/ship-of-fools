@@ -15,8 +15,6 @@ export interface SofAudio {
   /** Sugar: `ctx.show`. */
   show: AudioShow | null;
   playing: boolean;
-  elapsed: number;
-  duration: number;
   volume: number;
   airplayActive: boolean;
 
@@ -50,14 +48,34 @@ export function setSnapHandler(fn: SnapHandler | null) {
   _snapHandler = fn;
 }
 
+/**
+ * Time-only subscription. Split out because `timeupdate` fires ~4x/sec — any
+ * component that reads `elapsed`/`duration` re-renders that often. PlayerBar
+ * uses this; nothing else should. Everything else calls useSofAudio() which
+ * intentionally does NOT surface time.
+ */
+export function useSofAudioTime(): { elapsed: number; duration: number } {
+  const engine = getEngine();
+  const [elapsed, setElapsed] = useState(() => engine.getCurrentTime());
+  const [duration, setDuration] = useState(() => engine.getDuration());
+  useEffect(() => {
+    const off = engine.on((ev) => {
+      if (ev.type === 'timeupdate') {
+        setElapsed(ev.currentTime);
+        setDuration(ev.duration);
+      }
+    });
+    return off;
+  }, [engine]);
+  return { elapsed, duration };
+}
+
 export function useSofAudio(): SofAudio {
   const engine = getEngine();
   const trip = getTripMode(engine);
 
   const [ctx, setCtx] = useState<PlaybackContext | null>(() => engine.getContext());
   const [playing, setPlaying] = useState(() => engine.isPlaying());
-  const [elapsed, setElapsed] = useState(() => engine.getCurrentTime());
-  const [duration, setDuration] = useState(() => engine.getDuration());
   const [volume, setVolumeState] = useState(() => engine.getVolume());
   const [airplayActive, setAirplay] = useState(() => engine.isAirplayActive());
   const [tripState, setTripState] = useState<TripState>({ status: 'off' });
@@ -74,15 +92,12 @@ export function useSofAudio(): SofAudio {
           setPlaying(true);
           break;
         case 'pause':
-          setPlaying(false);
-          break;
         case 'ended':
           setPlaying(false);
           break;
-        case 'timeupdate':
-          setElapsed(ev.currentTime);
-          setDuration(ev.duration);
-          break;
+        // NOTE: timeupdate is intentionally NOT handled here. It fires 4x/sec
+        // and would re-render every consumer. Use useSofAudioTime() from the
+        // one component (PlayerBar) that needs a live clock.
         case 'volume':
           setVolumeState(ev.volume);
           break;
@@ -128,8 +143,6 @@ export function useSofAudio(): SofAudio {
     track,
     show: ctx ? ctx.show : null,
     playing,
-    elapsed,
-    duration,
     volume,
     airplayActive,
     playShow,
