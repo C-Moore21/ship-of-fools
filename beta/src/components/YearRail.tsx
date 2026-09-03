@@ -16,8 +16,12 @@ export function YearRail({ years, totalShows, selected, onSelect }: YearRailProp
       className="flex h-full w-[92px] shrink-0 flex-col border-r border-line bg-surface"
     >
       <div className="border-b border-line px-3 py-2.5">
-        <p className="text-[10px] uppercase tracking-[0.16em] text-muted">Years</p>
-        <p className="mt-0.5 font-mono text-[11px] text-ink">{totalShows.toLocaleString()}</p>
+        <p className="font-mono text-[10px] leading-tight text-muted">
+          <span className="text-ink">{years.length}</span> yrs
+        </p>
+        <p className="mt-0.5 font-mono text-[10px] leading-tight text-muted">
+          <span className="text-ink">{totalShows.toLocaleString()}</span> shows
+        </p>
       </div>
       <ul className="flex-1 overflow-y-auto py-1">
         {years.map((entry) => {

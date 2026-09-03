@@ -28,6 +28,10 @@ interface AppHeaderProps {
   loungeVisible: boolean
   onGambler: () => void
   onExitBeta?: () => void
+  onSearchClick?: () => void
+  onObservatoryClick?: () => void
+  onTodayClick?: () => void
+  onBlindTestClick?: () => void
 }
 
 export function AppHeader({
@@ -39,7 +43,19 @@ export function AppHeader({
   loungeVisible,
   onGambler,
   onExitBeta,
+  onSearchClick,
+  onObservatoryClick,
+  onTodayClick,
+  onBlindTestClick,
 }: AppHeaderProps) {
+  const handlerFor = (id: string): (() => void) | undefined => {
+    if (id === 'gambler') return onGambler
+    if (id === 'search') return onSearchClick
+    if (id === 'observatory') return onObservatoryClick
+    if (id === 'today') return onTodayClick
+    if (id === 'blind') return onBlindTestClick
+    return undefined
+  }
   return (
     <header className="flex h-14 shrink-0 items-center gap-6 border-b border-line bg-surface px-4 md:px-6">
       <a href="#browse" className="flex items-center gap-3">
@@ -56,6 +72,7 @@ export function AppHeader({
 
       <button
         type="button"
+        onClick={onSearchClick}
         className="group ml-auto hidden h-9 min-w-[260px] items-center gap-2 rounded-sm border border-line bg-bg px-3 text-left text-xs text-muted transition-colors duration-150 ease-archive hover:border-royal-light/60 hover:text-ink lg:flex"
       >
         <SearchIcon className="h-3.5 w-3.5" />
@@ -70,7 +87,7 @@ export function AppHeader({
             type="button"
             title={label}
             aria-label={label}
-            onClick={id === 'gambler' ? onGambler : undefined}
+            onClick={handlerFor(id)}
             className={`flex h-8 w-8 items-center justify-center rounded-sm border border-transparent text-muted transition-colors duration-150 ease-archive hover:border-line hover:bg-surface2 ${
               id === 'gambler' ? 'hover:text-gold-light' : 'hover:text-ink'
             } ${id === 'search' ? 'lg:hidden' : ''}`}

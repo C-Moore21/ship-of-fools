@@ -75,19 +75,21 @@ export function ShowList({
                   }
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1 pt-0.5">
-                  <span className="flex items-center gap-1 font-mono text-[11px] tabular-nums text-gold">
-                    <StarIcon className="h-3 w-3 fill-current" />
-                    {show.avgRating.toFixed(1)}
-                  </span>
-                  {show.soundboard &&
-                  <span
-                    className="flex items-center gap-1 text-[9px] uppercase tracking-[0.1em] text-royal-bright"
-                    title="Soundboard source">
-                    
+                  {show.avgRating > 0 && (
+                    <span className="flex items-center gap-1 font-mono text-[11px] tabular-nums text-gold">
+                      <StarIcon className="h-3 w-3 fill-current" />
+                      {show.avgRating.toFixed(1)}
+                    </span>
+                  )}
+                  {show.soundboard && (
+                    <span
+                      className="flex items-center gap-1 text-[9px] uppercase tracking-[0.1em] text-royal-bright"
+                      title="Soundboard source"
+                    >
                       <RadioIcon className="h-2.5 w-2.5" />
                       SBD
                     </span>
-                  }
+                  )}
                 </div>
               </button>
             </li>);

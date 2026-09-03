@@ -14,7 +14,13 @@ import { totalShows as fallbackTotalShows } from '../data/years'
 import { useShow, useShowsForYear, useSources, useTodaysPick, useYears } from '../hooks/useSofData'
 import { LoungePanel, useLounge } from '../lounge'
 import { LoginModal, useAuth } from '../auth-and-social'
+import { ObservatoryModal } from '../observatory'
+import { SearchPalette } from '../search'
+import { TodayInHistoryModal, BlindTestModal, TripBanner } from '../modals'
+import { RatedPanel, StatsPanel, HistoryPanel, LeaderboardPanel } from '../sections'
 import type { Show, Track } from '../types/archive'
+
+type TabId = 'Browse' | 'Rated' | 'Stats' | 'History' | 'Leaderboard'
 
 type VisualizerMode = 'bars' | 'radial' | 'off'
 
@@ -40,10 +46,11 @@ function showToAudio(s: Show): AudioShow {
 }
 
 function TodaysBanner({
-  pick, otherSources, onPlay, onSelect,
+  pick, otherSources, otherDates, onPlay, onSelect,
 }: {
   pick: Show
   otherSources: number
+  otherDates: number
   onPlay: (s: Show) => void
   onSelect: (s: Show) => void
 }) {
@@ -63,16 +70,23 @@ function TodaysBanner({
         <span className="shrink-0 font-mono text-[13px] tabular-nums text-chalk">{date.numeric}</span>
         <span className="truncate font-display text-sm text-ink md:text-base">{pick.venue}</span>
         <span className="hidden truncate text-[11px] text-muted lg:inline">{pick.city}</span>
-        {otherSources > 0 && (
+        {otherDates > 0 && (
           <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.14em] text-royal-bright md:inline">
-            + {otherSources} other source{otherSources === 1 ? '' : 's'}
+            + {otherDates} other date{otherDates === 1 ? '' : 's'}
+          </span>
+        )}
+        {otherSources > 0 && (
+          <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.14em] text-muted lg:inline">
+            · {otherSources} src
           </span>
         )}
       </button>
-      <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums text-gold">
-        <StarIcon className="h-3 w-3 fill-current" />
-        {pick.avgRating.toFixed(1)}
-      </span>
+      {pick.avgRating > 0 && (
+        <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums text-gold">
+          <StarIcon className="h-3 w-3 fill-current" />
+          {pick.avgRating.toFixed(1)}
+        </span>
+      )}
       <button
         type="button"
         onClick={() => onPlay(pick)}
@@ -111,6 +125,28 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
   const [selectedId, setSelectedId] = useState<string | null>(screenInit.showId ?? null)
   const [mobilePane, setMobilePane] = useState<'list' | 'detail'>('detail')
   const [loginOpen, setLoginOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabId>('Browse')
+  const [observatoryOpen, setObservatoryOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [todayOpen, setTodayOpen] = useState(false)
+  const [blindOpen, setBlindOpen] = useState(false)
+
+  // Global keyboard shortcuts: "/" and Cmd/Ctrl+K open search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      const inField = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+      if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        setSearchOpen(true)
+      } else if (e.key === '/' && !inField) {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   const auth = useAuth()
   const lounge = useLounge({ currentUser: auth.user })
@@ -230,12 +266,17 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
         loungeVisible={lounge.member}
         onGambler={rollGambler}
         onExitBeta={exitBeta}
+        onSearchClick={() => setSearchOpen(true)}
+        onObservatoryClick={() => setObservatoryOpen(true)}
+        onTodayClick={() => setTodayOpen(true)}
+        onBlindTestClick={() => setBlindOpen(true)}
       />
 
       {today && (
         <TodaysBanner
           pick={today.show}
           otherSources={today.otherSources}
+          otherDates={today.otherDates}
           onPlay={playShow}
           onSelect={selectShow}
         />
@@ -245,13 +286,14 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
         aria-label="Sections"
         className="flex h-9 shrink-0 items-center gap-1 border-b border-line bg-surface px-3 md:px-5"
       >
-        {TABS.map((tab, i) => (
+        {(TABS as TabId[]).map((tab) => (
           <button
             key={tab}
             type="button"
-            aria-current={i === 0 ? 'page' : undefined}
+            onClick={() => setActiveTab(tab)}
+            aria-current={activeTab === tab ? 'page' : undefined}
             className={`h-full border-b-2 px-3 text-[11px] uppercase tracking-[0.14em] transition-colors duration-150 ease-archive ${
-              i === 0 ? 'border-accent text-chalk' : 'border-transparent text-muted hover:text-ink'
+              activeTab === tab ? 'border-accent text-chalk' : 'border-transparent text-muted hover:text-ink'
             }`}
           >
             {tab}
@@ -259,6 +301,20 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
         ))}
       </nav>
 
+      {activeTab === 'Rated' && (
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><RatedPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></div>
+      )}
+      {activeTab === 'Stats' && (
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><StatsPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></div>
+      )}
+      {activeTab === 'History' && (
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><HistoryPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></div>
+      )}
+      {activeTab === 'Leaderboard' && (
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><LeaderboardPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></div>
+      )}
+
+      {activeTab === 'Browse' && (
       <div className="flex min-h-0 flex-1">
         <div className="hidden md:flex">
           <YearRail
@@ -306,7 +362,9 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
           )}
         </div>
       </div>
+      )}
 
+      <TripBanner />
       <PlayerBar />
 
       <LoungePanel
@@ -326,6 +384,48 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
         onClose={() => setLoginOpen(false)}
         auth={auth}
       />
+
+      <SearchPalette
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onJumpToShow={(d) => {
+          setSearchOpen(false)
+          setActiveTab('Browse')
+          const y = Number(d.slice(0, 4))
+          if (!Number.isNaN(y)) setYear(y)
+          setSelectedId(d)
+          setMobilePane('detail')
+        }}
+        onJumpToSong={() => setSearchOpen(false)}
+      />
+
+      <ObservatoryModal
+        open={observatoryOpen}
+        onClose={() => setObservatoryOpen(false)}
+        onOpenShow={(d) => {
+          setObservatoryOpen(false)
+          setActiveTab('Browse')
+          const y = Number(d.slice(0, 4))
+          if (!Number.isNaN(y)) setYear(y)
+          setSelectedId(d)
+          setMobilePane('detail')
+        }}
+      />
+
+      <TodayInHistoryModal
+        open={todayOpen}
+        onClose={() => setTodayOpen(false)}
+        onOpenShow={(d) => {
+          setTodayOpen(false)
+          setActiveTab('Browse')
+          const y = Number(d.slice(0, 4))
+          if (!Number.isNaN(y)) setYear(y)
+          setSelectedId(d)
+          setMobilePane('detail')
+        }}
+      />
+
+      <BlindTestModal open={blindOpen} onClose={() => setBlindOpen(false)} />
     </div>
   )
 }

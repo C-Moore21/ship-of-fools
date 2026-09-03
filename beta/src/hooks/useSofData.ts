@@ -177,13 +177,19 @@ export function useShow(base: Show | null): AsyncState<Show> {
  * "Today in Grateful Dead history" — the top-scored pick for month-day.
  * Returns a shallow Show for display in the top banner.
  */
-export function useTodaysPick(): AsyncState<{ show: Show; otherSources: number } | null> {
+export function useTodaysPick(): AsyncState<{
+  show: Show
+  otherSources: number
+  otherDates: number
+} | null> {
   return useAsync('today', async () => {
     const picks = await cachedTodaysPick()
     if (!picks || picks.length === 0) return null
     const top = picks[0]
-    // Group by date to compute "other sources" for the top show.
+    // "Other sources" = alternate recordings for the same show date.
+    // "Other dates" = other years the Dead played on this same month-day.
     const sameDay = picks.filter((p) => p.id === top.id)
+    const distinctDates = new Set(picks.map((p) => p.id))
     const show: Show = {
       id: top.id,
       date: top.display_date,
@@ -217,6 +223,10 @@ export function useTodaysPick(): AsyncState<{ show: Show; otherSources: number }
         : y <= 1990
         ? 'Brent Era'
         : 'Final Era'
-    return { show, otherSources: Math.max(sameDay.length - 1, 0) }
+    return {
+      show,
+      otherSources: Math.max(sameDay.length - 1, 0),
+      otherDates: Math.max(distinctDates.size - 1, 0),
+    }
   })
 }
