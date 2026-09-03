@@ -34,7 +34,7 @@ interface AppHeaderProps {
   onBlindTestClick?: () => void
 }
 
-export function AppHeader({
+function AppHeaderImpl({
   user,
   onLoginClick,
   onLogoutClick,
@@ -162,3 +162,5 @@ export function AppHeader({
     </header>
   )
 }
+
+export const AppHeader = React.memo(AppHeaderImpl)

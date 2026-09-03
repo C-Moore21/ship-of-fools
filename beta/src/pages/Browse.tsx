@@ -296,7 +296,7 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
     }
   }
 
-  const playShow = async (s: Show) => {
+  const playShow = useCallback(async (s: Show) => {
     const y = Number(s.date.slice(0, 4))
     if (!Number.isNaN(y)) setYear(y)
     selectShow(s)
@@ -315,7 +315,8 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
     } catch (e) {
       console.error('play show failed:', e)
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectShow])
 
   const playTrack = useCallback((track: Track) => {
     if (!primarySource) return
@@ -324,26 +325,58 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primarySource, selected])
 
-  const exitBeta = () => {
-    try { localStorage.removeItem('sof_beta') } catch {}
-    window.location.href = '/'
-  }
+  const shareToLounge = useCallback(async (s: Show) => {
+    await lounge.send('', {
+      ref: {
+        show_date: s.id,
+        venue: s.venue,
+        location: s.city,
+      },
+    })
+    if (!lounge.open) lounge.toggle()
+  }, [lounge])
+
+  const openLoungeAndSelectShow = useCallback((date: string) => {
+    const y = Number(date.slice(0, 4))
+    if (!Number.isNaN(y)) setYear(y)
+    setSelectedId(date)
+    setMobilePane('detail')
+    if (lounge.open) lounge.toggle()
+  }, [lounge])
+
+  const closeLogin = useCallback(() => setLoginOpen(false), [])
+  const closeSearch = useCallback(() => setSearchOpen(false), [])
+  const closeObservatory = useCallback(() => setObservatoryOpen(false), [])
+  const closeToday = useCallback(() => setTodayOpen(false), [])
+  const closeBlind = useCallback(() => setBlindOpen(false), [])
+  const searchJumpToShow = useCallback((d: string) => {
+    setSearchOpen(false)
+    openShowByDate(d)
+  }, [openShowByDate])
+  const observatoryJumpToShow = useCallback((d: string) => {
+    setObservatoryOpen(false)
+    openShowByDate(d)
+  }, [openShowByDate])
+  const todayJumpToShow = useCallback((d: string) => {
+    setTodayOpen(false)
+    openShowByDate(d)
+  }, [openShowByDate])
 
   return (
     <div className="flex h-full w-full flex-col bg-bg">
       <AppHeader
         user={auth.user}
-        onLoginClick={() => setLoginOpen(true)}
-        onLogoutClick={() => auth.logout()}
-        onLoungeClick={() => lounge.toggle()}
+        onLoginClick={requestLogin}
+        onLogoutClick={doLogout}
+        onLoungeClick={openLounge}
         loungeUnread={lounge.unread}
         loungeVisible={lounge.member}
         onGambler={rollGambler}
         onExitBeta={exitBeta}
-        onSearchClick={() => setSearchOpen(true)}
-        onObservatoryClick={() => setObservatoryOpen(true)}
-        onTodayClick={() => setTodayOpen(true)}
-        onBlindTestClick={() => setBlindOpen(true)}
+        onSearchClick={openSearch}
+        onObservatoryClick={openObservatory}
+        onTodayClick={openToday}
+        onBlindTestClick={openBlind}
       />
 
       {today && (
@@ -353,7 +386,7 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
           otherDates={today.otherDates}
           onPlay={playShow}
           onSelect={selectShow}
-          onOpenAllDates={() => setTodayOpen(true)}
+          onOpenAllDates={openToday}
         />
       )}
 
@@ -377,16 +410,16 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
       </nav>
 
       {activeTab === 'Rated' && (
-        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><RatedPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></Suspense></div>
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><RatedPanel onOpenShow={openShowByDate} /></Suspense></div>
       )}
       {activeTab === 'Stats' && (
-        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><StatsPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></Suspense></div>
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><StatsPanel onOpenShow={openShowByDate} /></Suspense></div>
       )}
       {activeTab === 'History' && (
-        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><HistoryPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></Suspense></div>
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><HistoryPanel onOpenShow={openShowByDate} /></Suspense></div>
       )}
       {activeTab === 'Leaderboard' && (
-        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><LeaderboardPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></Suspense></div>
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><LeaderboardPanel onOpenShow={openShowByDate} /></Suspense></div>
       )}
 
       {activeTab === 'Browse' && (
@@ -431,19 +464,10 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
               compact={compact}
               onPlay={playTrack}
               onSelectShow={selectShow}
-              onBack={() => setMobilePane('list')}
-              onRequestLogin={() => setLoginOpen(true)}
+              onBack={goBackToList}
+              onRequestLogin={requestLogin}
               canShareToLounge={lounge.member}
-              onShareToLounge={async (s) => {
-                await lounge.send('', {
-                  ref: {
-                    show_date: s.id,
-                    venue: s.venue,
-                    location: s.city,
-                  },
-                })
-                if (!lounge.open) lounge.toggle()
-              }}
+              onShareToLounge={shareToLounge}
             />
           )}
         </div>
@@ -456,18 +480,12 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
       <LoungePanel
         currentUser={auth.user}
         controller={lounge}
-        onOpenShow={(date) => {
-          const y = Number(date.slice(0, 4))
-          if (!Number.isNaN(y)) setYear(y)
-          setSelectedId(date)
-          setMobilePane('detail')
-          if (lounge.open) lounge.toggle()
-        }}
+        onOpenShow={openLoungeAndSelectShow}
       />
 
       <LoginModal
         open={loginOpen}
-        onClose={() => setLoginOpen(false)}
+        onClose={closeLogin}
         auth={auth}
       />
 
@@ -475,16 +493,9 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
         <Suspense fallback={null}>
           <SearchPalette
             open={searchOpen}
-            onClose={() => setSearchOpen(false)}
-            onJumpToShow={(d) => {
-              setSearchOpen(false)
-              setActiveTab('Browse')
-              const y = Number(d.slice(0, 4))
-              if (!Number.isNaN(y)) setYear(y)
-              setSelectedId(d)
-              setMobilePane('detail')
-            }}
-            onJumpToSong={() => setSearchOpen(false)}
+            onClose={closeSearch}
+            onJumpToShow={searchJumpToShow}
+            onJumpToSong={closeSearch}
           />
         </Suspense>
       )}
@@ -493,15 +504,8 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
         <Suspense fallback={null}>
           <ObservatoryModal
             open={observatoryOpen}
-            onClose={() => setObservatoryOpen(false)}
-            onOpenShow={(d) => {
-              setObservatoryOpen(false)
-              setActiveTab('Browse')
-              const y = Number(d.slice(0, 4))
-              if (!Number.isNaN(y)) setYear(y)
-              setSelectedId(d)
-              setMobilePane('detail')
-            }}
+            onClose={closeObservatory}
+            onOpenShow={observatoryJumpToShow}
           />
         </Suspense>
       )}
@@ -510,22 +514,15 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
         <Suspense fallback={null}>
           <TodayInHistoryModal
             open={todayOpen}
-            onClose={() => setTodayOpen(false)}
-            onOpenShow={(d) => {
-              setTodayOpen(false)
-              setActiveTab('Browse')
-              const y = Number(d.slice(0, 4))
-              if (!Number.isNaN(y)) setYear(y)
-              setSelectedId(d)
-              setMobilePane('detail')
-            }}
+            onClose={closeToday}
+            onOpenShow={todayJumpToShow}
           />
         </Suspense>
       )}
 
       {blindOpen && (
         <Suspense fallback={null}>
-          <BlindTestModal open={blindOpen} onClose={() => setBlindOpen(false)} />
+          <BlindTestModal open={blindOpen} onClose={closeBlind} />
         </Suspense>
       )}
     </div>
