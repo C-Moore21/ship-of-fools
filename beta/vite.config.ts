@@ -12,6 +12,17 @@ export default defineConfig({
     emptyOutDir: true,
     assetsDir: 'assets',
     manifest: true,
+    rollupOptions: {
+      output: {
+        // Keep the big/rarely-touched deps in their own long-lived chunks so
+        // day-to-day app edits don't bust their cache, and so first paint of
+        // Browse doesn't pull the icon set + observatory-only code.
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'lucide': ['lucide-react'],
+        },
+      },
+    },
   },
   server: {
     port: 5173,

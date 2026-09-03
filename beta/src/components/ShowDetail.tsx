@@ -144,7 +144,7 @@ function SourcePicker({ show }: { show: Show }) {
   )
 }
 
-export function ShowDetail({
+function ShowDetailImpl({
   show,
   tourShows,
   currentTrackId,
@@ -320,3 +320,5 @@ export function ShowDetail({
     </main>
   )
 }
+
+export const ShowDetail = React.memo(ShowDetailImpl)

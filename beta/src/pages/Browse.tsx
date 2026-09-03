@@ -255,11 +255,35 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
     setMobilePane('detail')
   }, [])
 
+  // Shared "jump to a show by date" — used by all cross-tab / modal callbacks.
+  // Memoizing this once keeps every panel/modal that receives it stable, so
+  // they don't re-render on every Browse render.
+  const openShowByDate = useCallback((d: string) => {
+    setActiveTab('Browse')
+    const y = Number(d.slice(0, 4))
+    if (!Number.isNaN(y)) setYear(y)
+    setSelectedId(d)
+    setMobilePane('detail')
+  }, [])
+
   const rollGambler = useCallback(() => {
     if (yearShows.length === 0) return
     const pick = yearShows[Math.floor(Math.random() * yearShows.length)]
     selectShow(pick)
   }, [yearShows, selectShow])
+
+  const goBackToList = useCallback(() => setMobilePane('list'), [])
+  const requestLogin = useCallback(() => setLoginOpen(true), [])
+  const openLounge = useCallback(() => lounge.toggle(), [lounge])
+  const openSearch = useCallback(() => setSearchOpen(true), [])
+  const openObservatory = useCallback(() => setObservatoryOpen(true), [])
+  const openToday = useCallback(() => setTodayOpen(true), [])
+  const openBlind = useCallback(() => setBlindOpen(true), [])
+  const doLogout = useCallback(() => { auth.logout() }, [auth])
+  const exitBeta = useCallback(() => {
+    try { localStorage.removeItem('sof_beta') } catch {}
+    window.location.href = '/'
+  }, [])
 
   async function startPlayback(show: Show, source: AudioSource, trackIdx: number) {
     try {
@@ -353,16 +377,16 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
       </nav>
 
       {activeTab === 'Rated' && (
-        <div className="flex min-h-0 flex-1 overflow-y-auto"><RatedPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></div>
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><RatedPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></Suspense></div>
       )}
       {activeTab === 'Stats' && (
-        <div className="flex min-h-0 flex-1 overflow-y-auto"><StatsPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></div>
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><StatsPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></Suspense></div>
       )}
       {activeTab === 'History' && (
-        <div className="flex min-h-0 flex-1 overflow-y-auto"><HistoryPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></div>
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><HistoryPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></Suspense></div>
       )}
       {activeTab === 'Leaderboard' && (
-        <div className="flex min-h-0 flex-1 overflow-y-auto"><LeaderboardPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></div>
+        <div className="flex min-h-0 flex-1 overflow-y-auto"><Suspense fallback={<PanelFallback />}><LeaderboardPanel onOpenShow={(d) => { setActiveTab('Browse'); const y = Number(d.slice(0,4)); if (!Number.isNaN(y)) setYear(y); setSelectedId(d); }} /></Suspense></div>
       )}
 
       {activeTab === 'Browse' && (
@@ -447,47 +471,63 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
         auth={auth}
       />
 
-      <SearchPalette
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onJumpToShow={(d) => {
-          setSearchOpen(false)
-          setActiveTab('Browse')
-          const y = Number(d.slice(0, 4))
-          if (!Number.isNaN(y)) setYear(y)
-          setSelectedId(d)
-          setMobilePane('detail')
-        }}
-        onJumpToSong={() => setSearchOpen(false)}
-      />
+      {searchOpen && (
+        <Suspense fallback={null}>
+          <SearchPalette
+            open={searchOpen}
+            onClose={() => setSearchOpen(false)}
+            onJumpToShow={(d) => {
+              setSearchOpen(false)
+              setActiveTab('Browse')
+              const y = Number(d.slice(0, 4))
+              if (!Number.isNaN(y)) setYear(y)
+              setSelectedId(d)
+              setMobilePane('detail')
+            }}
+            onJumpToSong={() => setSearchOpen(false)}
+          />
+        </Suspense>
+      )}
 
-      <ObservatoryModal
-        open={observatoryOpen}
-        onClose={() => setObservatoryOpen(false)}
-        onOpenShow={(d) => {
-          setObservatoryOpen(false)
-          setActiveTab('Browse')
-          const y = Number(d.slice(0, 4))
-          if (!Number.isNaN(y)) setYear(y)
-          setSelectedId(d)
-          setMobilePane('detail')
-        }}
-      />
+      {observatoryOpen && (
+        <Suspense fallback={null}>
+          <ObservatoryModal
+            open={observatoryOpen}
+            onClose={() => setObservatoryOpen(false)}
+            onOpenShow={(d) => {
+              setObservatoryOpen(false)
+              setActiveTab('Browse')
+              const y = Number(d.slice(0, 4))
+              if (!Number.isNaN(y)) setYear(y)
+              setSelectedId(d)
+              setMobilePane('detail')
+            }}
+          />
+        </Suspense>
+      )}
 
-      <TodayInHistoryModal
-        open={todayOpen}
-        onClose={() => setTodayOpen(false)}
-        onOpenShow={(d) => {
-          setTodayOpen(false)
-          setActiveTab('Browse')
-          const y = Number(d.slice(0, 4))
-          if (!Number.isNaN(y)) setYear(y)
-          setSelectedId(d)
-          setMobilePane('detail')
-        }}
-      />
+      {todayOpen && (
+        <Suspense fallback={null}>
+          <TodayInHistoryModal
+            open={todayOpen}
+            onClose={() => setTodayOpen(false)}
+            onOpenShow={(d) => {
+              setTodayOpen(false)
+              setActiveTab('Browse')
+              const y = Number(d.slice(0, 4))
+              if (!Number.isNaN(y)) setYear(y)
+              setSelectedId(d)
+              setMobilePane('detail')
+            }}
+          />
+        </Suspense>
+      )}
 
-      <BlindTestModal open={blindOpen} onClose={() => setBlindOpen(false)} />
+      {blindOpen && (
+        <Suspense fallback={null}>
+          <BlindTestModal open={blindOpen} onClose={() => setBlindOpen(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }
