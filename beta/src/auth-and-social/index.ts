@@ -6,6 +6,8 @@ export { useAuth } from './useAuth';
 export type { UseAuth } from './useAuth';
 export { useShowRating } from './useShowRating';
 export type { UseShowRating } from './useShowRating';
+export { useTrackRatings } from './useTrackRatings';
+export type { UseTrackRatings } from './useTrackRatings';
 export { useShowNote } from './useShowNote';
 export type { UseShowNote, NoteStatus } from './useShowNote';
 export { LoginModal } from './LoginModal';

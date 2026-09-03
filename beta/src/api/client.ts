@@ -164,3 +164,38 @@ export interface RawWeather {
 export function getWeather(showDate: string): Promise<RawWeather> {
   return jsonFetch<RawWeather>(`/api/shows/${encodeURIComponent(showDate)}/weather`)
 }
+
+// ─── Releases & personal listens ─────────────────────────────────────────
+export interface RawReleaseInfo {
+  name: string
+  year: number | null
+}
+
+/** Dead-map of show_date → primary official release. Small (~600–800 dates). */
+export function getReleases(): Promise<Record<string, RawReleaseInfo>> {
+  return jsonFetch<Record<string, RawReleaseInfo>>('/api/releases/all')
+}
+
+export interface RawListenRow {
+  show_date?: string
+  show_id?: string
+  track_id?: string
+  track_title?: string
+  seconds?: number
+  ts?: number
+}
+
+/**
+ * Logged-in user's listen history — used only to mark previously-heard shows.
+ * Backend endpoint is session-guarded; on 401 we surface an empty list rather
+ * than throw so callers can render the logged-out state.
+ */
+export function getMyListens(): Promise<RawListenRow[]> {
+  return fetch('/api/listens/history', { credentials: 'include' }).then(
+    async (r) => {
+      if (r.status === 401) return [] as RawListenRow[]
+      if (!r.ok) throw new ApiError(r.status, `/api/listens/history → ${r.status}`)
+      return (await r.json()) as RawListenRow[]
+    },
+  )
+}

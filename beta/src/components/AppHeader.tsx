@@ -32,6 +32,7 @@ interface AppHeaderProps {
   onObservatoryClick?: () => void
   onTodayClick?: () => void
   onBlindTestClick?: () => void
+  onToursClick?: () => void
 }
 
 function AppHeaderImpl({
@@ -47,6 +48,7 @@ function AppHeaderImpl({
   onObservatoryClick,
   onTodayClick,
   onBlindTestClick,
+  onToursClick,
 }: AppHeaderProps) {
   const handlerFor = (id: string): (() => void) | undefined => {
     if (id === 'gambler') return onGambler
@@ -54,6 +56,7 @@ function AppHeaderImpl({
     if (id === 'observatory') return onObservatoryClick
     if (id === 'today') return onTodayClick
     if (id === 'blind') return onBlindTestClick
+    if (id === 'runs') return onToursClick
     return undefined
   }
   return (

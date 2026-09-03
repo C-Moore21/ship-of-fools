@@ -151,3 +151,59 @@ export async function saveNote(showDate: string, text: string): Promise<void> {
   });
   await jsonOrThrow<{ ok: boolean }>(res);
 }
+
+// ── Per-track ratings (whole-star; backend accepts 0.5 steps too) ────────
+// Backend endpoints:
+//   GET  /api/ratings/show?source_id=...   -> { [track_id]: stars }
+//   POST /api/ratings {track_id, track_title, show_date, source_id, stars}
+//   DELETE /api/ratings {track_id}
+export async function getMyTrackRatings(
+  sourceId: string,
+): Promise<Record<string, number>> {
+  if (!sourceId) return {};
+  const res = await fetch(
+    `/api/ratings/show?source_id=${encodeURIComponent(sourceId)}`,
+    { credentials: 'include' },
+  );
+  if (res.status === 401 || !res.ok) return {};
+  const data = await res.json().catch(() => ({}));
+  return (data && typeof data === 'object' ? (data as Record<string, number>) : {});
+}
+
+export interface TrackRatingMeta {
+  trackTitle?: string;
+  showDate?: string;
+}
+
+export async function saveTrackRating(
+  sourceId: string,
+  trackId: string,
+  stars: number,
+  meta: TrackRatingMeta = {},
+): Promise<number> {
+  if (!trackId) return 0;
+  if (stars <= 0) {
+    await fetch('/api/ratings', {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ track_id: trackId }),
+    });
+    return 0;
+  }
+  const clamped = Math.max(0.5, Math.min(5, Math.round(stars * 2) / 2));
+  const res = await fetch('/api/ratings', {
+    method: 'POST',
+    credentials: 'include',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      track_id: trackId,
+      track_title: meta.trackTitle || '',
+      show_date: meta.showDate || '',
+      source_id: sourceId,
+      stars: clamped,
+    }),
+  });
+  const data = await jsonOrThrow<{ ok: boolean; stars: number }>(res);
+  return data.stars;
+}

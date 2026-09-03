@@ -20,6 +20,8 @@ import {
   type SourceOption,
 } from '../api/adapters'
 import {
+  getMyListens,
+  getReleases,
   getSetlistStats,
   getShowsForYear,
   getSources,
@@ -27,6 +29,7 @@ import {
   getTracks,
   getWeather,
   getYears,
+  type RawReleaseInfo,
   type RawSource,
   type RawTodayPick,
 } from '../api/client'
@@ -259,4 +262,86 @@ export function useTodaysPick(): AsyncState<{
       otherDates: Math.max(distinctDates.size - 1, 0),
     }
   })
+}
+
+// ─── Releases & listens ────────────────────────────────────────────────────
+
+export interface ReleaseInfo {
+  name: string
+  year: number | null
+  /** Compact label suitable for a badge ("Dave's 15", "Dick's 18", ...). */
+  short: string
+}
+
+export type ReleaseMap = Record<string, ReleaseInfo>
+
+function shortenReleaseName(name: string): string {
+  if (!name) return 'OFFICIAL'
+  let m: RegExpMatchArray | null
+  if ((m = name.match(/dick'?s picks (?:vol\.?\s*)?(\d+)/i))) return `Dick's ${m[1]}`
+  if ((m = name.match(/dave'?s picks (?:vol\.?\s*)?(\d+)/i))) return `Dave's ${m[1]}`
+  if ((m = name.match(/road trips (?:vol\.?\s*)?([\d.]+)/i))) return `Road Trips ${m[1]}`
+  if ((m = name.match(/download series (?:vol\.?\s*)?(\d+)/i))) return `DLS ${m[1]}`
+  if ((m = name.match(/30 days of dead\s+(\d{4})/i))) return `30 Days '${m[1].slice(2)}`
+  return name.length > 20 ? name.slice(0, 19) + '…' : name
+}
+
+let releasesCache: Promise<ReleaseMap> | null = null
+function cachedReleases(): Promise<ReleaseMap> {
+  if (!releasesCache) {
+    releasesCache = getReleases()
+      .then((raw: Record<string, RawReleaseInfo>) => {
+        const out: ReleaseMap = {}
+        for (const [date, info] of Object.entries(raw)) {
+          out[date] = {
+            name: info.name,
+            year: info.year ?? null,
+            short: shortenReleaseName(info.name),
+          }
+        }
+        return out
+      })
+      .catch((e) => {
+        releasesCache = null
+        throw e
+      })
+  }
+  return releasesCache
+}
+
+export function useReleases(): AsyncState<ReleaseMap> {
+  return useAsync('releases', cachedReleases)
+}
+
+// Listens are per-user, so we key the cache on login state and blow it away
+// when the user logs out (parent flips `loggedIn` and the null key triggers a
+// reset inside `useAsync`).
+let listensCache: Promise<Set<string>> | null = null
+function cachedListens(): Promise<Set<string>> {
+  if (!listensCache) {
+    listensCache = getMyListens()
+      .then((rows) => {
+        const s = new Set<string>()
+        for (const r of rows) {
+          const d = r.show_date || r.show_id
+          if (d) s.add(d)
+        }
+        return s
+      })
+      .catch((e) => {
+        listensCache = null
+        throw e
+      })
+  }
+  return listensCache
+}
+
+/** Reset by callers on login/logout transitions so the next mount refetches. */
+export function invalidateListens(): void {
+  listensCache = null
+}
+
+export function useMyListens(loggedIn: boolean): AsyncState<Set<string>> {
+  // `key` toggles to null when logged out — useAsync then resets to empty.
+  return useAsync(loggedIn ? 'listens:mine' : null, cachedListens)
 }

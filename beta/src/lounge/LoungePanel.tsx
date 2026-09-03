@@ -402,19 +402,45 @@ function MessageRow({
 
       {m.text && (
         <div className="text-ink text-xs leading-[1.4] break-words whitespace-pre-wrap max-[700px]:text-sm max-[700px]:leading-[1.45]">
-          {tokens.map((t, i) => t.kind === 'text'
-            ? <React.Fragment key={i}>{t.value}</React.Fragment>
-            : (
-              <span
+          {tokens.map((t, i) => {
+            if (t.kind === 'text') {
+              return <React.Fragment key={i}>{t.value}</React.Fragment>;
+            }
+            if (t.kind === 'mention') {
+              return (
+                <span
+                  key={i}
+                  className={[
+                    'rounded-[3px] px-[3px] font-semibold',
+                    t.mine
+                      ? 'bg-accent/20 text-accent'
+                      : 'bg-royal/20 text-royal-bright',
+                  ].join(' ')}
+                >@{t.name}</span>
+              );
+            }
+            if (t.kind === 'url') {
+              return (
+                <a
+                  key={i}
+                  href={t.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-royal-bright underline decoration-royal/60 underline-offset-2 hover:decoration-royal-bright break-all"
+                >{t.text}</a>
+              );
+            }
+            // t.kind === 'show'
+            return (
+              <button
                 key={i}
-                className={[
-                  'rounded-[3px] px-[3px] font-semibold',
-                  t.mine
-                    ? 'bg-accent/20 text-accent'
-                    : 'bg-royal/20 text-royal-bright',
-                ].join(' ')}
-              >@{t.name}</span>
-            ))}
+                type="button"
+                onClick={() => onOpenShow?.(t.date)}
+                title={`Open show ${t.date}`}
+                className="rounded-[3px] bg-accent/15 text-accent px-[4px] py-0 font-semibold hover:bg-accent/25"
+              >{t.text}</button>
+            );
+          })}
         </div>
       )}
 

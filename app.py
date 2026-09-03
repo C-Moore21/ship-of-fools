@@ -2835,23 +2835,19 @@ _startup_t.Thread(target=_startup_map_warm, daemon=True).start()
 # directly and includes position + source_id per row.
 
 # ── Search ────────────────────────────────────────────────────────────────────
-@app.route("/api/search")
-def search_shows():
-    import re as _r
-    q = request.args.get("q", "").strip()
-    if not q or len(q) < 2:
-        return jsonify([])
-    cache_key = f"search:{q[:200]}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return jsonify(cached)
+# Dedicated cache for the categorized search payload (shows+songs+venues).
+# Kept separate from the legacy `search:` bucket so a shape switch never
+# serves the wrong payload. TTL is ~2min: venues rarely change, songs are
+# append-only via seed_setlists.py, and Archive.org show hits are stable.
+_SEARCH_ALL_TTL = 120
 
-    # Detect date-shaped inputs and use the date: field directly. Without this,
-    # Archive.org's Lucene parser splits hyphenated tokens (1969-05-23 becomes
-    # 1969 OR 05 OR 23) and returns unrelated shows that happen to contain
-    # those numbers anywhere.
+def _search_shows_via_archive(q):
+    """Return the classic show-hits list for the query, or [] on any error.
+    Extracted from the old handler so both the legacy and categorized shapes
+    can reuse it verbatim."""
+    import re as _r
     exact_date = None
-    venue_substr = None  # for defensive substring filtering of venue results
+    venue_substr = None
     if _r.match(r'^\d{4}-\d{2}-\d{2}$', q):
         archive_q = f'collection:{COLLECTION} AND date:"{q}"'
         exact_date = q
@@ -2860,19 +2856,11 @@ def search_shows():
     elif _r.match(r'^\d{4}$', q):
         archive_q = f'collection:{COLLECTION} AND year:{q}'
     else:
-        # Venue / keyword search — restrict to title + coverage fields so we
-        # don't match arbitrary mentions in descriptions. For multi-word
-        # queries, wrap in quotes to force phrase match (prevents "Madison
-        # Square Garden" from matching anything containing just "Madison" or
-        # "Garden"). Escape internal quotes to prevent Lucene injection.
         q_clean = q.replace('"', '').strip()
-        if ' ' in q_clean:
-            phrase = f'"{q_clean}"'
-        else:
-            phrase = q_clean
-        archive_q = f'collection:{COLLECTION} AND (title:{phrase} OR coverage:{phrase} OR venue:{phrase})'
+        phrase = f'"{q_clean}"' if ' ' in q_clean else q_clean
+        archive_q = (f'collection:{COLLECTION} AND '
+                     f'(title:{phrase} OR coverage:{phrase} OR venue:{phrase})')
         venue_substr = q_clean.lower()
-
     try:
         data = archive_search({
             "q": archive_q,
@@ -2881,12 +2869,8 @@ def search_shows():
             "rows": 50,
             "sort[]": "date asc",
         })
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "Archive.org timed out"}), 502
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": "Archive.org unavailable"}), 502
-    except Exception as e:
-        return jsonify({"error": "Unexpected error"}), 500
+    except Exception:
+        return None  # sentinel: caller decides how to surface
     docs = data.get("response", {}).get("docs", [])
     seen = {}
     result = []
@@ -2897,18 +2881,12 @@ def search_shows():
         date_str = date_str[:10]
         if not date_str or date_str in seen:
             continue
-        # Defensive client-side filter: when the user typed an exact date,
-        # only show results that match it (catches the rare case where
-        # Archive.org returns extra docs despite the field-qualified query).
         if exact_date and date_str != exact_date:
             continue
         title = doc.get("title", "") or ""
         coverage = doc.get("coverage", "") or ""
         if isinstance(coverage, list):
             coverage = coverage[0] if coverage else ""
-        # Defensive client-side filter for venue/keyword searches: the search
-        # term must actually appear in the title or location, not just match
-        # via Lucene tokenization quirks.
         if venue_substr:
             haystack = f"{title} {coverage}".lower()
             if venue_substr not in haystack:
@@ -2922,8 +2900,132 @@ def search_shows():
             "display_date": date_str,
             "venue": {"name": venue_name or title[:60], "location": coverage},
         })
-    _cache_set(cache_key, result)
-    return jsonify(result)
+    return result
+
+def _search_songs_from_setlists(q, limit=20):
+    """Aggregate setlist_cache for songs whose normalized title contains the
+    query (case-insensitive). Uses the (song,date) compound index for the
+    initial $match, then groups by song. Non-songs (drums, tuning, …) are
+    filtered post-group so the pipeline stays index-friendly."""
+    import re as _r
+    try:
+        needle = _r.escape(q.strip().lower())
+        if not needle:
+            return []
+        pipeline = [
+            {"$match": {"song": {"$regex": needle, "$options": "i"}}},
+            {"$group": {
+                "_id": "$song",
+                "occurrences": {"$sum": 1},
+                "latest_date": {"$max": "$date"},
+                "dates": {"$addToSet": "$date"},
+            }},
+            {"$sort": {"occurrences": -1}},
+            {"$limit": limit * 3},  # over-fetch so post-filtering still fills
+        ]
+        rows = list(setlist_cache.aggregate(pipeline, allowDiskUse=False))
+    except Exception:
+        return []
+    out = []
+    for r in rows:
+        song = r.get("_id") or ""
+        if _is_non_song(song):
+            continue
+        dates = sorted([d for d in (r.get("dates") or []) if d], reverse=True)
+        out.append({
+            # Extra fields per the deliverable spec…
+            "song": song,
+            "occurrences": int(r.get("occurrences") or 0),
+            "latest_date": r.get("latest_date") or "",
+            "sample_dates": dates[:3],
+            # …and the id/label pair the beta frontend normalizer consumes.
+            "id": song,
+            "label": song,
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+def _search_venues_from_cache(q, limit=20):
+    """Iterate every cached year of shows and bucket by venue name. The year
+    caches are already in RAM/Mongo, so this is cheap and avoids adding a
+    new index on the raw shows collection."""
+    needle = q.strip().lower()
+    if not needle:
+        return []
+    buckets = {}  # name.lower() -> {name, location, count, first, last}
+    try:
+        for y in range(1965, 1996):
+            year_shows = _mcache_get(_shows_year_cache, str(y)) or []
+            for s in year_shows:
+                v = (s.get("venue") or {})
+                name = (v.get("name") or "").strip()
+                if not name:
+                    continue
+                if needle not in name.lower():
+                    continue
+                loc = (v.get("location") or "").strip()
+                date = (s.get("id") or "")[:10]
+                key = name.lower()
+                b = buckets.get(key)
+                if b is None:
+                    buckets[key] = {
+                        "name": name,
+                        "location": loc,
+                        "show_count": 1,
+                        "first_date": date,
+                        "last_date": date,
+                    }
+                else:
+                    b["show_count"] += 1
+                    if date and (not b["first_date"] or date < b["first_date"]):
+                        b["first_date"] = date
+                    if date and (not b["last_date"] or date > b["last_date"]):
+                        b["last_date"] = date
+                    if not b["location"] and loc:
+                        b["location"] = loc
+    except Exception:
+        return []
+    ranked = sorted(buckets.values(), key=lambda b: b["show_count"], reverse=True)[:limit]
+    for b in ranked:
+        # id/name/location for the beta frontend normalizer.
+        b["id"] = b["name"]
+    return ranked
+
+@app.route("/api/search")
+def search_shows():
+    q = request.args.get("q", "").strip()
+    legacy = request.args.get("legacy", "").strip() in ("1", "true", "yes")
+    if not q or len(q) < 2:
+        return jsonify([] if legacy else {"shows": [], "songs": [], "venues": []})
+
+    if legacy:
+        # Preserve the historic bare-array response for older clients.
+        cache_key = f"search:{q[:200]}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return jsonify(cached)
+        shows = _search_shows_via_archive(q)
+        if shows is None:
+            return jsonify({"error": "Archive.org unavailable"}), 502
+        _cache_set(cache_key, shows)
+        return jsonify(shows)
+
+    cache_key = f"search-all:{q[:200]}"
+    cached = _cache.get(cache_key)
+    if cached and time.time() - cached["ts"] < _SEARCH_ALL_TTL:
+        return jsonify(cached["val"])
+
+    shows = _search_shows_via_archive(q)
+    # Archive.org failure is non-fatal for the categorized shape — we still
+    # return whatever songs/venues we can pull from local Mongo caches.
+    if shows is None:
+        shows = []
+    songs = _search_songs_from_setlists(q)
+    venues = _search_venues_from_cache(q)
+    payload = {"shows": shows, "songs": songs, "venues": venues}
+    _cache[cache_key] = {"val": payload, "ts": time.time()}
+    return jsonify(payload)
 
 # ── Random Show (The Gambler) ─────────────────────────────────────────────────
 @app.route("/api/random-show")

@@ -32,6 +32,8 @@ interface ShowDetailProps {
   onRequestLogin?: () => void
   onShareToLounge?: (show: Show) => void
   canShareToLounge?: boolean
+  /** Archive.org source id currently backing the setlist; enables per-track ratings. */
+  sourceId?: string
 }
 
 function SourcePicker({ show }: { show: Show }) {
@@ -156,6 +158,7 @@ function ShowDetailImpl({
   onRequestLogin,
   onShareToLounge,
   canShareToLounge = false,
+  sourceId,
 }: ShowDetailProps) {
   const date = formatDate(show.date)
   const runtime = show.tracks.reduce((sum, t) => sum + t.duration, 0)
@@ -256,6 +259,9 @@ function ShowDetailImpl({
             isPlaying={isPlaying}
             compact={compact}
             onPlay={onPlay}
+            loggedIn={loggedIn}
+            sourceId={sourceId}
+            onRequestLogin={onRequestLogin}
           />
 
           <aside className="space-y-8">

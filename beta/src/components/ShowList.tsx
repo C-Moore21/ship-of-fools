@@ -1,7 +1,8 @@
 import React from 'react';
-import { RadioIcon, StarIcon } from 'lucide-react';
+import { CheckIcon, DiscAlbumIcon, RadioIcon, StarIcon } from 'lucide-react';
 import type { Show } from '../types/archive';
 import { formatDate } from '../utils/format';
+import type { ReleaseInfo, ReleaseMap } from '../hooks/useSofData';
 
 interface ShowListProps {
   year: number;
@@ -10,6 +11,17 @@ interface ShowListProps {
   playingShowId?: string;
   compact: boolean;
   onSelect: (show: Show) => void;
+  /**
+   * date → official-release info. Keyed by `show.id` (which is the ISO date
+   * `YYYY-MM-DD`, matching the backend's `_id` for releases_cache). Pass a
+   * STABLE reference — React.memo shallow-compares this prop.
+   */
+  releaseMap?: ReleaseMap;
+  /**
+   * Set of show dates the logged-in visitor has previously listened to. Same
+   * stability caveat as `releaseMap`.
+   */
+  listenedDates?: ReadonlySet<string>;
 }
 
 function ShowListImpl({
@@ -18,7 +30,9 @@ function ShowListImpl({
   selectedId,
   playingShowId,
   compact,
-  onSelect
+  onSelect,
+  releaseMap,
+  listenedDates
 }: ShowListProps) {
   return (
     <section
@@ -36,6 +50,8 @@ function ShowListImpl({
         {shows.map((show) => {
           const isSelected = show.id === selectedId;
           const date = formatDate(show.date);
+          const release: ReleaseInfo | undefined = releaseMap?.[show.id];
+          const listened = listenedDates?.has(show.id) ?? false;
           return (
             <li key={show.id}>
               <button
@@ -57,12 +73,30 @@ function ShowListImpl({
                     }>
                     
                     {date.numeric}
+                    {listened && (
+                      <span
+                        className="ml-2 inline-flex items-center text-moss"
+                        title="You've listened to this show"
+                        aria-label="Previously listened"
+                      >
+                        <CheckIcon className="h-3 w-3" strokeWidth={2.5} />
+                      </span>
+                    )}
                     {show.id === playingShowId &&
                     <span className="ml-2 text-[10px] uppercase tracking-[0.12em] text-accent">
                         Playing
                       </span>
                     }
                   </p>
+                  {release && (
+                    <p
+                      className="mt-0.5 inline-flex items-center gap-1 rounded-sm border border-gold/40 px-1.5 py-[1px] text-[9px] uppercase tracking-[0.1em] text-gold"
+                      title={`Officially released as ${release.name}${release.year ? ` (${release.year})` : ''}`}
+                    >
+                      <DiscAlbumIcon className="h-2.5 w-2.5" />
+                      {release.short}
+                    </p>
+                  )}
                   <p
                     className={`truncate font-display text-sm ${
                     isSelected ? 'text-chalk' : 'text-ink/90'}`

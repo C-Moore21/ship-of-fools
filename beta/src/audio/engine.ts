@@ -20,6 +20,24 @@ const FADE_TRIGGER_S = 1.4;
 const HANDOFF_LEAD_S = 0.6;
 const PRELOAD_75 = 0.75;
 
+// ── Resume snapshot ────────────────────────────────────────────────────
+// Persisted to localStorage so a reload can offer "▶ Resume …". Bump
+// RESUME_VERSION whenever the shape changes so stale rows get discarded.
+const RESUME_KEY = 'sof_resume';
+const RESUME_VERSION = 1;
+const RESUME_WRITE_DEBOUNCE_MS = 500;
+const RESUME_MIN_ELAPSED_S = 5;
+
+export interface ResumeSnapshot {
+  v: number;
+  show: AudioShow;
+  source: AudioSource;
+  trackCount: number;
+  trackIdx: number;
+  elapsed: number;
+  savedAt: number;
+}
+
 const isIOSPlatform = () =>
   /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   ((navigator as any).platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
@@ -57,6 +75,11 @@ export class AudioEngine {
   private preload75Done = false;
 
   private listeners = new Set<AudioEventListener>();
+
+  // Debounce handle for resume-state writes (fires up to ~2x/sec during
+  // playback; localStorage is synchronous so hammering it on every
+  // timeupdate would jank the main thread).
+  private resumeWriteTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(opts?: { volume?: number }) {
     if (typeof opts?.volume === 'number') this.userVolume = opts.volume;
@@ -192,6 +215,84 @@ export class AudioEngine {
     else this.setVolume(this.lastVolume || 1);
   }
 
+  // ── Resume-state persistence ──────────────────────────────────────────
+
+  private scheduleResumeWrite() {
+    if (this.resumeWriteTimer) return;
+    this.resumeWriteTimer = setTimeout(() => {
+      this.resumeWriteTimer = null;
+      this.writeResumeSnapshot();
+    }, RESUME_WRITE_DEBOUNCE_MS);
+  }
+
+  private writeResumeSnapshot() {
+    if (typeof localStorage === 'undefined') return;
+    const pb = this.pb;
+    if (!pb) return;
+    const elapsed = this.getCurrentTime();
+    // Skip early-track state — reload wouldn't offer to resume anyway, and
+    // this prevents the prompt reappearing 1s after a "Start over" dismiss.
+    if (elapsed < RESUME_MIN_ELAPSED_S) return;
+    const snap: ResumeSnapshot = {
+      v: RESUME_VERSION,
+      show: pb.show,
+      source: pb.source,
+      trackCount: pb.tracks.length,
+      trackIdx: pb.trackIdx,
+      elapsed,
+      savedAt: Date.now(),
+    };
+    try {
+      localStorage.setItem(RESUME_KEY, JSON.stringify(snap));
+    } catch (e) {}
+  }
+
+  /** Read + validate the last saved resume snapshot. Returns null when
+   *  missing, unparseable, version-mismatched, or structurally invalid. */
+  static loadResumeState(): ResumeSnapshot | null {
+    if (typeof localStorage === 'undefined') return null;
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(RESUME_KEY);
+    } catch (e) {
+      return null;
+    }
+    if (!raw) return null;
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      try { localStorage.removeItem(RESUME_KEY); } catch (_) {}
+      return null;
+    }
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.v !== RESUME_VERSION) {
+      try { localStorage.removeItem(RESUME_KEY); } catch (_) {}
+      return null;
+    }
+    if (
+      !parsed.show ||
+      typeof parsed.show.date !== 'string' ||
+      !parsed.source ||
+      typeof parsed.source.id !== 'string' ||
+      typeof parsed.trackIdx !== 'number' ||
+      typeof parsed.trackCount !== 'number' ||
+      typeof parsed.elapsed !== 'number' ||
+      parsed.elapsed < RESUME_MIN_ELAPSED_S ||
+      parsed.trackIdx < 0 ||
+      parsed.trackIdx >= parsed.trackCount
+    ) {
+      return null;
+    }
+    return parsed as ResumeSnapshot;
+  }
+
+  /** Clears any saved resume snapshot (used by the dismiss button). */
+  static clearResumeState(): void {
+    if (typeof localStorage === 'undefined') return;
+    try { localStorage.removeItem(RESUME_KEY); } catch (e) {}
+  }
+
   destroy(): void {
     try {
       this.audio.pause();
@@ -275,6 +376,7 @@ export class AudioEngine {
 
     this.preloadTrack(idx + 1);
     this.emit({ type: 'trackchange', ctx: this.pb });
+    this.scheduleResumeWrite();
   }
 
   private setMediaSession(pb: PlaybackContext, idx: number) {
@@ -361,6 +463,7 @@ export class AudioEngine {
       }
       this.emit({ type: 'timeupdate', currentTime: cur, duration: dur || 0 });
       this.updatePositionState();
+      this.scheduleResumeWrite();
     };
     this.audio.addEventListener('timeupdate', onTimeUpdate);
     // Rebind on swap: both elements listen, but we only act when the event
@@ -420,6 +523,7 @@ export class AudioEngine {
     this.psIdx = -1;
     this.preloadTrack(nextIdx + 1);
     this.emit({ type: 'trackchange', ctx: this.pb });
+    this.scheduleResumeWrite();
   }
 
   private maybeStartGaplessHandoff() {
@@ -514,6 +618,7 @@ export class AudioEngine {
     this.setMediaSession(this.pb, nextIdx);
     this.preloadTrack(nextIdx + 1);
     this.emit({ type: 'trackchange', ctx: this.pb });
+    this.scheduleResumeWrite();
   }
 
   // ── AirPlay / Remote Playback ─────────────────────────────────────────

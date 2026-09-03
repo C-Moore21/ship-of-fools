@@ -10,10 +10,11 @@ import { fetchSourceTracks } from '../audio/engine'
 import type { AudioShow, AudioSource } from '../audio/types'
 import { formatDate } from '../utils/format'
 import { totalShows as fallbackTotalShows } from '../data/years'
-import { useShow, useShowsForYear, useSources, useTodaysPick, useYears } from '../hooks/useSofData'
+import { useMyListens, useReleases, useShow, useShowsForYear, useSources, useTodaysPick, useYears } from '../hooks/useSofData'
 import { LoungePanel, useLounge } from '../lounge'
 import { LoginModal, useAuth } from '../auth-and-social'
 import { TripBanner } from '../modals'
+import { ResumePrompt } from '../audio/ResumePrompt'
 import type { Show, Track } from '../types/archive'
 
 // Lazy-loaded: none of these are needed for first paint. Modals only mount
@@ -30,6 +31,9 @@ const TodayInHistoryModal = lazy(() =>
 )
 const BlindTestModal = lazy(() =>
   import('../modals/BlindTestModal').then((m) => ({ default: m.BlindTestModal })),
+)
+const ToursModal = lazy(() =>
+  import('../tours').then((m) => ({ default: m.ToursModal })),
 )
 const RatedPanel = lazy(() =>
   import('../sections/RatedPanel').then((m) => ({ default: m.RatedPanel })),
@@ -179,6 +183,7 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [todayOpen, setTodayOpen] = useState(false)
   const [blindOpen, setBlindOpen] = useState(false)
+  const [toursOpen, setToursOpen] = useState(false)
 
   // Global keyboard shortcuts: "/" and Cmd/Ctrl+K open search
   useEffect(() => {
@@ -250,6 +255,10 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
     [yearShows, selected.id],
   )
 
+  // Overlays for the show list: releases + your listen history.
+  const { data: releaseMap } = useReleases()
+  const { data: listenedSet } = useMyListens(!!auth.user)
+
   const selectShow = useCallback((show: Show) => {
     setSelectedId(show.id)
     setMobilePane('detail')
@@ -279,6 +288,7 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
   const openObservatory = useCallback(() => setObservatoryOpen(true), [])
   const openToday = useCallback(() => setTodayOpen(true), [])
   const openBlind = useCallback(() => setBlindOpen(true), [])
+  const openTours = useCallback(() => setToursOpen(true), [])
   const doLogout = useCallback(() => { auth.logout() }, [auth])
   const exitBeta = useCallback(() => {
     try { localStorage.removeItem('sof_beta') } catch {}
@@ -349,6 +359,7 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
   const closeObservatory = useCallback(() => setObservatoryOpen(false), [])
   const closeToday = useCallback(() => setTodayOpen(false), [])
   const closeBlind = useCallback(() => setBlindOpen(false), [])
+  const closeTours = useCallback(() => setToursOpen(false), [])
   const searchJumpToShow = useCallback((d: string) => {
     setSearchOpen(false)
     openShowByDate(d)
@@ -377,6 +388,7 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
         onObservatoryClick={openObservatory}
         onTodayClick={openToday}
         onBlindTestClick={openBlind}
+        onToursClick={openTours}
       />
 
       {today && (
@@ -441,6 +453,8 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
             playingShowId={audio.show?.date}
             compact={compact}
             onSelect={selectShow}
+            releaseMap={releaseMap ?? undefined}
+            listenedDates={listenedSet ?? undefined}
           />
         </div>
 
@@ -468,6 +482,7 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
               onRequestLogin={requestLogin}
               canShareToLounge={lounge.member}
               onShareToLounge={shareToLounge}
+              sourceId={primarySource?.id}
             />
           )}
         </div>
@@ -525,6 +540,18 @@ export function Browse({ compact, visualizer: _visualizer }: BrowseProps) {
           <BlindTestModal open={blindOpen} onClose={closeBlind} />
         </Suspense>
       )}
+
+      {toursOpen && (
+        <Suspense fallback={null}>
+          <ToursModal
+            open={toursOpen}
+            onClose={closeTours}
+            onOpenShow={openShowByDate}
+          />
+        </Suspense>
+      )}
+
+      <ResumePrompt />
     </div>
   )
 }

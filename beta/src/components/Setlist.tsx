@@ -3,6 +3,7 @@ import { PlayIcon } from 'lucide-react';
 import type { Show, Track } from '../types/archive';
 import { RarityMark, GapBadge } from './Badges';
 import { formatDuration, formatClock } from '../utils/format';
+import { RatingStars, useTrackRatings } from '../auth-and-social';
 
 const SET_NAMES: Record<Track['set'], string> = {
   I: 'Set I',
@@ -16,10 +17,49 @@ interface SetlistProps {
   isPlaying: boolean;
   compact: boolean;
   onPlay: (track: Track) => void;
+  /** Whether the current visitor has a session — gates the per-track star widget. */
+  loggedIn?: boolean;
+  /** Archive.org source id backing this setlist; ratings are keyed per source. */
+  sourceId?: string;
+  /** Called when a logged-out user clicks stars, so the parent can open a login modal. */
+  onRequestLogin?: () => void;
 }
 
-function SetlistImpl({ show, currentTrackId, isPlaying, compact, onPlay }: SetlistProps) {
+function SetlistImpl({
+  show,
+  currentTrackId,
+  isPlaying,
+  compact,
+  onPlay,
+  loggedIn = false,
+  sourceId,
+  onRequestLogin,
+}: SetlistProps) {
   const sets: Track['set'][] = ['I', 'II', 'E'];
+  const { ratings, setRating } = useTrackRatings(sourceId ?? null, loggedIn);
+  const rowRefs = React.useRef(new Map<string, HTMLLIElement>());
+
+  // Auto-scroll to the playing track when it advances — only when the track
+  // actually belongs to this show (parent gates via currentTrackId; we
+  // double-check against show.tracks so browsing other shows during playback
+  // never hijacks the scroll position).
+  React.useEffect(() => {
+    if (!currentTrackId) return;
+    const belongs = show.tracks.some((t) => t.id === currentTrackId);
+    if (!belongs) return;
+    const el = rowRefs.current.get(currentTrackId);
+    if (!el) return;
+    // rAF so we scroll after the row has painted (fixes first-render case
+    // where the ref exists but layout hasn't settled).
+    const raf = requestAnimationFrame(() => {
+      try {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch (e) {
+        try { el.scrollIntoView({ block: 'center' }); } catch (_) {}
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [currentTrackId, show]);
 
   return (
     <div className="space-y-8">
@@ -46,7 +86,13 @@ function SetlistImpl({ show, currentTrackId, isPlaying, compact, onPlay }: Setli
               {tracks.map((track, i) => {
                 const isCurrent = track.id === currentTrackId;
                 return (
-                  <li key={track.id}>
+                  <li
+                    key={track.id}
+                    ref={(el) => {
+                      if (el) rowRefs.current.set(track.id, el);
+                      else rowRefs.current.delete(track.id);
+                    }}>
+
                     <button
                       type="button"
                       onClick={() => onPlay(track)}
@@ -103,6 +149,26 @@ function SetlistImpl({ show, currentTrackId, isPlaying, compact, onPlay }: Setli
                           <RarityMark rarity={track.rarity} />
                         )}
                       </span>
+
+                      {loggedIn && sourceId && (
+                        <span
+                          className="hidden shrink-0 sm:inline-flex"
+                          // Stop the row's onPlay firing when the user clicks a star.
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <RatingStars
+                            value={ratings[track.id] || 0}
+                            size={12}
+                            onChange={(next) =>
+                              setRating(track.id, next, {
+                                trackTitle: track.title,
+                                showDate: show.id,
+                              })
+                            }
+                            onRequestLogin={onRequestLogin}
+                          />
+                        </span>
+                      )}
 
                       <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted">
                         {formatDuration(track.duration)}

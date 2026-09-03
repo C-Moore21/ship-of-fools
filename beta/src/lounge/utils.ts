@@ -39,23 +39,79 @@ export function reactionSig(m: Pick<LoungeMessage, 'reactions'>): string {
  *  into elements without any innerHTML — no dangerouslySetInnerHTML. */
 export type LoungeTextToken =
   | { kind: 'text'; value: string }
-  | { kind: 'mention'; name: string; mine: boolean };
+  | { kind: 'mention'; name: string; mine: boolean }
+  | { kind: 'url'; href: string; text: string }
+  | { kind: 'show'; date: string; text: string };
 
-/** Tokenize a message body into plain text + @mention chips. Case-insensitive
- *  match against LOUNGE_MEMBERS, bounded on the right so "@camdens" won't match
- *  but "@camden!" will. */
+// Trailing punctuation that shouldn't be swallowed into a URL match.
+const URL_TRAIL = /[.,;:!?)\]}'"]+$/;
+
+/** Normalize a two- or four-digit year from a `gdYY-MM-DD` / `gdYYYY-MM-DD`
+ *  identifier. Two-digit years assume 19xx (the Dead toured 1965–1995). */
+function normalizeGdDate(y: string, m: string, d: string): string {
+  const year = y.length === 2 ? `19${y}` : y;
+  return `${year}-${m}-${d}`;
+}
+
+/** Tokenize a message body into plain text + @mention chips + auto-detected
+ *  URL and show-date tokens. Order of matches is preserved by scanning left
+ *  to right and taking the earliest hit at each step. */
 export function tokenizeText(text: string, currentUser: string | null | undefined): LoungeTextToken[] {
   const out: LoungeTextToken[] = [];
   if (!text) return out;
-  const re = new RegExp('@(' + LOUNGE_MEMBERS.join('|') + ')\\b', 'gi');
+
+  // Single master regex with named-ish alternation groups.
+  // Order in the pattern matters only inside the same position; we always
+  // consume the earliest match, so URL vs. show-date can't collide at the
+  // same index (URL requires scheme/www; a bare 1977-05-08 has neither).
+  const mentionPart = '@(' + LOUNGE_MEMBERS.join('|') + ')\\b';
+  const urlPart     = '(https?://[^\\s<>]+|www\\.[^\\s<>]+)';
+  const gdPart      = '\\bgd(\\d{4}|\\d{2})-(\\d{2})-(\\d{2})\\b';
+  const isoPart     = '\\b(\\d{4})-(\\d{2})-(\\d{2})\\b';
+  const re = new RegExp(
+    `${mentionPart}|${urlPart}|${gdPart}|${isoPart}`,
+    'gi',
+  );
+
   let last = 0;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text)) !== null) {
-    if (match.index > last) out.push({ kind: 'text', value: text.slice(last, match.index) });
-    const name = match[1];
-    const mine = !!currentUser && currentUser.toLowerCase() === name.toLowerCase();
-    out.push({ kind: 'mention', name, mine });
-    last = match.index + match[0].length;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push({ kind: 'text', value: text.slice(last, m.index) });
+    const whole = m[0];
+    let consumed = whole.length;
+
+    if (m[1]) {
+      // mention: group 1 is the name (member list capture)
+      const name = m[1];
+      const mine = !!currentUser && currentUser.toLowerCase() === name.toLowerCase();
+      out.push({ kind: 'mention', name, mine });
+    } else if (m[2]) {
+      // url: strip trailing sentence punctuation so "see https://x.com/y." works
+      let raw = m[2];
+      const trail = raw.match(URL_TRAIL);
+      if (trail) {
+        raw = raw.slice(0, raw.length - trail[0].length);
+        consumed = whole.length - trail[0].length;
+      }
+      const href = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+      out.push({ kind: 'url', href, text: raw });
+    } else if (m[3]) {
+      // gd date: groups 3=year, 4=month, 5=day
+      const date = normalizeGdDate(m[3], m[4], m[5]);
+      out.push({ kind: 'show', date, text: whole });
+    } else if (m[6]) {
+      // iso date: groups 6=year, 7=month, 8=day. Only 19xx/20xx look real.
+      const y = parseInt(m[6], 10);
+      if (y >= 1900 && y <= 2099) {
+        out.push({ kind: 'show', date: `${m[6]}-${m[7]}-${m[8]}`, text: whole });
+      } else {
+        out.push({ kind: 'text', value: whole });
+      }
+    }
+    last = m.index + consumed;
+    // If we trimmed URL punctuation, re-anchor lastIndex so the trailing
+    // char isn't skipped for subsequent matches.
+    re.lastIndex = last;
   }
   if (last < text.length) out.push({ kind: 'text', value: text.slice(last) });
   return out;

@@ -62,15 +62,16 @@ export function adaptShallowShow(raw: RawShow): Show {
     city: raw.venue?.location ?? '',
     era,
     tourRun: `${era} · ${year}`,
-    // Prefer local community avg if we have real ratings for this show;
-    // otherwise fall back to Archive.org's public avg_rating (populated for
-    // every show now that /api/years/<year>/shows requests the field).
-    avgRating: (raw.community_count ?? 0) > 0
-      ? (raw.community_avg ?? 0)
-      : (raw.avg_rating ?? 0),
-    ratingCount: (raw.community_count ?? 0) > 0
-      ? (raw.community_count ?? 0)
-      : (raw.num_reviews ?? 0),
+    // Prefer Archive.org's public community avg — it's the broader signal
+    // (thousands of reviewers). Local 4-friend ratings are shown separately
+    // in the ShowDetail aside via RatingStars; here we want the community
+    // consensus, not the friend group's.
+    avgRating: (raw.avg_rating ?? 0) > 0
+      ? (raw.avg_rating ?? 0)
+      : (raw.community_avg ?? 0),
+    ratingCount: (raw.num_reviews ?? 0) > 0
+      ? (raw.num_reviews ?? 0)
+      : (raw.community_count ?? 0),
     listeners: raw.community_listens ?? 0,
     soundboard: false,
     source: '',
