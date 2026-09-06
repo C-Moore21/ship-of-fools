@@ -58,20 +58,36 @@ Two things to keep honest:
 Ordered by expected win. The loop takes the top **unresolved** item each iteration,
 implements it, re-measures, and moves it to Landed or Rejected.
 
-### H2 — hover prefetch stops one hop short *(open, high confidence)*
-`prefetchShow` (`useSofData.ts:182`) warms only sources + weather. Its comment says tracks
-depend on "which source is chosen", but source choice is deterministic — the same
-`sort by archive_rating desc` in `useShow`. Extract that pick into a shared function and
-let prefetch chain sources → tracks → setlist-stats. A hovered row then clicks warm.
-**Expected:** near-zero `show-click-cold` for any row the pointer crossed.
-**Watch:** don't fan out on fast pointer sweeps — gate on a short dwell (~80ms) so a mouse
-crossing 40 rows doesn't fire 120 requests.
+### H2 — hover prefetch stops one hop short *(open, high confidence — but NOT measurable as-is)*
+`prefetchShow` warms only sources + weather. Its comment says tracks depend on "which
+source is chosen", but that choice is deterministic — the same `sort by archive_rating
+desc` that `useShow` does. Extract the pick into a shared function and let prefetch chain
+sources → tracks → setlist-stats. A hovered row then clicks warm.
 
-### H3 — `/api/shows/<date>` one-shot endpoint exists but is unused *(open, medium)*
+**Read this before implementing it.** `show-click-cold` will show almost no improvement,
+and that is a harness artifact, not a verdict. Playwright's `.click()` moves the pointer
+onto the element immediately before pressing, so the prefetch fires a few ms before the
+click — where a real user dwells for hundreds of ms. Implementing H2 and then rejecting it
+on a flat number would be wrong.
+
+To measure it properly, add a `show-click-hovered` scenario that hovers, waits ~400ms, then
+clicks. That changes the scenario set and therefore the mean, so it needs a re-baseline —
+do that deliberately in its own iteration, and keep `show-click-cold` (no dwell) as the
+worst case.
+
+**Watch:** gate on a short dwell (~80ms) so a pointer crossing 40 rows does not fire 120
+requests.
+
+### H3 — `/api/shows/<date>` one-shot endpoint exists but is unused *(open — TAKE THIS NEXT)*
 CLAUDE.md documents `/api/shows/<date>` as "one-shot detail (venue + weather + community
 stats + sources)", yet `useShow` still issues separate `sources` + `weather` calls.
 Either the hook should use it, or it should be extended to also carry the best source's
 tracks + setlist stats so a cold click is **one** round trip.
+Unlike H2 this pays off on every click, hovered or not, so it is measurable in the
+current bench and does not need a re-baseline. With H1 landed, a cold click is now two
+serial trips (`[sources, weather]` → `tracks`); collapsing them to one should take
+`show-click-cold` from ~572ms to ~320ms, which lands the overall goal.
+
 **Constraint:** must be served from MongoDB cache only — no synchronous Archive.org calls
 (Render 30s worker timeout, and Archive.org blocks Render's IP).
 
