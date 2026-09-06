@@ -1,0 +1,889 @@
+{
+  "ts": "2026-09-06T05:44:35.520Z",
+  "mode": "replay",
+  "label": "baseline (unmodified)",
+  "git": "e85834e",
+  "config": {
+    "reps": 7,
+    "apiDelayMs": 250,
+    "quietMs": 150,
+    "viewport": {
+      "width": 1600,
+      "height": 950
+    }
+  },
+  "overall": {
+    "meanSettleP75": 149.4,
+    "worstScenario": "show-click-cold"
+  },
+  "routing": {
+    "misses": {}
+  },
+  "pageErrors": [],
+  "scenarios": {
+    "year-click": {
+      "description": "Click a year in the rail -> show list repaints",
+      "samples": 7,
+      "errors": 0,
+      "timeouts": 0,
+      "errorSamples": [],
+      "settleMs": {
+        "median": 55.1,
+        "p75": 70.5,
+        "max": 77.1
+      },
+      "firstPaintMs": {
+        "median": 9.4,
+        "p75": 11.8
+      },
+      "blockingMs": {
+        "median": 0,
+        "p75": 0
+      },
+      "handlerMs": {
+        "median": 17.1
+      },
+      "mutations": {
+        "median": 197
+      },
+      "batches": {
+        "median": 4
+      },
+      "raw": [
+        {
+          "firstPaintMs": 3.4000000059604645,
+          "settleMs": 22.5,
+          "domSettleMs": 18.600000008940697,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 6,
+          "mutations": 175,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 7.699999988079071,
+          "settleMs": 45.3999999910593,
+          "domSettleMs": 41.5,
+          "blockingMs": 0,
+          "eventMs": 40,
+          "handlerMs": 17.200000002980232,
+          "mutations": 197,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 10.200000002980232,
+          "settleMs": 48.29999999701977,
+          "domSettleMs": 43.400000005960464,
+          "blockingMs": 0,
+          "eventMs": 40,
+          "handlerMs": 17.099999994039536,
+          "mutations": 197,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 6.5999999940395355,
+          "settleMs": 70.5,
+          "domSettleMs": 66.29999999701977,
+          "blockingMs": 0,
+          "eventMs": 48,
+          "handlerMs": 16.600000008940697,
+          "mutations": 197,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 11.799999997019768,
+          "settleMs": 67.3999999910593,
+          "domSettleMs": 63,
+          "blockingMs": 0,
+          "eventMs": 56,
+          "handlerMs": 21.599999994039536,
+          "mutations": 197,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 19.200000002980232,
+          "settleMs": 77.09999999403954,
+          "domSettleMs": 73.70000000298023,
+          "blockingMs": 0,
+          "eventMs": 56,
+          "handlerMs": 20.299999997019768,
+          "mutations": 197,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 9.400000005960464,
+          "settleMs": 55.1000000089407,
+          "domSettleMs": 51.80000001192093,
+          "blockingMs": 0,
+          "eventMs": 48,
+          "handlerMs": 14.799999997019768,
+          "mutations": 197,
+          "batches": 4,
+          "longTasks": 0
+        }
+      ]
+    },
+    "year-click-dense": {
+      "description": "Click a heavy year (largest show list render)",
+      "samples": 7,
+      "errors": 0,
+      "timeouts": 0,
+      "errorSamples": [],
+      "settleMs": {
+        "median": 45.6,
+        "p75": 70.5,
+        "max": 70.5
+      },
+      "firstPaintMs": {
+        "median": 7.6,
+        "p75": 10.3
+      },
+      "blockingMs": {
+        "median": 0,
+        "p75": 0
+      },
+      "handlerMs": {
+        "median": 9
+      },
+      "mutations": {
+        "median": 203
+      },
+      "batches": {
+        "median": 4
+      },
+      "raw": [
+        {
+          "firstPaintMs": 6.600000008940697,
+          "settleMs": 36.900000005960464,
+          "domSettleMs": 32.1000000089407,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 6.299999997019768,
+          "mutations": 181,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 7.5999999940395355,
+          "settleMs": 45.599999994039536,
+          "domSettleMs": 38,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 9,
+          "mutations": 203,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 8.599999994039536,
+          "settleMs": 57.20000000298023,
+          "domSettleMs": 50.599999994039536,
+          "blockingMs": 0,
+          "eventMs": 48,
+          "handlerMs": 13.5,
+          "mutations": 203,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 10.300000011920929,
+          "settleMs": 70.5,
+          "domSettleMs": 65.30000001192093,
+          "blockingMs": 0,
+          "eventMs": 64,
+          "handlerMs": 16.599999994039536,
+          "mutations": 203,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 2.3999999910593033,
+          "settleMs": 30.399999991059303,
+          "domSettleMs": 27.700000002980232,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 6.5999999940395355,
+          "mutations": 203,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 11.400000005960464,
+          "settleMs": 70.5,
+          "domSettleMs": 66.29999999701977,
+          "blockingMs": 0,
+          "eventMs": 64,
+          "handlerMs": 21.19999998807907,
+          "mutations": 203,
+          "batches": 4,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 3.7000000029802322,
+          "settleMs": 33.900000005960464,
+          "domSettleMs": 31,
+          "blockingMs": 0,
+          "eventMs": 24,
+          "handlerMs": 7.0999999940395355,
+          "mutations": 203,
+          "batches": 4,
+          "longTasks": 0
+        }
+      ]
+    },
+    "show-click-cold": {
+      "description": "Click a show never opened this session -> detail + setlist render",
+      "samples": 7,
+      "errors": 0,
+      "timeouts": 0,
+      "errorSamples": [],
+      "settleMs": {
+        "median": 840.2,
+        "p75": 861.8,
+        "max": 862.5
+      },
+      "firstPaintMs": {
+        "median": 818.3,
+        "p75": 826
+      },
+      "blockingMs": {
+        "median": 0,
+        "p75": 0
+      },
+      "handlerMs": {
+        "median": 1.4
+      },
+      "mutations": {
+        "median": 44
+      },
+      "batches": {
+        "median": 2
+      },
+      "raw": [
+        {
+          "firstPaintMs": 846.3999999910593,
+          "settleMs": 861.7999999970198,
+          "domSettleMs": 859.0999999940395,
+          "blockingMs": 0,
+          "eventMs": null,
+          "handlerMs": null,
+          "mutations": 50,
+          "batches": 2,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 803.6000000089407,
+          "settleMs": 825.5,
+          "domSettleMs": 825.4000000059605,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 2.2000000029802322,
+          "mutations": 31,
+          "batches": 2,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 826,
+          "settleMs": 849.4000000059605,
+          "domSettleMs": 849.4000000059605,
+          "blockingMs": 0,
+          "eventMs": null,
+          "handlerMs": null,
+          "mutations": 41,
+          "batches": 2,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 813.6000000089407,
+          "settleMs": 840.2000000029802,
+          "domSettleMs": 840,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 0.9000000059604645,
+          "mutations": 56,
+          "batches": 2,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 805,
+          "settleMs": 815.5,
+          "domSettleMs": 815.4000000059605,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 1.7999999970197678,
+          "mutations": 46,
+          "batches": 2,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 822,
+          "settleMs": 862.5,
+          "domSettleMs": 858.7999999970198,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 0.7000000029802322,
+          "mutations": 44,
+          "batches": 2,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 818.2999999970198,
+          "settleMs": 839.5,
+          "domSettleMs": 839.5,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 1.4000000059604645,
+          "mutations": 43,
+          "batches": 2,
+          "longTasks": 0
+        }
+      ]
+    },
+    "show-click-warm": {
+      "description": "Re-click an already-fetched show -> pure client render cost",
+      "samples": 7,
+      "errors": 0,
+      "timeouts": 0,
+      "errorSamples": [],
+      "settleMs": {
+        "median": 24.9,
+        "p75": 38.6,
+        "max": 42
+      },
+      "firstPaintMs": {
+        "median": 13,
+        "p75": 15.3
+      },
+      "blockingMs": {
+        "median": 0,
+        "p75": 0
+      },
+      "handlerMs": {
+        "median": 7
+      },
+      "mutations": {
+        "median": 39
+      },
+      "batches": {
+        "median": 3
+      },
+      "raw": [
+        {
+          "firstPaintMs": 15.299999997019768,
+          "settleMs": 38.599999994039536,
+          "domSettleMs": 38.599999994039536,
+          "blockingMs": 0,
+          "eventMs": 48,
+          "handlerMs": 13.300000011920929,
+          "mutations": 39,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 13,
+          "settleMs": 23.700000002980232,
+          "domSettleMs": 23.700000002980232,
+          "blockingMs": 0,
+          "eventMs": 24,
+          "handlerMs": 5.9000000059604645,
+          "mutations": 39,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 16.5,
+          "settleMs": 30.30000001192093,
+          "domSettleMs": 30.200000002980232,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 12.200000002980232,
+          "mutations": 39,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 8.600000008940697,
+          "settleMs": 23.100000008940697,
+          "domSettleMs": 23.100000008940697,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 7,
+          "mutations": 39,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 14.5,
+          "settleMs": 42,
+          "domSettleMs": 38.6000000089407,
+          "blockingMs": 0,
+          "eventMs": 40,
+          "handlerMs": 11.700000002980232,
+          "mutations": 39,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 8.299999997019768,
+          "settleMs": 24.900000005960464,
+          "domSettleMs": 24.799999997019768,
+          "blockingMs": 0,
+          "eventMs": 24,
+          "handlerMs": 6.0999999940395355,
+          "mutations": 39,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 4,
+          "settleMs": 12.5,
+          "domSettleMs": 12.5,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 3.3999999910593033,
+          "mutations": 39,
+          "batches": 3,
+          "longTasks": 0
+        }
+      ]
+    },
+    "tab-stats": {
+      "description": "Switch to Stats tab -> lazy chunk + panel render",
+      "samples": 7,
+      "errors": 0,
+      "timeouts": 0,
+      "errorSamples": [],
+      "settleMs": {
+        "median": 14.6,
+        "p75": 16.1,
+        "max": 20.4
+      },
+      "firstPaintMs": {
+        "median": 7.7,
+        "p75": 11.1
+      },
+      "blockingMs": {
+        "median": 0,
+        "p75": 0
+      },
+      "handlerMs": {
+        "median": 5.6
+      },
+      "mutations": {
+        "median": 6
+      },
+      "batches": {
+        "median": 1
+      },
+      "raw": [
+        {
+          "firstPaintMs": 11.099999994039536,
+          "settleMs": 16.099999994039536,
+          "domSettleMs": 11.099999994039536,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 6.899999991059303,
+          "mutations": 6,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 7.699999988079071,
+          "settleMs": 15.299999997019768,
+          "domSettleMs": 7.699999988079071,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 5.600000008940697,
+          "mutations": 6,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 14.099999994039536,
+          "settleMs": 20.399999991059303,
+          "domSettleMs": 14.099999994039536,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 8.5,
+          "mutations": 6,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 6.5,
+          "settleMs": 9.799999997019768,
+          "domSettleMs": 6.5,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 5.299999997019768,
+          "mutations": 6,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 7.700000002980232,
+          "settleMs": 14.599999994039536,
+          "domSettleMs": 7.700000002980232,
+          "blockingMs": 0,
+          "eventMs": 24,
+          "handlerMs": 5.9000000059604645,
+          "mutations": 6,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 4,
+          "settleMs": 8,
+          "domSettleMs": 4,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 3,
+          "mutations": 6,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 6,
+          "settleMs": 8.900000005960464,
+          "domSettleMs": 6,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 3.4000000059604645,
+          "mutations": 6,
+          "batches": 1,
+          "longTasks": 0
+        }
+      ]
+    },
+    "tab-back-to-browse": {
+      "description": "Return to Browse from a section tab -> three-column remount",
+      "samples": 7,
+      "errors": 0,
+      "timeouts": 0,
+      "errorSamples": [],
+      "settleMs": {
+        "median": 40.1,
+        "p75": 47.4,
+        "max": 53.1
+      },
+      "firstPaintMs": {
+        "median": 13.8,
+        "p75": 20.5
+      },
+      "blockingMs": {
+        "median": 0,
+        "p75": 0
+      },
+      "handlerMs": {
+        "median": 10.1
+      },
+      "mutations": {
+        "median": 12
+      },
+      "batches": {
+        "median": 3
+      },
+      "raw": [
+        {
+          "firstPaintMs": 6.299999997019768,
+          "settleMs": 27.100000008940697,
+          "domSettleMs": 27,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 5.700000002980232,
+          "mutations": 12,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 10.900000005960464,
+          "settleMs": 26,
+          "domSettleMs": 26,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 8.700000002980232,
+          "mutations": 12,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 20.5,
+          "settleMs": 53.099999994039536,
+          "domSettleMs": 50.5,
+          "blockingMs": 0,
+          "eventMs": 56,
+          "handlerMs": 17.400000005960464,
+          "mutations": 12,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 19.400000005960464,
+          "settleMs": 40.099999994039536,
+          "domSettleMs": 40.099999994039536,
+          "blockingMs": 0,
+          "eventMs": 48,
+          "handlerMs": 16.599999994039536,
+          "mutations": 12,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 22.5,
+          "settleMs": 47.400000005960464,
+          "domSettleMs": 47.30000001192093,
+          "blockingMs": 0,
+          "eventMs": 56,
+          "handlerMs": 19,
+          "mutations": 12,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 13.800000011920929,
+          "settleMs": 41.900000005960464,
+          "domSettleMs": 41.80000001192093,
+          "blockingMs": 0,
+          "eventMs": 48,
+          "handlerMs": 10.099999994039536,
+          "mutations": 12,
+          "batches": 3,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 12.799999997019768,
+          "settleMs": 38.8999999910593,
+          "domSettleMs": 38.8999999910593,
+          "blockingMs": 0,
+          "eventMs": 40,
+          "handlerMs": 10,
+          "mutations": 12,
+          "batches": 3,
+          "longTasks": 0
+        }
+      ]
+    },
+    "open-search": {
+      "description": "Open the search palette from the header",
+      "samples": 7,
+      "errors": 0,
+      "timeouts": 0,
+      "errorSamples": [],
+      "settleMs": {
+        "median": 27,
+        "p75": 37.5,
+        "max": 44.3
+      },
+      "firstPaintMs": {
+        "median": 3.2,
+        "p75": 3.9
+      },
+      "blockingMs": {
+        "median": 0,
+        "p75": 0
+      },
+      "handlerMs": {
+        "median": 2.1
+      },
+      "mutations": {
+        "median": 1
+      },
+      "batches": {
+        "median": 1
+      },
+      "raw": [
+        {
+          "firstPaintMs": 1.4000000059604645,
+          "settleMs": 32.900000005960464,
+          "domSettleMs": 1.4000000059604645,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 0.800000011920929,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 1.5,
+          "settleMs": 6.700000002980232,
+          "domSettleMs": 1.5,
+          "blockingMs": 0,
+          "eventMs": 16,
+          "handlerMs": 0.699999988079071,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 3.9000000059604645,
+          "settleMs": 22.600000008940697,
+          "domSettleMs": 3.9000000059604645,
+          "blockingMs": 0,
+          "eventMs": 24,
+          "handlerMs": 2.2999999970197678,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 6.5,
+          "settleMs": 27,
+          "domSettleMs": 6.5,
+          "blockingMs": 0,
+          "eventMs": 24,
+          "handlerMs": 3.0999999940395355,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 3.2000000029802322,
+          "settleMs": 37.5,
+          "domSettleMs": 3.2000000029802322,
+          "blockingMs": 0,
+          "eventMs": 24,
+          "handlerMs": 2.0999999940395355,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 2,
+          "settleMs": 26.799999997019768,
+          "domSettleMs": 2,
+          "blockingMs": 0,
+          "eventMs": 24,
+          "handlerMs": 1.0999999940395355,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 3.7000000029802322,
+          "settleMs": 44.29999999701977,
+          "domSettleMs": 3.7000000029802322,
+          "blockingMs": 0,
+          "eventMs": 24,
+          "handlerMs": 2.199999988079071,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        }
+      ]
+    },
+    "open-observatory": {
+      "description": "Open the Observatory modal (heaviest lazy chunk)",
+      "samples": 7,
+      "errors": 0,
+      "timeouts": 0,
+      "errorSamples": [],
+      "settleMs": {
+        "median": 51.1,
+        "p75": 52.6,
+        "max": 54.8
+      },
+      "firstPaintMs": {
+        "median": 19,
+        "p75": 22.7
+      },
+      "blockingMs": {
+        "median": 0,
+        "p75": 0
+      },
+      "handlerMs": {
+        "median": 18
+      },
+      "mutations": {
+        "median": 1
+      },
+      "batches": {
+        "median": 1
+      },
+      "raw": [
+        {
+          "firstPaintMs": 22.400000005960464,
+          "settleMs": 51.900000005960464,
+          "domSettleMs": 22.400000005960464,
+          "blockingMs": 0,
+          "eventMs": 56,
+          "handlerMs": 19.200000002980232,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 9.200000002980232,
+          "settleMs": 28,
+          "domSettleMs": 9.200000002980232,
+          "blockingMs": 0,
+          "eventMs": 32,
+          "handlerMs": 8.5,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 11.100000008940697,
+          "settleMs": 34.70000000298023,
+          "domSettleMs": 11.100000008940697,
+          "blockingMs": 0,
+          "eventMs": 40,
+          "handlerMs": 10.100000008940697,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 8.200000002980232,
+          "settleMs": 25.899999991059303,
+          "domSettleMs": 8.200000002980232,
+          "blockingMs": 0,
+          "eventMs": 24,
+          "handlerMs": 7.5,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 22.700000002980232,
+          "settleMs": 52.6000000089407,
+          "domSettleMs": 22.700000002980232,
+          "blockingMs": 0,
+          "eventMs": 56,
+          "handlerMs": 20.200000002980232,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 28,
+          "settleMs": 51.099999994039536,
+          "domSettleMs": 28,
+          "blockingMs": 0,
+          "eventMs": 56,
+          "handlerMs": 26.899999991059303,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        },
+        {
+          "firstPaintMs": 19,
+          "settleMs": 54.79999999701977,
+          "domSettleMs": 19,
+          "blockingMs": 0,
+          "eventMs": 56,
+          "handlerMs": 18,
+          "mutations": 1,
+          "batches": 1,
+          "longTasks": 0
+        }
+      ]
+    }
+  }
+}

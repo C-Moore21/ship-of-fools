@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# bench artifacts (machine-specific timings, recorded API payloads)
+bench/results/
+bench/fixtures/
