@@ -1,6 +1,6 @@
 {
-  "__shared-B8xq1yns.js": {
-    "file": "assets/_shared-B8xq1yns.js",
+  "__shared-BrnUJVdH.js": {
+    "file": "assets/_shared-BrnUJVdH.js",
     "name": "_shared",
     "imports": [
       "_lucide-DJ7G9h61.js",
@@ -23,7 +23,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-D_3JCQNK.js",
+    "file": "assets/index-gYSDTxNv.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -47,7 +47,7 @@
     ]
   },
   "src/modals/BlindTestModal.tsx": {
-    "file": "assets/BlindTestModal-DBqMR2Ip.js",
+    "file": "assets/BlindTestModal-DlW4IXme.js",
     "name": "BlindTestModal",
     "src": "src/modals/BlindTestModal.tsx",
     "isDynamicEntry": true,
@@ -59,7 +59,7 @@
     ]
   },
   "src/modals/TodayInHistoryModal.tsx": {
-    "file": "assets/TodayInHistoryModal-jj14x2Ym.js",
+    "file": "assets/TodayInHistoryModal-BGpcKofC.js",
     "name": "TodayInHistoryModal",
     "src": "src/modals/TodayInHistoryModal.tsx",
     "isDynamicEntry": true,
@@ -71,7 +71,7 @@
     ]
   },
   "src/observatory/ObservatoryModal.tsx": {
-    "file": "assets/ObservatoryModal-IeDbjBBX.js",
+    "file": "assets/ObservatoryModal-DmcG0vdW.js",
     "name": "ObservatoryModal",
     "src": "src/observatory/ObservatoryModal.tsx",
     "isDynamicEntry": true,
@@ -82,7 +82,7 @@
     ]
   },
   "src/search/SearchPalette.tsx": {
-    "file": "assets/SearchPalette-DPEE4SJU.js",
+    "file": "assets/SearchPalette-B3996Is2.js",
     "name": "SearchPalette",
     "src": "src/search/SearchPalette.tsx",
     "isDynamicEntry": true,
@@ -93,55 +93,55 @@
     ]
   },
   "src/sections/HistoryPanel.tsx": {
-    "file": "assets/HistoryPanel-BvbJEdZa.js",
+    "file": "assets/HistoryPanel-DDG44jhG.js",
     "name": "HistoryPanel",
     "src": "src/sections/HistoryPanel.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
       "_lucide-DJ7G9h61.js",
-      "__shared-B8xq1yns.js",
+      "__shared-BrnUJVdH.js",
       "_react-vendor-BuuuBXGO.js"
     ]
   },
   "src/sections/LeaderboardPanel.tsx": {
-    "file": "assets/LeaderboardPanel-Br5VQlNy.js",
+    "file": "assets/LeaderboardPanel-DgYbTEoA.js",
     "name": "LeaderboardPanel",
     "src": "src/sections/LeaderboardPanel.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
       "_lucide-DJ7G9h61.js",
-      "__shared-B8xq1yns.js",
+      "__shared-BrnUJVdH.js",
       "_react-vendor-BuuuBXGO.js"
     ]
   },
   "src/sections/RatedPanel.tsx": {
-    "file": "assets/RatedPanel-bCxD6Aqf.js",
+    "file": "assets/RatedPanel-pvw7KoiD.js",
     "name": "RatedPanel",
     "src": "src/sections/RatedPanel.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
       "_lucide-DJ7G9h61.js",
-      "__shared-B8xq1yns.js",
+      "__shared-BrnUJVdH.js",
       "_react-vendor-BuuuBXGO.js"
     ]
   },
   "src/sections/StatsPanel.tsx": {
-    "file": "assets/StatsPanel-CiREFIaN.js",
+    "file": "assets/StatsPanel-BuBcomEL.js",
     "name": "StatsPanel",
     "src": "src/sections/StatsPanel.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
       "_lucide-DJ7G9h61.js",
-      "__shared-B8xq1yns.js",
+      "__shared-BrnUJVdH.js",
       "_react-vendor-BuuuBXGO.js"
     ]
   },
   "src/tours/index.ts": {
-    "file": "assets/index-B6LthjqM.js",
+    "file": "assets/index-BuL9WnlT.js",
     "name": "index",
     "src": "src/tours/index.ts",
     "isDynamicEntry": true,

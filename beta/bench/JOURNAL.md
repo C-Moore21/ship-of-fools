@@ -24,21 +24,29 @@ Atlas jitter.
 |---|---|
 | Baseline | **137.3ms** mean settle (2026-09-06, replay @250ms, 15 reps, logged out) |
 | Goal | **68.7ms** |
-| Latest | **101.0ms** (-26.4%) after H1 |
-| Iterations | 1 |
+| Latest | **57.4ms** (-58.2%) after H1 + H3 — **GOAL MET** (confirm run 51.2ms) |
+| Iterations | 2 |
 
 Per scenario (median settle, ±IQR):
 
-| scenario | baseline | after H1 | delta |
-|---|---|---|---|
-| show-click-cold | 838.4ms | **572.6ms** ±24.7 | **-31.7%** |
-| year-click | 50.6ms | 46.0ms ±11.3 | noise |
-| year-click-dense | 46.2ms | 50.4ms ±13.0 | noise |
-| tab-back-to-browse | 44.9ms | 34.7ms ±19.9 | -22.7% |
-| open-observatory | 43.7ms | 37.8ms ±16.0 | -13.5% |
-| show-click-warm | 30.4ms | 28.7ms ±11.8 | noise |
-| open-search | 26.1ms | 22.0ms ±15.7 | noise |
-| tab-stats | 17.7ms | 15.9ms ±6.8 | noise |
+| scenario | baseline | after H1 | after H1+H3 | total |
+|---|---|---|---|---|
+| show-click-cold | 838.4ms | 572.6ms | **288.3ms** ±14.2 | **-65.6%** |
+| year-click | 50.6ms | 46.0ms | 50.3ms ±17.5 | noise |
+| year-click-dense | 46.2ms | 50.4ms | 42.3ms ±10.2 | noise |
+| tab-back-to-browse | 44.9ms | 34.7ms | 15.9ms ±4.8 | -64.6% |
+| open-observatory | 43.7ms | 37.8ms | 17.7ms ±3.6 | -59.5% |
+| show-click-warm | 30.4ms | 28.7ms | 14.3ms ±5.6 | -53.0% |
+| open-search | 26.1ms | 22.0ms | 15.7ms ±12.1 | -39.8% |
+| tab-stats | 17.7ms | 15.9ms | 14.9ms ±14.3 | noise |
+
+### Not yet true in production
+
+H3's win depends on `app.py`'s new `?include=tracks` branch, which is **not deployed**.
+The bench measures it through synthesized fixtures (real production payloads reassembled
+into the new envelope — see `synth-oneshot.mjs`). Against the currently-deployed backend
+the parameter is ignored, `tracks` is absent, and the client correctly falls back to the
+old two-trip path. Until `app.py` ships, users get H1's -26% and not H3's.
 
 Two things to keep honest:
 
@@ -78,19 +86,6 @@ worst case.
 **Watch:** gate on a short dwell (~80ms) so a pointer crossing 40 rows does not fire 120
 requests.
 
-### H3 — `/api/shows/<date>` one-shot endpoint exists but is unused *(open — TAKE THIS NEXT)*
-CLAUDE.md documents `/api/shows/<date>` as "one-shot detail (venue + weather + community
-stats + sources)", yet `useShow` still issues separate `sources` + `weather` calls.
-Either the hook should use it, or it should be extended to also carry the best source's
-tracks + setlist stats so a cold click is **one** round trip.
-Unlike H2 this pays off on every click, hovered or not, so it is measurable in the
-current bench and does not need a re-baseline. With H1 landed, a cold click is now two
-serial trips (`[sources, weather]` → `tracks`); collapsing them to one should take
-`show-click-cold` from ~572ms to ~320ms, which lands the overall goal.
-
-**Constraint:** must be served from MongoDB cache only — no synchronous Archive.org calls
-(Render 30s worker timeout, and Archive.org blocks Render's IP).
-
 ### H4 — year click re-renders the whole show list *(open, medium)*
 `ShowList` maps every row inline; `year-click-dense` should show it. Rows are not memoized
 the way `TrackRow` is in `Setlist.tsx`. Extract a memoized `ShowRow` and check the
@@ -123,6 +118,29 @@ round trip plus overhead — exactly what was predicted.
 
 `tab-back-to-browse` (-22.7%) and `open-observatory` (-13.5%) also cleared the noise floor;
 both remount a tree containing show detail, so they plausibly ride the same fix.
+
+### H3 — collapsed the cold show click to one round trip — **-65.6% on show-click-cold, -58.2% overall, GOAL MET**
+`/api/shows/<date>` already returned sources + weather + community aggregates but was
+never called; `useShow` fetched sources and weather separately (already parallel, so no
+win there) and then had to wait for a second serial trip for tracks, because tracks cannot
+be requested until sources names one.
+
+`?include=tracks` now folds the top source's cached tracklist into that response, so a cold
+click is one round trip. Cache-only by design — falling through to Archive.org would put a
+slow third-party call on the critical path of the most-clicked endpoint, and Archive.org
+blocks Render's IP anyway. On a miss the key is absent and the client falls back.
+
+**H3a alone left it bimodal**: 8 reps at ~280ms, 7 at ~540ms, IQR 247ms. The client picked
+its source by `archive_rating` alone while the server ranks by composite score, so on
+roughly half of shows the client discarded the bundled tracklist and re-fetched.
+
+**H3b fixed the ranking mismatch** and the IQR collapsed to 14ms. This is also a real bug
+fix independent of speed: sorting on raw rating put a 5.0-with-one-review above a
+4.79-with-297-reviews. `pickBestSource` now prefers the server's `recommended` flag.
+
+> **Behaviour change worth knowing about:** for shows where the two rankings disagreed,
+> a different recording is now selected by default. It is the better-supported one by the
+> app's own documented scoring, but it is a change to what auto-plays.
 
 ## Rejected
 

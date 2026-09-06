@@ -24,13 +24,16 @@ import {
   getReleases,
   getSetlistStats,
   getShowsForYear,
+  getShowDetail,
   getSources,
   getTodaysPick,
   getTracks,
   getWeather,
   getYears,
   type RawReleaseInfo,
+  type RawShowDetail,
   type RawSource,
+  type RawTracksDoc,
   type RawTodayPick,
   type RawWeather,
   type SetlistStatsResp,
@@ -96,6 +99,7 @@ const sourcesByDate: Map<string, Promise<RawSource[]>> = new Map()
 const tracksBySource: Map<string, Promise<ReturnType<typeof adaptTracks>>> = new Map()
 const weatherByDate: Map<string, Promise<RawWeather>> = new Map()
 const setlistStatsByDate: Map<string, Promise<SetlistStatsResp>> = new Map()
+const showDetailByDate: Map<string, Promise<RawShowDetail>> = new Map()
 let todaysPickCache: Promise<RawTodayPick[]> | null = null
 
 function cachedYears(): Promise<YearEntry[]> {
@@ -141,16 +145,49 @@ interface TracksBundle {
   lineage?: string
 }
 
+/**
+ * The server ranks sources by a composite of rating, review count and source
+ * type, and flags the winner. Sorting on `archive_rating` alone put a 5.0 with
+ * one review above a 4.79 with 297, and it disagreed with the server's pick on
+ * roughly half of shows — which also meant discarding the tracklist the
+ * one-shot endpoint had already bundled and re-fetching it.
+ */
+function pickBestSource(sources: RawSource[]): RawSource {
+  return (
+    sources.find((s) => s.recommended) ??
+    [...sources].sort(
+      (a, b) =>
+        (b.score ?? b.archive_rating ?? -1) - (a.score ?? a.archive_rating ?? -1),
+    )[0] ??
+    sources[0]
+  )
+}
+
+function adaptTracksDoc(doc: RawTracksDoc): TracksBundle {
+  return {
+    tracks: adaptTracks(doc.sets || []),
+    taper: doc.taper || undefined,
+    transferer: doc.transferer || undefined,
+    lineage: doc.lineage || undefined,
+  }
+}
+
+function cachedShowDetail(date: string): Promise<RawShowDetail> {
+  const existing = showDetailByDate.get(date)
+  if (existing) return existing
+  const p = getShowDetail(date, true).catch((e) => {
+    showDetailByDate.delete(date)
+    throw e
+  })
+  showDetailByDate.set(date, p)
+  return p
+}
+
 function cachedTracks(sourceId: string): Promise<TracksBundle> {
   const existing = tracksBySource.get(sourceId)
   if (existing) return existing as Promise<TracksBundle>
   const p: Promise<TracksBundle> = getTracks(sourceId)
-    .then((doc) => ({
-      tracks: adaptTracks(doc.sets || []),
-      taper: doc.taper || undefined,
-      transferer: doc.transferer || undefined,
-      lineage: doc.lineage || undefined,
-    }))
+    .then(adaptTracksDoc)
     .catch((e) => {
       tracksBySource.delete(sourceId)
       throw e
@@ -192,11 +229,10 @@ export function prefetchShowsForYear(year: number): void {
   cachedShows(year).catch(() => {})
 }
 export function prefetchShow(date: string): void {
-  // Sources + weather covers the two round-trips that fire when a show is
-  // selected. Tracks + setlist-stats still wait for the click because they
-  // depend on which source is chosen.
-  cachedSources(date).catch(() => {})
-  cachedWeather(date).catch(() => {})
+  // The one-shot detail is the whole first hop now — sources, weather and (when
+  // the server has it cached) the tracklist. Setlist stats still wait for the
+  // click, but they no longer block paint.
+  cachedShowDetail(date).catch(() => {})
 }
 
 function cachedTodaysPick(): Promise<RawTodayPick[]> {
@@ -234,10 +270,15 @@ export function useShow(base: Show | null): AsyncState<Show> {
   const key = base ? `show:${base.id}` : null
   return useAsync(key, async (publish) => {
     if (!base) throw new Error('no base show')
-    const [rawSources, weather] = await Promise.all([
-      cachedSources(base.id),
-      cachedWeather(base.id),
-    ])
+    // One round trip when the server has the tracklist cached. Sources and
+    // tracks are otherwise strictly serial — tracks can't be requested until
+    // sources names one.
+    const detail = await cachedShowDetail(base.id)
+    const rawSources = detail.sources ?? []
+    const weather: RawWeather = {
+      weather: detail.weather ?? undefined,
+      temp_f: detail.tempF ?? undefined,
+    }
     if (rawSources.length === 0) {
       return {
         ...base,
@@ -246,11 +287,13 @@ export function useShow(base: Show | null): AsyncState<Show> {
         tempF: (weather as any).temp_f ?? (weather as any).tempF ?? 0,
       }
     }
-    const best =
-      [...rawSources].sort(
-        (a, b) => (b.archive_rating ?? -1) - (a.archive_rating ?? -1),
-      )[0] ?? rawSources[0]
-    const bundle = await cachedTracks(best.id)
+    const best = pickBestSource(rawSources)
+    // `tracks` is absent when the server had no cached tracklist (or is running
+    // a build without ?include=tracks) — that is a miss, not an empty show.
+    const bundle =
+      detail.tracks && detail.best_source_id === best.id
+        ? adaptTracksDoc(detail.tracks)
+        : await cachedTracks(best.id)
     const withTracks = (tracks: typeof bundle.tracks): Show => ({
       ...hydrateShow(base, rawSources, best, tracks, {
         taper: bundle.taper,

@@ -45,6 +45,10 @@ export interface RawSource {
   archive_rating: number | null
   archive_reviews: number | null
   sets: unknown
+  // Server-side composite ranking (rating x log(reviews) x source type). The
+  // list arrives sorted by `score`, with `recommended` on the top entry.
+  score?: number
+  recommended?: boolean
 }
 
 export interface RawTrack {
@@ -107,13 +111,30 @@ export function getShowsForYear(year: number | string): Promise<RawShow[]> {
   return jsonFetch<RawShow[]>(`/api/years/${encodeURIComponent(String(year))}/shows`)
 }
 
-/**
- * There is no dedicated "get one show" endpoint — the classic UI derives the
- * show record from `sources` + `tracks` calls. We expose `getSources` +
- * `getTracks` and let the hook layer stitch them.
- */
 export function getSources(date: string): Promise<RawSource[]> {
   return jsonFetch<RawSource[]>(`/api/shows/${encodeURIComponent(date)}/sources`)
+}
+
+/** One-shot show detail. `include=tracks` folds in the top source's tracklist. */
+export interface RawShowDetail {
+  id: string
+  display_date: string
+  venue: { name: string; location: string }
+  weather: string | null
+  tempF: number | null
+  community_avg: number
+  community_count: number
+  community_listens: number
+  sources: RawSource[]
+  // Present only when the server had the tracklist cached. Absent means the
+  // caller must fall back to getTracks — never treat it as "no tracks".
+  best_source_id?: string
+  tracks?: RawTracksDoc
+}
+
+export function getShowDetail(date: string, includeTracks = false): Promise<RawShowDetail> {
+  const q = includeTracks ? '?include=tracks' : ''
+  return jsonFetch<RawShowDetail>(`/api/shows/${encodeURIComponent(date)}${q}`)
 }
 
 export function getTracks(sourceId: string): Promise<RawTracksDoc> {

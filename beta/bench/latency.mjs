@@ -91,7 +91,19 @@ async function installRouting(page) {
         const res = await route.fetch({ url: ORIGIN_API + u.pathname + u.search, timeout: 60000 })
         const body = await res.text()
         const contentType = res.headers()['content-type'] ?? 'application/json'
-        fs.writeFileSync(fixturePath(fixtureKey(req.method(), req.url(), req.postData())),
+        const fp = fixturePath(fixtureKey(req.method(), req.url(), req.postData()))
+        // A synthesized fixture models an endpoint shape the deployed app does
+        // not serve yet. Overwriting it with the live response would silently
+        // turn the benchmark back into a measurement of the old code path.
+        if (fs.existsSync(fp)) {
+          try {
+            if (JSON.parse(fs.readFileSync(fp, 'utf8')).synthesized) {
+              stats.skipped = (stats.skipped ?? 0) + 1
+              return route.fulfill({ status: res.status(), contentType, body })
+            }
+          } catch (_) { /* unreadable fixture: fall through and rewrite it */ }
+        }
+        fs.writeFileSync(fp,
           JSON.stringify({
             url: u.pathname + u.search,
             method: req.method(),

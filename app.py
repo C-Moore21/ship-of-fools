@@ -2865,6 +2865,25 @@ def show_detail(show_date):
     # Re-apply source ordering on the returned copy
     out = dict(result)
     out["sources"] = _enrich_and_sort_sources(result["sources"])
+
+    # ?include=tracks folds the top source's tracklist in, so opening a show is
+    # one round trip instead of two serial ones (sources, then tracks — the
+    # second can't start until the first names a source).
+    #
+    # Cache-only on purpose. Falling through to Archive.org here would put a
+    # slow third-party call on the critical path of the app's most-clicked
+    # endpoint, and Archive.org blocks Render's IP anyway. On a miss the key is
+    # simply absent and the client falls back to /api/sources/<id>/tracks.
+    if request.args.get("include") == "tracks" and out["sources"]:
+        best_id = out["sources"][0].get("id")
+        if best_id:
+            doc = _cache_get(f"tracks:{best_id}")
+            if doc is None:
+                doc = _mcache_get(_tracks_cache_col, best_id)
+            if doc is not None:
+                out["best_source_id"] = best_id
+                out["tracks"] = _fix_cached_sets(doc)
+
     return jsonify(out)
 
 
