@@ -20,6 +20,12 @@ const PREV = path.join(HERE, 'results', 'previous.json')
 
 const TARGET = 0.5 // the goal: half the baseline latency
 
+// A delta only counts as real if it clears both bars. Repeat runs of an
+// identical build moved the sub-100ms scenarios by ~100%, so a percentage
+// alone will happily report noise as a win.
+const MIN_PCT = 8
+const MIN_MS = 5
+
 const argv = new Set(process.argv.slice(2))
 const load = (p) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null)
 
@@ -28,50 +34,57 @@ if (!latest) { console.error('No bench/results/latest.json — run: node bench/l
 
 if (argv.has('--set-baseline')) {
   fs.writeFileSync(BASELINE, JSON.stringify(latest, null, 2))
-  console.log('baseline frozen at mean settle p75 = ' + latest.overall.meanSettleP75 + 'ms')
-  console.log('goal: ' + (latest.overall.meanSettleP75 * TARGET).toFixed(1) + 'ms or below')
+  console.log('baseline frozen at mean settle = ' + latest.overall.meanSettle + 'ms')
+  console.log('goal: ' + (latest.overall.meanSettle * TARGET).toFixed(1) + 'ms or below')
   process.exit(0)
 }
 
 const base = load(BASELINE)
 if (!base) { console.error('No baseline — run: node bench/compare.mjs --set-baseline'); process.exit(3) }
-const prev = load(PREV)
+let prev = load(PREV)
+// A run scored under an older metric would produce a meaningless delta.
+if (prev && prev.metric !== latest.metric) prev = null
 
 const pctDelta = (now, then) => (then ? ((now - then) / then) * 100 : 0)
 const fmt = (d) => (d > 0 ? '+' : '') + d.toFixed(1) + '%'
-const arrow = (d) => (d <= -3 ? 'FASTER' : d >= 3 ? 'SLOWER' : '  ~   ')
+const arrow = (d, absMs) => {
+  if (Math.abs(d) < MIN_PCT || Math.abs(absMs) < MIN_MS) return 'noise '
+  return d < 0 ? 'FASTER' : 'SLOWER'
+}
 
-console.log('scenario                  baseline    latest     delta   commits(b->l)')
-console.log('-'.repeat(74))
+console.log('scenario                  baseline    latest     delta            iqr  commits')
+console.log('-'.repeat(80))
 
 const rows = []
 for (const [id, b] of Object.entries(base.scenarios)) {
   const l = latest.scenarios[id]
   if (!l) { console.log(id.padEnd(24) + '  (missing in latest)'); continue }
-  const d = pctDelta(l.settleMs.p75, b.settleMs.p75)
-  rows.push({ id, base: b.settleMs.p75, now: l.settleMs.p75, d })
+  const bv = b.settleMs.median, lv = l.settleMs.median
+  const d = pctDelta(lv, bv)
+  rows.push({ id, base: bv, now: lv, d })
   console.log(
     id.padEnd(24) +
-    String(b.settleMs.p75).padStart(8) + 'ms' +
-    String(l.settleMs.p75).padStart(8) + 'ms' +
-    fmt(d).padStart(9) + '  ' + arrow(d) +
-    '   ' + b.batches.median + ' -> ' + l.batches.median
+    String(bv).padStart(8) + 'ms' +
+    String(lv).padStart(8) + 'ms' +
+    fmt(d).padStart(9) + '  ' + arrow(d, lv - bv) +
+    '  +-' + String(l.settleMs.iqr ?? '?').padStart(5) +
+    '  ' + b.batches.median + '->' + l.batches.median
   )
 }
 
-const bMean = base.overall.meanSettleP75
-const lMean = latest.overall.meanSettleP75
+const bMean = base.overall.meanSettle ?? base.overall.meanSettleP75
+const lMean = latest.overall.meanSettle ?? latest.overall.meanSettleP75
 const goal = bMean * TARGET
 const overall = pctDelta(lMean, bMean)
 
-console.log('-'.repeat(74))
-console.log('MEAN SETTLE p75   baseline ' + bMean + 'ms   latest ' + lMean + 'ms   ' + fmt(overall))
+console.log('-'.repeat(80))
+console.log('MEAN SETTLE   baseline ' + bMean + 'ms   latest ' + lMean + 'ms   ' + fmt(overall))
 console.log('GOAL              ' + goal.toFixed(1) + 'ms (-50%)   ' +
   (lMean <= goal ? 'REACHED' : 'remaining ' + (lMean - goal).toFixed(1) + 'ms'))
 
 if (prev) {
-  const pd = pctDelta(lMean, prev.overall.meanSettleP75)
-  console.log('vs previous run   ' + prev.overall.meanSettleP75 + 'ms -> ' + lMean + 'ms   ' + fmt(pd) +
+  const pd = pctDelta(lMean, prev.overall.meanSettle)
+  console.log('vs previous run   ' + prev.overall.meanSettle + 'ms -> ' + lMean + 'ms   ' + fmt(pd) +
     (prev.label ? '   (prev: ' + prev.label + ')' : ''))
 }
 
@@ -84,5 +97,5 @@ fs.writeFileSync(PREV, JSON.stringify(latest, null, 2))
 if (latest.pageErrors?.length) { console.log('\nBROKEN: page errors present'); process.exit(3) }
 if (Object.values(latest.scenarios).some((s) => s.samples < 3)) { console.log('\nBROKEN: too few samples'); process.exit(3) }
 if (lMean <= goal) { console.log('\nGOAL MET'); process.exit(0) }
-if (prev && pctDelta(lMean, prev.overall.meanSettleP75) > 5) { console.log('\nREGRESSED vs previous run'); process.exit(2) }
+if (prev && pctDelta(lMean, prev.overall.meanSettle) > MIN_PCT) { console.log('\nREGRESSED vs previous run'); process.exit(2) }
 process.exit(1)

@@ -30,7 +30,10 @@ const argv = Object.fromEntries(
 )
 
 const MODE = argv.mode ?? 'replay'                 // record | replay | live
-const REPS = Number(argv.reps ?? 7)                // measured reps per scenario (+1 warm-up)
+// 15 reps, and the headline is the MEDIAN. p75 of 7 samples is the 6th of 7 —
+// effectively the max, and two runs of an identical build disagreed by 100% on
+// the sub-100ms scenarios. Median of 15 holds those inside a few ms.
+const REPS = Number(argv.reps ?? 15)
 // Synthetic per-call API latency in replay. 250ms approximates what the
 // recording showed against Render + Atlas (0.19s-0.98s per endpoint). It has to
 // be realistic: too low and a serial request chain looks cheap, which would make
@@ -218,7 +221,14 @@ async function main() {
       errors: runs.length - ok.length,
       timeouts: runs.filter((r) => r.timedOut).length,
       errorSamples: [...new Set(runs.filter((r) => r.error).map((r) => r.error))].slice(0, 3),
-      settleMs: { median: r1(median(pick('settleMs'))), p75: r1(pct(pick('settleMs'), 75)), max: r1(pick('settleMs').length ? Math.max(...pick('settleMs')) : null) },
+      settleMs: {
+        median: r1(median(pick('settleMs'))),
+        p75: r1(pct(pick('settleMs'), 75)),
+        p25: r1(pct(pick('settleMs'), 25)),
+        // Spread, so compare.mjs can refuse to call a within-noise delta a win.
+        iqr: r1((pct(pick('settleMs'), 75) ?? 0) - (pct(pick('settleMs'), 25) ?? 0)),
+        max: r1(pick('settleMs').length ? Math.max(...pick('settleMs')) : null),
+      },
       firstPaintMs: { median: r1(median(pick('firstPaintMs'))), p75: r1(pct(pick('firstPaintMs'), 75)) },
       blockingMs: { median: r1(median(pick('blockingMs'))), p75: r1(pct(pick('blockingMs'), 75)) },
       handlerMs: { median: r1(median(pick('handlerMs'))) },
@@ -229,7 +239,8 @@ async function main() {
     const s = results[sc.id]
     console.log(
       sc.id.padEnd(22) +
-      ' settle p75 ' + String(s.settleMs.p75).padStart(7) + 'ms ' +
+      ' settle ' + String(s.settleMs.median).padStart(7) + 'ms ' +
+      ' iqr ' + String(s.settleMs.iqr).padStart(6) + 'ms ' +
       ' paint ' + String(s.firstPaintMs.median).padStart(6) + 'ms ' +
       ' block ' + String(s.blockingMs.median).padStart(6) + 'ms ' +
       ' commits ' + String(s.batches.median).padStart(4) +
@@ -238,7 +249,7 @@ async function main() {
     if (s.errorSamples.length) console.log('   ! ' + s.errorSamples[0])
   }
 
-  const settleP75s = Object.values(results).map((r) => r.settleMs.p75).filter((v) => v != null)
+  const settleMedians = Object.values(results).map((r) => r.settleMs.median).filter((v) => v != null)
   let git = null
   try { git = execSync('git rev-parse --short HEAD').toString().trim() } catch (_) {}
 
@@ -246,13 +257,15 @@ async function main() {
     ts: new Date().toISOString(),
     mode: MODE,
     label: LABEL,
+    // Guards comparisons: a run scored on a different metric is not comparable.
+    metric: 'meanSettle',
     git,
     config: { reps: REPS, apiDelayMs: API_DELAY, quietMs: QUIET_MS, viewport: VIEWPORT },
     overall: {
-      // Headline: mean of per-scenario p75 settle. One number the loop drives down.
-      meanSettleP75: r1(settleP75s.reduce((a, b) => a + b, 0) / (settleP75s.length || 1)),
+      // Headline: mean of per-scenario MEDIAN settle. One number the loop drives down.
+      meanSettle: r1(settleMedians.reduce((a, b) => a + b, 0) / (settleMedians.length || 1)),
       worstScenario: Object.entries(results).sort(
-        (a, b) => (b[1].settleMs.p75 ?? 0) - (a[1].settleMs.p75 ?? 0)
+        (a, b) => (b[1].settleMs.median ?? 0) - (a[1].settleMs.median ?? 0)
       )[0]?.[0] ?? null,
     },
     routing: routeStats(),
@@ -264,7 +277,7 @@ async function main() {
   fs.writeFileSync(out, JSON.stringify(report, null, 2))
   fs.writeFileSync(path.join(RESULTS, 'latest.json'), JSON.stringify(report, null, 2))
 
-  console.log('\nmean settle p75: ' + report.overall.meanSettleP75 + 'ms   worst: ' + report.overall.worstScenario)
+  console.log('\nmean settle (median): ' + report.overall.meanSettle + 'ms   worst: ' + report.overall.worstScenario)
   if (report.routing.misses && Object.keys(report.routing.misses).length)
     console.log('fixture misses:', report.routing.misses)
   if (report.routing.saved != null)

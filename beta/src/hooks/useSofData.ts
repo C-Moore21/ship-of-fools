@@ -43,7 +43,15 @@ interface AsyncState<T> {
   error: Error | null
 }
 
-function useAsync<T>(key: string | null, run: () => Promise<T>): AsyncState<T> {
+/**
+ * `run` may call `publish` to paint an early, incomplete result before it
+ * resolves. Used where a later request only decorates what is already on
+ * screen — waiting for it just holds the whole view back.
+ */
+function useAsync<T>(
+  key: string | null,
+  run: (publish: (partial: T) => void) => Promise<T>,
+): AsyncState<T> {
   const [state, setState] = useState<AsyncState<T>>({
     data: null,
     loading: key != null,
@@ -57,7 +65,11 @@ function useAsync<T>(key: string | null, run: () => Promise<T>): AsyncState<T> {
     }
     let alive = true
     setState((s) => ({ ...s, loading: true, error: null }))
-    run()
+    const publish = (partial: T) => {
+      if (!alive) return
+      setState({ data: partial, loading: false, error: null })
+    }
+    run(publish)
       .then((data) => {
         if (!alive) return
         setState({ data, loading: false, error: null })
@@ -220,7 +232,7 @@ export function useSources(date: string | null): AsyncState<SourceOption[]> {
  */
 export function useShow(base: Show | null): AsyncState<Show> {
   const key = base ? `show:${base.id}` : null
-  return useAsync(key, async () => {
+  return useAsync(key, async (publish) => {
     if (!base) throw new Error('no base show')
     const [rawSources, weather] = await Promise.all([
       cachedSources(base.id),
@@ -239,28 +251,31 @@ export function useShow(base: Show | null): AsyncState<Show> {
         (a, b) => (b.archive_rating ?? -1) - (a.archive_rating ?? -1),
       )[0] ?? rawSources[0]
     const bundle = await cachedTracks(best.id)
-    // Setlist stats give real rarity + Debut/Bust/Gap/Drought badges.
-    // Fetched in the background so the setlist appears immediately; when the
-    // POST resolves we merge the badges in.
-    let enrichedTracks = bundle.tracks
+    const withTracks = (tracks: typeof bundle.tracks): Show => ({
+      ...hydrateShow(base, rawSources, best, tracks, {
+        taper: bundle.taper,
+        transferer: bundle.transferer,
+        lineage: bundle.lineage,
+      }),
+      weather: weather.weather ?? '',
+      tempF: (weather as any).temp_f ?? (weather as any).tempF ?? 0,
+    })
+
+    // Paint the setlist now. Setlist stats are a third serial round trip and
+    // only add Debut/Bust/Gap/Drought badges and rarity — decoration on rows
+    // that are already correct. Awaiting them here held the entire show detail
+    // off screen for a full extra round trip.
+    publish(withTracks(bundle.tracks))
+
     try {
       const stats = await cachedSetlistStats(
         base.id,
         bundle.tracks.map((t) => t.title),
       )
-      enrichedTracks = applySetlistStats(bundle.tracks, stats)
+      return withTracks(applySetlistStats(bundle.tracks, stats))
     } catch {
-      // Non-fatal — tracks still render with default rarity.
-    }
-    const hydrated = hydrateShow(base, rawSources, best, enrichedTracks, {
-      taper: bundle.taper,
-      transferer: bundle.transferer,
-      lineage: bundle.lineage,
-    })
-    return {
-      ...hydrated,
-      weather: weather.weather ?? '',
-      tempF: (weather as any).temp_f ?? (weather as any).tempF ?? 0,
+      // Non-fatal — tracks stay rendered with default rarity.
+      return withTracks(bundle.tracks)
     }
   })
 }

@@ -3,9 +3,16 @@
 The loop's memory. Every iteration appends here **before** and **after** it acts, so
 later iterations never re-try a hypothesis that already failed.
 
-Metric: `meanSettleP75` from `bench/results/latest.json` — the mean across scenarios of
-p75(click → last DOM mutation painted), measured in **replay mode** (fixtures + fixed
-250ms API latency) so deltas are frontend deltas, not Atlas jitter.
+Metric: `overall.meanSettle` from `bench/results/latest.json` — the mean across scenarios
+of the **median** of (click → last DOM mutation painted), over 15 reps, measured in
+**replay mode** (fixtures + fixed 250ms API latency) so deltas are frontend deltas, not
+Atlas jitter.
+
+> The first baseline used p75 over 7 reps and had to be thrown away. p75 of 7 samples is
+> the 6th of 7 — effectively the max — and two runs of an *identical* build disagreed by
+> 100% on the sub-100ms scenarios, which made H1 look like a 40% win when it was 26%.
+> Median of 15 plus `compare.mjs`'s noise floor (8% **and** 5ms) is what makes a delta
+> mean something. Do not lower the reps to make the loop faster.
 
 **Goal: meanSettleP75 ≤ 50% of `bench/baseline.json`.**
 
@@ -15,23 +22,23 @@ p75(click → last DOM mutation painted), measured in **replay mode** (fixtures 
 
 | | |
 |---|---|
-| Baseline | **149.4ms** mean settle p75 (2026-09-06, replay @250ms, logged out) |
-| Goal | **74.7ms** |
-| Latest | 149.4ms (baseline run) |
-| Iterations | 0 |
+| Baseline | **137.3ms** mean settle (2026-09-06, replay @250ms, 15 reps, logged out) |
+| Goal | **68.7ms** |
+| Latest | **101.0ms** (-26.4%) after H1 |
+| Iterations | 1 |
 
-Baseline per scenario:
+Per scenario (median settle, ±IQR):
 
-| scenario | settle p75 | first paint | commits |
+| scenario | baseline | after H1 | delta |
 |---|---|---|---|
-| show-click-cold | **861.8ms** | 818.3ms | 2 |
-| year-click | 70.5ms | 9.4ms | 4 |
-| year-click-dense | 70.5ms | 7.6ms | 4 |
-| open-observatory | 52.6ms | 19.0ms | 1 |
-| tab-back-to-browse | 47.4ms | 13.8ms | 3 |
-| show-click-warm | 38.6ms | 13.0ms | 3 |
-| open-search | 37.5ms | 3.2ms | 1 |
-| tab-stats | 16.1ms | 7.7ms | 1 |
+| show-click-cold | 838.4ms | **572.6ms** ±24.7 | **-31.7%** |
+| year-click | 50.6ms | 46.0ms ±11.3 | noise |
+| year-click-dense | 46.2ms | 50.4ms ±13.0 | noise |
+| tab-back-to-browse | 44.9ms | 34.7ms ±19.9 | -22.7% |
+| open-observatory | 43.7ms | 37.8ms ±16.0 | -13.5% |
+| show-click-warm | 30.4ms | 28.7ms ±11.8 | noise |
+| open-search | 26.1ms | 22.0ms ±15.7 | noise |
+| tab-stats | 17.7ms | 15.9ms ±6.8 | noise |
 
 Two things to keep honest:
 
@@ -50,17 +57,6 @@ Two things to keep honest:
 
 Ordered by expected win. The loop takes the top **unresolved** item each iteration,
 implements it, re-measures, and moves it to Landed or Rejected.
-
-### H1 — `useShow` blocks first paint on setlist-stats *(open, high confidence)*
-`beta/src/hooks/useSofData.ts:246-254` awaits `cachedSetlistStats(...)` before resolving,
-even though the comment directly above says it is "fetched in the background so the setlist
-appears immediately". It is not. A cold show click is **three serial round trips**:
-`[sources, weather]` → `tracks` → `setlist-stats`, and nothing renders until hop 3 lands.
-Badges (Debut/Bust/Gap/Drought) are cosmetic and should merge in a second update.
-**Expected:** removes ~1 full RTT from `show-click-cold`.
-**Approach:** resolve after hop 2; have `useShow` expose a progressive second state that
-merges `applySetlistStats` when the POST resolves. `useAsync` currently sets state exactly
-once — it needs an optional "refine" callback, or `useShow` needs its own effect.
 
 ### H2 — hover prefetch stops one hop short *(open, high confidence)*
 `prefetchShow` (`useSofData.ts:182`) warms only sources + weather. Its comment says tracks
@@ -99,7 +95,18 @@ Only worth doing if a scenario actually shows it.
 
 ## Landed
 
-_none yet_
+### H1 — `useShow` blocked first paint on setlist-stats — **-31.7% on show-click-cold, -26.4% overall**
+`useSofData.ts` awaited `cachedSetlistStats` before resolving, despite the comment above it
+claiming the opposite ("fetched in the background so the setlist appears immediately"). It
+made a cold show click three serial round trips with nothing on screen until hop 3.
+
+Fix: `useAsync` now takes a `publish` callback so a run can paint an early, incomplete
+result; `useShow` publishes the hydrated show as soon as tracks land and returns the
+stats-decorated version when the POST resolves. 838.4ms -> 572.6ms, which is one 250ms
+round trip plus overhead — exactly what was predicted.
+
+`tab-back-to-browse` (-22.7%) and `open-observatory` (-13.5%) also cleared the noise floor;
+both remount a tree containing show detail, so they plausibly ride the same fix.
 
 ## Rejected
 
