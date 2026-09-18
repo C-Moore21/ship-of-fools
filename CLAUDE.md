@@ -42,7 +42,12 @@ Re-run monthly to pick up new Archive.org uploads. Render serves only from Mongo
 
 ## Key API endpoints
 - `/api/years`, `/api/years/<year>/shows` — enriched with community_listens/avg/count + Archive.org avg_rating/num_reviews (best-per-date, weighted by log reviews)
-- `/api/shows/<date>` — one-shot detail (venue + weather + community stats + sources)
+- `/api/shows/<date>` — one-shot detail (venue + weather + community stats + sources).
+  `?include=tracks` also folds in the top-ranked source's cached tracklist as
+  `{best_source_id, tracks}`, which makes opening a show **one** round trip instead of two
+  (tracks otherwise can't be requested until sources names a source). Cache-only: on a
+  miss the keys are simply absent and the client falls back to `/api/sources/<id>/tracks`.
+  Never make it fall through to Archive.org — this is the most-clicked endpoint.
 - `/api/shows/<date>/sources` — per-source list (source_type, archive_rating, archive_reviews)
 - `/api/sources/<id>/tracks` — sets + tracks + taper/transferer/lineage
 - `/api/shows/<date>/setlist-stats` (POST) — per-song gap/is_debut/drought_rank/total plays; keyed by normalized song title, `raw` field maps back
@@ -116,6 +121,14 @@ git add beta/ static/beta/       # commit source + bundle
 - Modals + section panels are `React.lazy`; first-paint bundle stays small
 - Hover prefetch on year rows + show rows
 - Module-level Promise caches dedupe requests; `useShowRating` / `useShowNote` do write-back on save
+- `useAsync` takes a `publish` callback so a hook can paint an incomplete result early.
+  `useShow` uses it to render the setlist before setlist-stats resolves — those badges are
+  decoration on rows that are already correct, and awaiting them held the whole detail pane
+  off screen for a round trip.
+- `pickBestSource` follows the server's `recommended` flag (composite of rating, review
+  count and source type). Do **not** re-sort by `archive_rating` alone — that put a
+  5.0-with-one-review above a 4.79-with-297, and disagreeing with the server's ranking also
+  throws away the tracklist `?include=tracks` already bundled.
 
 **Adapter conventions:**
 - `adaptShallowShow` — Archive.org public rating takes priority; community (4-friend) rating is fallback. Local friend rating still lives in ShowDetail's `RatingStars` widget.
@@ -133,10 +146,30 @@ git add beta/ static/beta/       # commit source + bundle
 - Classic: `escapeHTML(str)` always used for user/external content in innerHTML
 - Beta: no innerHTML — token-based text rendering in lounge (utils.ts `tokenizeText`), auto-linkifies URLs + gd-date/ISO refs
 
+## Click-latency bench (`beta/bench/`)
+Playwright harness measuring click→paint for eight real interactions. `cd beta && npm run
+bench && npm run bench:compare`. Full detail in `beta/bench/README.md`; the hypothesis log
+and every rejected idea live in `beta/bench/JOURNAL.md`. `/perf-loop` runs one
+measure→fix→verify→keep-or-revert iteration.
+
+- Metric is `overall.meanSettle` — mean of per-scenario **median** over 15 reps, in replay
+  mode (recorded fixtures at a fixed 250ms). Median not p75, because p75 of 7 samples
+  disagreed with itself by 100% between runs of an identical build.
+- `compare.mjs` only calls a delta real if it clears both 8% and 5ms, and prints IQR so a
+  bimodal result is visible instead of averaged away.
+- Fixtures record from any origin (`--api-origin=https://ship-of-fools.onrender.com`), so
+  the bench needs no local Flask and no Atlas credentials.
+- `synth-oneshot.mjs` builds fixtures for endpoint shapes not deployed yet, from real
+  production payloads. They carry `synthesized: true` and record mode refuses to overwrite
+  them — otherwise a record pass silently reverts the bench to measuring the old path.
+- Every scenario needs a real completion predicate. Clicking a show repaints the row
+  highlight in ~10ms then goes quiet for most of a second; quiet-DOM alone reported 14ms
+  for an 862ms interaction.
+
 ## Perf notes (beta)
 - First-paint bundle ~30KB gzip (index) + 43KB (react-vendor) + 5KB (lucide). Lazy chunks defer Observatory (~8KB gz), Search (~3KB gz), section panels (~1.5KB gz each), modals.
 - Backend gzip middleware active — 4–8× smaller JSON on the wire.
-- Show list hover triggers `prefetchShow(date)` (sources + weather); year hover triggers `prefetchShowsForYear`.
+- Show list hover triggers `prefetchShow(date)` (the one-shot detail, incl. tracks); year hover triggers `prefetchShowsForYear`.
 - Set-list rows are memoized as `TrackRow`; only 2 rows re-render on trackchange (not 25+).
 - No `backdrop-blur` anywhere — it's compositor-thrash on scroll.
 

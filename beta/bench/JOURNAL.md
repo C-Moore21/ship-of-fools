@@ -14,7 +14,7 @@ Atlas jitter.
 > Median of 15 plus `compare.mjs`'s noise floor (8% **and** 5ms) is what makes a delta
 > mean something. Do not lower the reps to make the loop faster.
 
-**Goal: meanSettleP75 ≤ 50% of `bench/baseline.json`.**
+**Goal: `meanSettle` ≤ 50% of `bench/baseline.json`.** — met at iteration 2.
 
 ---
 
@@ -24,7 +24,7 @@ Atlas jitter.
 |---|---|
 | Baseline | **137.3ms** mean settle (2026-09-06, replay @250ms, 15 reps, logged out) |
 | Goal | **68.7ms** |
-| Latest | **57.4ms** (-58.2%) after H1 + H3 — **GOAL MET** (confirm run 51.2ms) |
+| Latest | **58.1ms** (-57.7%) after H1 + H3 — **GOAL MET** (runs: 57.4 / 51.2 / 53.0 / 58.1) |
 | Iterations | 2 |
 
 Per scenario (median settle, ±IQR):
@@ -50,10 +50,10 @@ old two-trip path. Until `app.py` ships, users get H1's -26% and not H3's.
 
 Two things to keep honest:
 
-- **`show-click-cold` is 72% of the mean.** That is not a flaw in the metric — it is
-  genuinely the slowest thing in the app, and 861.8ms against ~750ms of synthetic
-  network confirms three serial round trips. But it does mean H1+H2 alone could hit
-  the goal, so keep checking the other seven scenarios do not regress while it drops.
+- **`show-click-cold` dominated the baseline** at 838.4ms of a 137.3ms mean — genuinely
+  the slowest thing in the app, and it confirmed three serial round trips. It is now
+  288.3ms and no longer dominates, so future iterations should watch the whole table
+  rather than chasing one row.
 - **Fixtures were recorded logged out** (`/api/auth/me` -> `{"username":null}`), from
   production. Ratings, notes, listens and the section panels are therefore near-empty,
   so `tab-stats` is not representative of Camden's logged-in view. Re-record against a
@@ -67,10 +67,11 @@ Ordered by expected win. The loop takes the top **unresolved** item each iterati
 implements it, re-measures, and moves it to Landed or Rejected.
 
 ### H2 — hover prefetch stops one hop short *(open, high confidence — but NOT measurable as-is)*
-`prefetchShow` warms only sources + weather. Its comment says tracks depend on "which
-source is chosen", but that choice is deterministic — the same `sort by archive_rating
-desc` that `useShow` does. Extract the pick into a shared function and let prefetch chain
-sources → tracks → setlist-stats. A hovered row then clicks warm.
+**Partly overtaken by H3.** `prefetchShow` now warms the one-shot detail, which already
+carries sources, weather and (on a server cache hit) the tracklist — so a hovered row is
+mostly warm already. What remains is setlist-stats, which no longer blocks paint after H1.
+The shared source pick this hypothesis called for exists now as `pickBestSource`.
+Re-assess whether there is anything left here before implementing it.
 
 **Read this before implementing it.** `show-click-cold` will show almost no improvement,
 and that is a harness artifact, not a verdict. Playwright's `.click()` moves the pointer
@@ -92,7 +93,14 @@ the way `TrackRow` is in `Setlist.tsx`. Extract a memoized `ShowRow` and check t
 `commits` column in `compare.mjs` output — it counts MutationObserver batches, which
 tracks React commit churn.
 
-### H5 — `useShow` runs on every `selectedId` change with no cancellation of hop 2/3 *(open, low)*
+### H5 — `useShow` runs on every `selectedId` change with no cancellation of hop 2/3 *(open, low — but there is now evidence)*
+
+Every replay run reports exactly one fixture miss: `/api/shows/1977-02-17/setlist-stats`.
+It survived a targeted re-record, which means the request is not simply un-recorded — a
+stale chain from a previously-selected show is firing its stats POST after the scenario
+has moved on, with a body that never occurs in a clean sequence. It lands in the unmeasured
+`prepare` phase and `show-click-cold` stays stable at ~292ms ±18, so it does not affect the
+numbers — but it is a real symptom of the uncancelled work described below.
 Clicking through five shows quickly leaves four in-flight chains that still resolve and
 still `applySetlistStats`. `useAsync`'s `alive` flag drops the *state write* but not the
 work. Cheap to fix, matters most on fast browsing.

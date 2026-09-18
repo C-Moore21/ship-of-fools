@@ -18,8 +18,15 @@ For each scenario, `probe.mjs` is injected before app code and records:
 Timings are rebased on the browser's own `click` event timestamp, so Playwright's
 driver overhead never lands in the measurement.
 
-`overall.meanSettleP75` — the mean of each scenario's p75 settle — is the single
-number the loop drives down.
+`overall.meanSettle` — the mean of each scenario's **median** settle over 15 reps —
+is the single number the loop drives down.
+
+Median, not p75, and 15 reps rather than 7. p75 of 7 samples is the 6th of 7, so it
+tracks the worst case; two runs of an identical build disagreed by 100% on the
+sub-100ms scenarios under it. `compare.mjs` additionally refuses to call a delta real
+unless it clears both 8% and 5ms, and reports each scenario's IQR so a bimodal result
+(one code path sometimes, another the rest of the time) is visible rather than averaged
+away. Don't lower the reps to make runs faster.
 
 ## Modes
 
