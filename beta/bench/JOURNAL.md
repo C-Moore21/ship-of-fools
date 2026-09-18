@@ -40,6 +40,23 @@ Per scenario (median settle, ±IQR):
 | open-search | 26.1ms | 22.0ms | 15.7ms ±12.1 | -39.8% |
 | tab-stats | 17.7ms | 15.9ms | 14.9ms ±14.3 | noise |
 
+### The bench overstated H3, and here is why
+
+H3 measured -65.6% on `show-click-cold` with every fixture carrying a tracklist. In
+production right after deploy, only **10% of shows** (4 of 40 sampled across 8 years) get
+the fast path, because `/api/shows/<date>?include=tracks` is cache-only and `tracks_cache`
+was warm for the sources the *old* `archive_rating` ranking picked — not the composite-score
+sources the server now ranks first. `tracks_cache` also has a 30-day TTL, so it decays.
+
+Worse, the bench could not see this: `synth-oneshot.mjs` fetches
+`/api/sources/<top id>/tracks` while building fixtures, which **warms the cache for exactly
+the dates the bench then measures**. The harness warmed its own happy path. Anything
+measured through synthesized fixtures needs its production cache preconditions checked
+separately — the fixture build is not a neutral observer.
+
+`seed_tracks.py` closes the gap (ranking verified against the deployed server, 6/6). Until
+it is run, expect roughly H1's win in production and H3's only on warm shows.
+
 ### Not yet true in production
 
 H3's win depends on `app.py`'s new `?include=tracks` branch, which is **not deployed**.

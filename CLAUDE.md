@@ -26,6 +26,11 @@ Run these scripts from a developer machine; they write directly to MongoDB Atlas
 - `seed_observatory.py` — `observatory_cache` (heatmap + scatter for 50 songs)
 - `seed_setlists.py` — `setlist_cache` (every show's tracklist with position)
 - `seed_releases.py` — `releases_cache` (deaddisc.com official releases)
+- `seed_tracks.py` — `tracks_cache` for each show's **top-ranked** source. Required for
+  `/api/shows/<date>?include=tracks` to hit: that endpoint is cache-only, and the cache
+  otherwise fills on demand (measured at 10% coverage right after ship) **and carries a
+  30-day TTL**. Its scoring is copied from `_composite_score` — if you change ranking in
+  `app.py`, change it here too or the cache warms the wrong identifier.
 
 Re-run monthly to pick up new Archive.org uploads. Render serves only from MongoDB — no background Archive.org workers on Render (they always failed). Per-request fallback paths still exist for cache misses; they'll just 502 on Render.
 
