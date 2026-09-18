@@ -2753,6 +2753,40 @@ def show_weather(show_date):
     return jsonify(result)
 
 
+def _with_tracks(payload):
+    """Fold the top source's cached tracklist into a show-detail payload when
+    ?include=tracks was asked for, so opening a show is one round trip instead
+    of two serial ones (sources, then tracks — the second can't start until the
+    first names a source).
+
+    Applied on BOTH the cache-hit and cache-miss paths. It lives here rather
+    than inline because the cached branch returns early: folding tracks in only
+    on the miss path meant the optimisation silently vanished for any show
+    already in the 5-minute LRU, which is the common case for popular shows.
+
+    Cache-only on purpose. Falling through to Archive.org would put a slow
+    third-party call on the critical path of the most-clicked endpoint, and
+    Archive.org blocks Render's IP anyway. On a miss the keys are simply absent
+    and the client falls back to /api/sources/<id>/tracks.
+    """
+    if request.args.get("include") != "tracks":
+        return payload
+    sources = payload.get("sources") or []
+    if not sources:
+        return payload
+    best_id = sources[0].get("id")
+    if not best_id:
+        return payload
+    doc = _cache_get(f"tracks:{best_id}")
+    if doc is None:
+        doc = _mcache_get(_tracks_cache_col, best_id)
+    if doc is None:
+        return payload
+    payload["best_source_id"] = best_id
+    payload["tracks"] = _fix_cached_sets(doc)
+    return payload
+
+
 @app.route("/api/shows/<show_date>")
 def show_detail(show_date):
     """One-shot show detail: identity + venue + weather + community aggregates
@@ -2768,7 +2802,7 @@ def show_detail(show_date):
         # Sources still get scored/sorted on read so a re-score is applied
         merged = dict(cached)
         merged["sources"] = _enrich_and_sort_sources(cached.get("sources") or [])
-        return jsonify(merged)
+        return jsonify(_with_tracks(merged))
 
     # Sources — reuse the same cache the /sources endpoint uses so we don't
     # double-fetch Archive.org.
@@ -2866,25 +2900,7 @@ def show_detail(show_date):
     out = dict(result)
     out["sources"] = _enrich_and_sort_sources(result["sources"])
 
-    # ?include=tracks folds the top source's tracklist in, so opening a show is
-    # one round trip instead of two serial ones (sources, then tracks — the
-    # second can't start until the first names a source).
-    #
-    # Cache-only on purpose. Falling through to Archive.org here would put a
-    # slow third-party call on the critical path of the app's most-clicked
-    # endpoint, and Archive.org blocks Render's IP anyway. On a miss the key is
-    # simply absent and the client falls back to /api/sources/<id>/tracks.
-    if request.args.get("include") == "tracks" and out["sources"]:
-        best_id = out["sources"][0].get("id")
-        if best_id:
-            doc = _cache_get(f"tracks:{best_id}")
-            if doc is None:
-                doc = _mcache_get(_tracks_cache_col, best_id)
-            if doc is not None:
-                out["best_source_id"] = best_id
-                out["tracks"] = _fix_cached_sets(doc)
-
-    return jsonify(out)
+    return jsonify(_with_tracks(out))
 
 
 # Note: Observatory background refresh removed — Archive.org permanently blocks
