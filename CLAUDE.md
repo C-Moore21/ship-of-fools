@@ -125,6 +125,9 @@ git add beta/ static/beta/       # commit source + bundle
   `useShow` uses it to render the setlist before setlist-stats resolves — those badges are
   decoration on rows that are already correct, and awaiting them held the whole detail pane
   off screen for a round trip.
+- `cachedSources` derives from `cachedShowDetail`, so `useSources` (the source dropdown)
+  and `useShow` share one request. Opening a show is 2 requests total: the one-shot detail,
+  plus the non-blocking setlist-stats POST. Don't reintroduce a separate `/sources` fetch.
 - `pickBestSource` follows the server's `recommended` flag (composite of rating, review
   count and source type). Do **not** re-sort by `archive_rating` alone — that put a
   5.0-with-one-review above a 4.79-with-297, and disagreeing with the server's ranking also

@@ -25,10 +25,8 @@ import {
   getSetlistStats,
   getShowsForYear,
   getShowDetail,
-  getSources,
   getTodaysPick,
   getTracks,
-  getWeather,
   getYears,
   type RawReleaseInfo,
   type RawShowDetail,
@@ -95,9 +93,7 @@ function useAsync<T>(
 
 let yearsCache: Promise<YearEntry[]> | null = null
 const showsByYear: Map<number, Promise<Show[]>> = new Map()
-const sourcesByDate: Map<string, Promise<RawSource[]>> = new Map()
 const tracksBySource: Map<string, Promise<ReturnType<typeof adaptTracks>>> = new Map()
-const weatherByDate: Map<string, Promise<RawWeather>> = new Map()
 const setlistStatsByDate: Map<string, Promise<SetlistStatsResp>> = new Map()
 const showDetailByDate: Map<string, Promise<RawShowDetail>> = new Map()
 let todaysPickCache: Promise<RawTodayPick[]> | null = null
@@ -127,15 +123,14 @@ function cachedShows(year: number): Promise<Show[]> {
   return p
 }
 
+/**
+ * Sources come out of the one-shot detail rather than /api/shows/<date>/sources.
+ * Both return the same enriched, score-sorted list, and useShow is already
+ * fetching the detail for the selected show — so useSources sharing it means one
+ * request per show open instead of two for identical data.
+ */
 function cachedSources(date: string): Promise<RawSource[]> {
-  const existing = sourcesByDate.get(date)
-  if (existing) return existing
-  const p = getSources(date).catch((e) => {
-    sourcesByDate.delete(date)
-    throw e
-  })
-  sourcesByDate.set(date, p)
-  return p
+  return cachedShowDetail(date).then((d) => d.sources ?? [])
 }
 
 interface TracksBundle {
@@ -193,16 +188,6 @@ function cachedTracks(sourceId: string): Promise<TracksBundle> {
       throw e
     })
   tracksBySource.set(sourceId, p as any)
-  return p
-}
-
-function cachedWeather(date: string): Promise<RawWeather> {
-  const existing = weatherByDate.get(date)
-  if (existing) return existing
-  // Weather is optional — swallow errors as empty so cache still short-circuits
-  // and callers don't have to retry.
-  const p = getWeather(date).catch(() => ({} as RawWeather))
-  weatherByDate.set(date, p)
   return p
 }
 
