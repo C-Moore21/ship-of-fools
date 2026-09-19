@@ -54,8 +54,10 @@ the dates the bench then measures**. The harness warmed its own happy path. Anyt
 measured through synthesized fixtures needs its production cache preconditions checked
 separately — the fixture build is not a neutral observer.
 
-`seed_tracks.py` closes the gap (ranking verified against the deployed server, 6/6). Until
-it is run, expect roughly H1's win in production and H3's only on warm shows.
+`seed_setlists.py` closes the gap — it already crawled the same Archive.org metadata for
+every show, so warming `tracks_cache` there costs one extra fetch on the ~17% of shows
+where its ranking disagrees with the server's, rather than a second full crawl. Until it
+is re-run, expect roughly H1's win in production and H3's only on warm shows.
 
 ### Not yet true in production
 

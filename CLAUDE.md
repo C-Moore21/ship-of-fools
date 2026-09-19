@@ -24,15 +24,15 @@ gzip middleware (`@app.after_request`) compresses JSON/text ≥1KB.
 Run these scripts from a developer machine; they write directly to MongoDB Atlas:
 - `seed_cache.py` — `shows_year_cache` (31 years) + `today_cache` (365 days)
 - `seed_observatory.py` — `observatory_cache` (heatmap + scatter for 50 songs)
-- `seed_setlists.py` — `setlist_cache` (every show's tracklist with position)
+- `seed_setlists.py` — `setlist_cache` (every show's tracklist with position) **and**
+  `tracks_cache` for the source the server ranks first, which is what makes
+  `/api/shows/<date>?include=tracks` hit. Both come from one crawl — this script already
+  fetches the exact metadata needed. `--no-tracks` to skip the second cache.
 - `seed_releases.py` — `releases_cache` (deaddisc.com official releases)
-- `seed_tracks.py` — `tracks_cache` for each show's **top-ranked** source. Required for
-  `/api/shows/<date>?include=tracks` to hit: that endpoint is cache-only, and the cache
-  otherwise fills on demand (measured at 10% coverage right after ship) **and carries a
-  30-day TTL**. Its scoring is copied from `_composite_score` — if you change ranking in
-  `app.py`, change it here too or the cache warms the wrong identifier.
 
-Re-run monthly to pick up new Archive.org uploads. Render serves only from MongoDB — no background Archive.org workers on Render (they always failed). Per-request fallback paths still exist for cache misses; they'll just 502 on Render.
+Re-run monthly to pick up new Archive.org uploads. `setlist_cache` is permanent but
+`tracks_cache` carries a 30-day TTL, so `seed_setlists.py` skips a date only when *both*
+are satisfied — a monthly re-run therefore tops up tracks without re-crawling setlists. Render serves only from MongoDB — no background Archive.org workers on Render (they always failed). Per-request fallback paths still exist for cache misses; they'll just 502 on Render.
 
 **Cache version keys** — bump the suffix when the response shape changes so old entries invalidate (e.g. `shows-v2:` — see `shows_year_cache` handling).
 
